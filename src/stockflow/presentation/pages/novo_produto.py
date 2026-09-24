@@ -185,7 +185,7 @@ class NovoProdutoPage(QWidget):
         self.name_input = QLineEdit()
 
         self.name_input.setPlaceholderText(
-            "Ex: Monitor LG UltraWide 34\""
+            "Nome do produto"
         )
 
         self.style_line_edit(
@@ -205,7 +205,7 @@ class NovoProdutoPage(QWidget):
         self.code_input = QLineEdit()
 
         self.code_input.setPlaceholderText(
-            "Ex: PRD-009"
+            "Código do produto"
         )
 
         self.style_line_edit(
@@ -249,11 +249,6 @@ class NovoProdutoPage(QWidget):
         self.category_input.addItems(
             [
                 "Selecione uma categoria",
-                "Eletrônicos",
-                "Casa",
-                "Vestuário",
-                "Esportes",
-                "Alimentos",
             ]
         )
 

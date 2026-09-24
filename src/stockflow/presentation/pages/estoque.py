@@ -30,6 +30,13 @@ class EstoquePage(QWidget):
     }
 """)
 
+        # ==================================================
+        # PRODUTOS CARREGADOS
+        # ==================================================
+
+        self.produtos = []
+
+
         main_layout = QVBoxLayout(self)
 
         main_layout.setContentsMargins(
@@ -65,7 +72,9 @@ class EstoquePage(QWidget):
         """)
 
 
-        subtitle = QLabel("8 produtos cadastrados")
+        subtitle = QLabel(
+            f"{len(self.produtos)} produtos cadastrados"
+        )
 
         subtitle.setStyleSheet("""
             color: #64748B;
@@ -273,7 +282,7 @@ class EstoquePage(QWidget):
             ]
         )
 
-        self.table.setRowCount(8)
+        self.table.setRowCount(len(self.produtos))
 
         self.table.setEditTriggers(
             QAbstractItemView.NoEditTriggers
@@ -380,82 +389,10 @@ class EstoquePage(QWidget):
 
 
         # ==================================================
-        # DADOS DE EXEMPLO
-        # ==================================================
-
-        produtos = [
-            (
-                "PRD-001",
-                'Monitor LG UltraWide 34"',
-                "Eletrônicos",
-                "24 / mín: 10",
-                "R$ 2.890,00",
-                "Normal"
-            ),
-            (
-                "PRD-002",
-                "Teclado Mecânico RGB",
-                "Eletrônicos",
-                "5 / mín: 15",
-                "R$ 480,00",
-                "Crítico"
-            ),
-            (
-                "PRD-003",
-                "Cadeira Ergonômica Executive",
-                "Casa",
-                "18 / mín: 8",
-                "R$ 1.650,00",
-                "Normal"
-            ),
-            (
-                "PRD-004",
-                "Mouse Gamer Logitech G502",
-                "Eletrônicos",
-                "8 / mín: 20",
-                "R$ 390,00",
-                "Baixo"
-            ),
-            (
-                "PRD-005",
-                "Camiseta Polo Masculina M",
-                "Vestuário",
-                "142 / mín: 30",
-                "R$ 89,00",
-                "Normal"
-            ),
-            (
-                "PRD-006",
-                "Tênis Running Pro",
-                "Esportes",
-                "3 / mín: 12",
-                "R$ 349,00",
-                "Crítico"
-            ),
-            (
-                "PRD-007",
-                "Suplemento Whey Protein 1kg",
-                "Alimentos",
-                "67 / mín: 25",
-                "R$ 178,00",
-                "Normal"
-            ),
-            (
-                "PRD-008",
-                "Headset Sony WH-1000XM5",
-                "Eletrônicos",
-                "11 / mín: 10",
-                "R$ 1.890,00",
-                "Normal"
-            ),
-        ]
-
-
-        # ==================================================
         # PREENCHE A TABELA
         # ==================================================
 
-        for row, produto in enumerate(produtos):
+        for row, produto in enumerate(self.produtos):
 
             codigo = QTableWidgetItem(
                 produto[0]
