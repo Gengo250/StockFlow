@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# uv / ambiente virtual
+.venv/
+
+# empacotamento desktop (PyInstaller)
+build/
+dist/
