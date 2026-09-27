@@ -14,10 +14,12 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 
 
 class EstoquePage(QWidget):
+
+    product_edit_requested = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -34,7 +36,11 @@ class EstoquePage(QWidget):
         # PRODUTOS CARREGADOS
         # ==================================================
 
-        self.produtos = []
+        self.produtos = [
+            ("PRD-009", "Monitor LG UltraWide 34\"", "Eletrônicos", "18", "R$ 2.499,90", "Normal"),
+            ("PRD-008", "Teclado mecânico sem fio", "Periféricos", "6", "R$ 459,90", "Baixo"),
+            ("PRD-007", "Mouse ergonômico", "Periféricos", "2", "R$ 189,90", "Crítico"),
+        ]
 
 
         main_layout = QVBoxLayout(self)
@@ -473,6 +479,13 @@ class EstoquePage(QWidget):
 
             edit_button.setFixedSize(28, 28)
 
+            edit_button.setToolTip("Editar produto")
+
+            edit_button.clicked.connect(
+                lambda checked=False, item=produto:
+                self.product_edit_requested.emit(item)
+            )
+
             edit_button.setStyleSheet("""
                 QPushButton {
                     background-color: transparent;
@@ -496,6 +509,8 @@ class EstoquePage(QWidget):
             )
 
             delete_button.setFixedSize(28, 28)
+
+            delete_button.setToolTip("Excluir produto")
 
             delete_button.setStyleSheet("""
                 QPushButton {

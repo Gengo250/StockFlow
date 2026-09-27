@@ -69,6 +69,8 @@ class MainWindow(QMainWindow):
 
         self.novo_produto_page = NovoProdutoPage()
 
+        self.editar_produto_page = NovoProdutoPage(edit_mode=True)
+
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": dashboard_page,
@@ -83,6 +85,8 @@ class MainWindow(QMainWindow):
             pages.addWidget(page)
 
         pages.addWidget(self.novo_produto_page)
+
+        pages.addWidget(self.editar_produto_page)
 
         return pages
 
@@ -100,6 +104,10 @@ class MainWindow(QMainWindow):
             )
         )
 
+        self.estoque_page.product_edit_requested.connect(
+            self._show_edit_product
+        )
+
         self.novo_produto_page.back_button.clicked.connect(
             lambda: self.pages.setCurrentWidget(
                 self.estoque_page
@@ -107,6 +115,18 @@ class MainWindow(QMainWindow):
         )
 
         self.novo_produto_page.cancel_button.clicked.connect(
+            lambda: self.pages.setCurrentWidget(
+                self.estoque_page
+            )
+        )
+
+        self.editar_produto_page.back_button.clicked.connect(
+            lambda: self.pages.setCurrentWidget(
+                self.estoque_page
+            )
+        )
+
+        self.editar_produto_page.cancel_button.clicked.connect(
             lambda: self.pages.setCurrentWidget(
                 self.estoque_page
             )
@@ -121,3 +141,11 @@ class MainWindow(QMainWindow):
         )
 
         self.sidebar.set_active(key)
+
+    def _show_edit_product(self, product):
+
+        self.editar_produto_page.load_product(product)
+
+        self.pages.setCurrentWidget(
+            self.editar_produto_page
+        )
