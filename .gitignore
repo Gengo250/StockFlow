@@ -10,4 +10,5 @@ build/
 dist/
 
 # chaves ambiente
-.env 
+.env*
+!.env.example 
