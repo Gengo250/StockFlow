@@ -24,6 +24,7 @@ MENU_ITEMS = [
 ]
 
 SYSTEM_ITEMS = [
+    ("usuarios", "Usuários", "fa5s.users"),
     ("configuracoes", "Configurações", "fa5s.cog"),
 ]
 

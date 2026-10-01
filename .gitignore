@@ -5,3 +5,11 @@ __pycache__/
 # uv / ambiente virtual
 .venv/
 .env
+
+# empacotamento desktop (PyInstaller)
+build/
+dist/
+
+# chaves ambiente
+.env*
+!.env.example 
