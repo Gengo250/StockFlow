@@ -13,7 +13,7 @@ from stockflow.presentation.pages.coming_soon import ComingSoonPage
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.users import UsersPage
-
+from stockflow.presentation.pages.vendas import VendasPage
 
 class MainWindow(QMainWindow):
 
@@ -83,11 +83,13 @@ class MainWindow(QMainWindow):
 
         self.editar_produto_page = NovoProdutoPage(edit_mode=True)
 
+        self.vendas_page = VendasPage()
+
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": dashboard_page,
             "estoque": self.estoque_page,
-            "vendas": ComingSoonPage("Vendas"),
+            "vendas": self.vendas_page,
             "produtos": ComingSoonPage("Produtos"),
             "relatorios": ComingSoonPage("Relatórios"),
             "usuarios": UsersPage(),
@@ -110,6 +112,10 @@ class MainWindow(QMainWindow):
     def _connect(self):
 
         self.sidebar.page_requested.connect(self.show_page)
+
+        self.page_widgets["usuarios"].user_table.venda_requested.connect(
+            self._associar_cliente_e_abrir_vendas
+        )
 
         self.estoque_page.new_product_button.clicked.connect(
             lambda: self.pages.setCurrentWidget(
@@ -162,3 +168,7 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(
             self.editar_produto_page
         )
+        
+    def _associar_cliente_e_abrir_vendas(self, nome_cliente):
+        self.vendas_page.selecionar_cliente_externo(nome_cliente)
+        self.show_page("vendas")
