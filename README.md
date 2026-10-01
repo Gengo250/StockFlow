@@ -33,7 +33,13 @@ uv run stockflow
 uv run python app
 ```
 
-A aplicação abre na tela de Dashboard. O menu lateral dá acesso a Estoque, Vendas, Produtos, Relatórios e Configurações.
+A aplicação sempre abre na tela de login. A conta local de demonstração é
+`ana.ferreira@example.com`, com senha `StockFlow123`. Após entrar, o Dashboard
+dá acesso ao menu de Estoque, Vendas, Produtos, Relatórios e Configurações.
+O botão de sair no rodapé do menu retorna ao login e limpa a senha.
+“Lembrar e-mail” guarda apenas o e-mail nas configurações locais, sem pular o login.
+Este acesso demonstrativo não substitui autenticação de produção: não há servidor,
+cadastro de credenciais ou recuperação por e-mail nesta versão.
 
 Em **Produtos**, busque um item e clique no card do produto. A tela mostra identificador, nome, categoria, unidade, preço
 de venda, custo e status ativo/inativo. **Voltar para produtos** preserva a busca.

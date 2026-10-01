@@ -23,7 +23,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Atlas")
+        self.setWindowTitle("StockFlow")
         self.resize(1920, 1080)
 
         self.setWindowOpacity(1.0)
