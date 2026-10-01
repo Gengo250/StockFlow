@@ -1,15 +1,11 @@
-"""Folhas de estilo da janela principal e da sidebar.
-
-As strings são cópias literais do que estava inline em app/main.py
-antes desta refatoração (ver histórico do git).
-O QSS das páginas continua dentro de cada página.
-"""
+"""Estilos da janela principal, barra superior e menu lateral."""
 
 MAIN_WINDOW_QSS = """
     QMainWindow {
         background-color: #F0F5FF;
     }
 """
+
 
 TOP_BAR_QSS = """
     QFrame#topBar {

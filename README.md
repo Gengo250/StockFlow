@@ -35,6 +35,18 @@ uv run python app
 
 A aplicação abre na tela de Dashboard. O menu lateral dá acesso a Estoque, Vendas, Produtos, Relatórios e Configurações.
 
+Em **Produtos**, busque um item e clique no card do produto. A tela mostra identificador, nome, categoria, unidade, preço
+de venda, custo e status ativo/inativo. **Voltar para produtos** preserva a busca.
+Se o item não estiver mais disponível, uma mensagem orienta o retorno à listagem.
+O catálogo usa dados demonstrativos locais, compartilhados com o estoque em
+`presentation/demo_products.py`; ainda não há integração com banco de dados.
+
+Para validar navegação, detalhes, formulários, filtros e grade responsiva sem abrir uma janela:
+
+```bash
+uv run python -m unittest discover -s tests -v
+```
+
 ## Estrutura
 
 ```
@@ -45,13 +57,19 @@ src/stockflow/
 └── presentation/                     camada de interface
     ├── app.py                        run(): cria o QApplication e abre a janela
     ├── windows/main_window.py        MainWindow: janela, menu lateral e páginas
-    ├── widgets/sidebar.py            Sidebar
-    ├── widgets/menu_button.py        botões do menu
-    ├── styles/theme.py               folhas de estilo (QSS) da janela e da sidebar
-    └── pages/                        telas: estoque, novo produto, em breve
+    ├── demo_products.py              produtos demonstrativos compartilhados
+    ├── demo_users.py                 usuários demonstrativos e perfis
+    ├── widgets/                      componentes visuais reutilizáveis
+    │   ├── stock_table.py            tabela e ações do estoque
+    │   ├── form_fields.py            campos e estrutura comum dos cards
+    │   ├── product_form.py           seções do formulário de produto
+    │   ├── product_card.py           card do catálogo
+    │   └── ...                       sidebar, barra superior e usuários
+    ├── styles/                       QSS da janela, estoque, produtos e usuários
+    └── pages/                        composição das telas
 ```
 
-As demais pastas (`src/stockflow/domain`, `application`, `infrastructure`, `shared`, além de `migrations`, `scripts`, `tests` e `assets`) estão reservadas para as próximas etapas — cada uma tem seu próprio README com a descrição e a equipe responsável.
+As demais pastas (`src/stockflow/domain`, `application`, `infrastructure`, `shared`, além de `migrations` e `assets`) estão reservadas para as próximas etapas — cada uma tem seu próprio README com a descrição e a equipe responsável.
 
 ## Comandos úteis
 
@@ -60,3 +78,19 @@ As demais pastas (`src/stockflow/domain`, `application`, `infrastructure`, `shar
 | `uv sync` | recria o ambiente a partir do `uv.lock` |
 | `uv add <pacote>` | adiciona uma dependência ao projeto |
 | `uv run python -c "import stockflow"` | confere se o pacote está instalado |
+
+## Validação visual de refatorações
+
+Antes de alterar a interface, capture as telas. Depois compare com a referência:
+
+```bash
+uv run python scripts/check_visual.py /tmp/stockflow-before
+# Execute as alterações de código.
+uv run python scripts/check_visual.py /tmp/stockflow-after --baseline /tmp/stockflow-before
+```
+
+O script compara pixels de 30 capturas em 1440×900 e 1024×768, incluindo páginas,
+formulários e erro de carregamento. Use o mesmo ambiente, fontes e versão do Qt
+nas duas execuções. Diferenças retornam código de saída diferente de zero.
+As capturas usam o renderizador offscreen e o estilo Fusion; não substituem
+uma inspeção no ambiente gráfico nativo.

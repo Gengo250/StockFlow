@@ -13,6 +13,9 @@ from stockflow.presentation.pages.coming_soon import ComingSoonPage
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.users import UsersPage
+from stockflow.presentation.demo_products import DEMO_PRODUCTS
+from stockflow.presentation.pages.products import ProductsPage
+from stockflow.presentation.pages.product_details import ProductDetailsPage
 
 
 class MainWindow(QMainWindow):
@@ -83,12 +86,16 @@ class MainWindow(QMainWindow):
 
         self.editar_produto_page = NovoProdutoPage(edit_mode=True)
 
+        self.products = dict(DEMO_PRODUCTS)
+        self.products_page = ProductsPage(self.products)
+        self.product_details_page = ProductDetailsPage()
+
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": dashboard_page,
             "estoque": self.estoque_page,
             "vendas": ComingSoonPage("Vendas"),
-            "produtos": ComingSoonPage("Produtos"),
+            "produtos": self.products_page,
             "relatorios": ComingSoonPage("Relatórios"),
             "usuarios": UsersPage(),
             "configuracoes": ComingSoonPage("Configurações"),
@@ -100,6 +107,7 @@ class MainWindow(QMainWindow):
         pages.addWidget(self.novo_produto_page)
 
         pages.addWidget(self.editar_produto_page)
+        pages.addWidget(self.product_details_page)
 
         return pages
 
@@ -110,40 +118,28 @@ class MainWindow(QMainWindow):
     def _connect(self):
 
         self.sidebar.page_requested.connect(self.show_page)
+        self.products_page.product_requested.connect(self._show_product_details)
+        self.product_details_page.back_button.clicked.connect(
+            lambda: self.show_page("produtos")
+        )
 
+        self._new_product_origin = "estoque"
         self.estoque_page.new_product_button.clicked.connect(
-            lambda: self.pages.setCurrentWidget(
-                self.novo_produto_page
-            )
+            lambda: self._show_new_product("estoque")
+        )
+        self.products_page.new_product_button.clicked.connect(
+            lambda: self._show_new_product("produtos")
         )
 
         self.estoque_page.product_edit_requested.connect(
             self._show_edit_product
         )
 
-        self.novo_produto_page.back_button.clicked.connect(
-            lambda: self.pages.setCurrentWidget(
-                self.estoque_page
-            )
-        )
+        for button in (self.novo_produto_page.back_button, self.novo_produto_page.cancel_button):
+            button.clicked.connect(lambda: self.show_page(self._new_product_origin))
 
-        self.novo_produto_page.cancel_button.clicked.connect(
-            lambda: self.pages.setCurrentWidget(
-                self.estoque_page
-            )
-        )
-
-        self.editar_produto_page.back_button.clicked.connect(
-            lambda: self.pages.setCurrentWidget(
-                self.estoque_page
-            )
-        )
-
-        self.editar_produto_page.cancel_button.clicked.connect(
-            lambda: self.pages.setCurrentWidget(
-                self.estoque_page
-            )
-        )
+        for button in (self.editar_produto_page.back_button, self.editar_produto_page.cancel_button):
+            button.clicked.connect(lambda: self.pages.setCurrentWidget(self.estoque_page))
 
         self.show_page(DEFAULT_KEY)
 
@@ -162,3 +158,12 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(
             self.editar_produto_page
         )
+
+    def _show_product_details(self, code):
+        self.product_details_page.load_product(self.products.get(code))
+        self.pages.setCurrentWidget(self.product_details_page)
+        self.sidebar.set_active("produtos")
+
+    def _show_new_product(self, origin):
+        self._new_product_origin = origin
+        self.pages.setCurrentWidget(self.novo_produto_page)
