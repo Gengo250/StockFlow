@@ -1,3 +1,6 @@
+-- ==========================================
+-- SOURCE: procedures/cash_register.sql
+-- ==========================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
