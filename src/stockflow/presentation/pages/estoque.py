@@ -37,9 +37,10 @@ class EstoquePage(QWidget):
         # ==================================================
 
         self.produtos = [
-            ["PRD-009", "Monitor LG UltraWide 34\"", "Eletrônicos", "18", "R$ 2.499,90", "Normal", True],
-            ["PRD-008", "Teclado mecânico sem fio", "Periféricos", "6", "R$ 459,90", "Baixo", True],
-            ["PRD-007", "Mouse ergonômico", "Periféricos", "2", "R$ 189,90", "Crítico", True],
+            ["PRD-009", "Monitor LG UltraWide 34\"", "Eletrônicos", "18", "R$ 2.499,90", "Normal", True, 10],
+            ["PRD-008", "Teclado mecânico sem fio", "Periféricos", "6", "R$ 459,90", "Baixo", True, 10],
+            ["PRD-007", "Mouse ergonômico", "Periféricos", "2", "R$ 189,90", "Crítico", True, 5],
+            ["PRD-006", "Cabo HDMI 2.0", "Acessórios", "0", "R$ 29,90", "Crítico", True, 10],
         ]
 
 
@@ -436,39 +437,48 @@ class EstoquePage(QWidget):
 
 
     def apply_filters(self):
-
         search_query = self.search_input.text().strip().lower()
-
         active_filter = self.get_selected_filter()
 
         filtered_products = []
 
         for produto in self.produtos:
-
             codigo = produto[0]
             nome = produto[1]
             categoria = produto[2]
-            status = produto[5]
+            estoque_atual = int(produto[3])
             ativo = produto[6]
+            estoque_minimo = produto[7] if len(produto) > 7 else 5
 
-            # Critério 1: Busca por nome, código ou categoria
+            # US04: Define status com base no estoque mínimo
+            if estoque_atual <= max(1, estoque_minimo // 2):
+                calculated_status = "Crítico"
+            elif estoque_atual <= estoque_minimo:
+                calculated_status = "Baixo"
+            else:
+                calculated_status = "Normal"
+
+            produto[5] = calculated_status
+
             matches_search = (
                 search_query in codigo.lower()
                 or search_query in nome.lower()
                 or search_query in categoria.lower()
             )
 
-            # Critério 2: Filtro por botão de status / inativos
             if active_filter == "Todos":
                 matches_filter = ativo
             elif active_filter == "Inativos":
                 matches_filter = not ativo
             else:
-                matches_filter = ativo and (status == active_filter)
+                matches_filter = ativo and (calculated_status == active_filter)
 
-            # Combinação dos filtros
             if matches_search and matches_filter:
                 filtered_products.append(produto)
+
+        # US04: Ordena do menor para o maior estoque na exibição de alertas
+        if active_filter in ["Baixo", "Crítico"]:
+            filtered_products.sort(key=lambda item: int(item[3]))
 
         self.populate_table(filtered_products)
 
