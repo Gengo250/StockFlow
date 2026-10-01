@@ -33,13 +33,13 @@ class EstoquePage(QWidget):
 """)
 
         # ==================================================
-        # PRODUTOS CARREGADOS
+        # PRODUTOS CARREGADOS (Estrutura: [código, nome, categoria, estoque, preço, status, ativo])
         # ==================================================
 
         self.produtos = [
-            ("PRD-009", "Monitor LG UltraWide 34\"", "Eletrônicos", "18", "R$ 2.499,90", "Normal"),
-            ("PRD-008", "Teclado mecânico sem fio", "Periféricos", "6", "R$ 459,90", "Baixo"),
-            ("PRD-007", "Mouse ergonômico", "Periféricos", "2", "R$ 189,90", "Crítico"),
+            ["PRD-009", "Monitor LG UltraWide 34\"", "Eletrônicos", "18", "R$ 2.499,90", "Normal", True],
+            ["PRD-008", "Teclado mecânico sem fio", "Periféricos", "6", "R$ 459,90", "Baixo", True],
+            ["PRD-007", "Mouse ergonômico", "Periféricos", "2", "R$ 189,90", "Crítico", True],
         ]
 
 
@@ -78,18 +78,18 @@ class EstoquePage(QWidget):
         """)
 
 
-        subtitle = QLabel(
+        self.subtitle = QLabel(
             f"{len(self.produtos)} produtos cadastrados"
         )
 
-        subtitle.setStyleSheet("""
+        self.subtitle.setStyleSheet("""
             color: #64748B;
             font-size: 14px;
         """)
 
 
         title_layout.addWidget(title)
-        title_layout.addWidget(subtitle)
+        title_layout.addWidget(self.subtitle)
 
 
         self.new_product_button = QPushButton("Novo Produto")
@@ -144,15 +144,15 @@ class EstoquePage(QWidget):
         filter_layout.setSpacing(10)
 
 
-        search_input = QLineEdit()
+        self.search_input = QLineEdit()
 
-        search_input.setPlaceholderText(
-            "Buscar produto ou código..."
+        self.search_input.setPlaceholderText(
+            "Buscar por nome, código ou categoria..."
         )
 
-        search_input.setFixedHeight(44)
+        self.search_input.setFixedHeight(44)
 
-        search_input.addAction(
+        self.search_input.addAction(
             qta.icon(
                 "fa5s.search",
                 color="#94A3B8"
@@ -160,7 +160,7 @@ class EstoquePage(QWidget):
             QLineEdit.LeadingPosition
         )
 
-        search_input.setStyleSheet("""
+        self.search_input.setStyleSheet("""
             QLineEdit {
                 background-color: white;
 
@@ -180,7 +180,10 @@ class EstoquePage(QWidget):
         """)
 
 
-        filter_layout.addWidget(search_input, 1)
+        # Conecta o campo de pesquisa à função de filtragem
+        self.search_input.textChanged.connect(self.apply_filters)
+
+        filter_layout.addWidget(self.search_input, 1)
 
 
         # ==================================================
@@ -193,7 +196,8 @@ class EstoquePage(QWidget):
             "Todos",
             "Normal",
             "Baixo",
-            "Crítico"
+            "Crítico",
+            "Inativos"
         ]
 
         for index, texto in enumerate(filtros):
@@ -287,8 +291,6 @@ class EstoquePage(QWidget):
                 "Ações",
             ]
         )
-
-        self.table.setRowCount(len(self.produtos))
 
         self.table.setEditTriggers(
             QAbstractItemView.NoEditTriggers
@@ -395,10 +397,91 @@ class EstoquePage(QWidget):
 
 
         # ==================================================
-        # PREENCHE A TABELA
+        # ALTURA DAS LINHAS
         # ==================================================
 
-        for row, produto in enumerate(self.produtos):
+        self.table.verticalHeader().setDefaultSectionSize(62)
+
+
+        table_layout.addWidget(self.table)
+
+        main_layout.addWidget(table_container)
+
+
+        # Preenchimento inicial considerando os filtros
+        self.apply_filters()
+
+
+    # ======================================================
+    # LÓGICA DE FILTRAGEM E ATUALIZAÇÃO DA TABELA
+    # ======================================================
+
+    def get_selected_filter(self):
+
+        for button in self.filter_buttons:
+            if button.isChecked():
+                return button.text()
+
+        return "Todos"
+
+
+    def select_filter(self, selected_button):
+
+        for button in self.filter_buttons:
+            button.setChecked(
+                button == selected_button
+            )
+
+        self.apply_filters()
+
+
+    def apply_filters(self):
+
+        search_query = self.search_input.text().strip().lower()
+
+        active_filter = self.get_selected_filter()
+
+        filtered_products = []
+
+        for produto in self.produtos:
+
+            codigo = produto[0]
+            nome = produto[1]
+            categoria = produto[2]
+            status = produto[5]
+            ativo = produto[6]
+
+            # Critério 1: Busca por nome, código ou categoria
+            matches_search = (
+                search_query in codigo.lower()
+                or search_query in nome.lower()
+                or search_query in categoria.lower()
+            )
+
+            # Critério 2: Filtro por botão de status / inativos
+            if active_filter == "Todos":
+                matches_filter = ativo
+            elif active_filter == "Inativos":
+                matches_filter = not ativo
+            else:
+                matches_filter = ativo and (status == active_filter)
+
+            # Combinação dos filtros
+            if matches_search and matches_filter:
+                filtered_products.append(produto)
+
+        self.populate_table(filtered_products)
+
+
+    def populate_table(self, produtos_para_exibir):
+
+        self.table.setRowCount(len(produtos_para_exibir))
+
+        self.subtitle.setText(
+            f"{len(produtos_para_exibir)} produtos cadastrados"
+        )
+
+        for row, produto in enumerate(produtos_para_exibir):
 
             codigo = QTableWidgetItem(
                 produto[0]
@@ -443,10 +526,12 @@ class EstoquePage(QWidget):
             )
 
 
+            status_texto = produto[5] if produto[6] else "Inativo"
+
             self.table.setItem(
                 row,
                 5,
-                QTableWidgetItem(produto[5])
+                QTableWidgetItem(status_texto)
             )
 
 
@@ -499,20 +584,31 @@ class EstoquePage(QWidget):
             """)
 
 
-            delete_button = QPushButton()
+            toggle_button = QPushButton()
 
-            delete_button.setIcon(
+            ativo = produto[6]
+
+            icon_name = "fa5s.ban" if ativo else "fa5s.check-circle"
+            icon_color = "#EF4444" if ativo else "#10B981"
+            tooltip_text = "Desativar produto" if ativo else "Ativar produto"
+
+            toggle_button.setIcon(
                 qta.icon(
-                    "fa5s.trash-alt",
-                    color="#94A3B8"
+                    icon_name,
+                    color=icon_color
                 )
             )
 
-            delete_button.setFixedSize(28, 28)
+            toggle_button.setFixedSize(28, 28)
 
-            delete_button.setToolTip("Excluir produto")
+            toggle_button.setToolTip(tooltip_text)
 
-            delete_button.setStyleSheet("""
+            toggle_button.clicked.connect(
+                lambda checked=False, item=produto:
+                self.toggle_product_status(item)
+            )
+
+            toggle_button.setStyleSheet("""
                 QPushButton {
                     background-color: transparent;
                     border: none;
@@ -530,7 +626,7 @@ class EstoquePage(QWidget):
             )
 
             actions_layout.addWidget(
-                delete_button
+                toggle_button
             )
 
 
@@ -541,25 +637,9 @@ class EstoquePage(QWidget):
             )
 
 
-        # ==================================================
-        # ALTURA DAS LINHAS
-        # ==================================================
+    def toggle_product_status(self, produto):
 
-        self.table.verticalHeader().setDefaultSectionSize(62)
+        # Alterna a flag de ativo/inativo (produto[6])
+        produto[6] = not produto[6]
 
-
-        table_layout.addWidget(self.table)
-
-        main_layout.addWidget(table_container)
-
-
-    # ======================================================
-    # FILTRO VISUAL
-    # ======================================================
-
-    def select_filter(self, selected_button):
-
-        for button in self.filter_buttons:
-            button.setChecked(
-                button == selected_button
-            )
+        self.apply_filters()
