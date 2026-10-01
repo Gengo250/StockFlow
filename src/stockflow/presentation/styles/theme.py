@@ -11,6 +11,53 @@ MAIN_WINDOW_QSS = """
     }
 """
 
+TOP_BAR_QSS = """
+    QFrame#topBar {
+        background-color: #FFFFFF;
+        border: none;
+        border-bottom: 1px solid #E5ECF7;
+    }
+
+    QLineEdit#quickSearch {
+        background-color: #F0F6FF;
+        color: #425B80;
+        placeholder-text-color: #8BA1BF;
+        border: 1px solid transparent;
+        border-radius: 12px;
+        padding: 0 8px;
+        font-size: 13px;
+        selection-background-color: #3482FF;
+        selection-color: white;
+    }
+
+    QLineEdit#quickSearch:focus {
+        border-color: #8BB9FF;
+    }
+
+    QToolButton#notificationsButton {
+        background-color: transparent;
+        border: 1px solid transparent;
+        border-radius: 8px;
+    }
+
+    QToolButton#notificationsButton:hover {
+        background-color: #F0F6FF;
+    }
+
+    QToolButton#notificationsButton:focus {
+        border-color: #8BB9FF;
+    }
+
+    QLabel#topBarAvatar {
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+            stop:0 #4B9AFF, stop:1 #2164F5);
+        color: white;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+"""
+
 CENTRAL_WIDGET_QSS = """
     QWidget#centralWidget {
         background-color: #F0F5FF;
