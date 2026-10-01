@@ -22,6 +22,8 @@ DEMO_USERS = (
 class UserTable(QFrame):
     edit_requested = Signal(object)
 
+    venda_requested = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("userTableCard")
@@ -43,7 +45,7 @@ class UserTable(QFrame):
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setMinimumSectionSize(100)
-        for column, width in ((1, 130), (2, 150), (3, 110), (4, 165), (5, 105)):
+        for column, width in ((1, 130), (2, 150), (3, 110), (4, 165), (5, 130)):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
             self.table.setColumnWidth(column, width)
         for row, user in enumerate(DEMO_USERS):
@@ -84,6 +86,15 @@ class UserTable(QFrame):
             edit.setObjectName("iconButton")
             edit.setFixedSize(30, 30)
             edit.clicked.connect(lambda checked=False, index=row: self._edit(index))
+
+            btn_venda = QPushButton()
+            btn_venda.setIcon(qta.icon("fa5s.shopping-cart", color="#849ABE" if status == "Ativo" else "#CBD5E1"))
+            btn_venda.setToolTip("Associar a uma venda" if status == "Ativo" else "Cliente inativo (não associável)")
+            btn_venda.setObjectName("iconButton")
+            btn_venda.setFixedSize(30, 30)
+            btn_venda.setEnabled(status == "Ativo") 
+            btn_venda.clicked.connect(lambda checked=False, client_name=name: self.venda_requested.emit(client_name))
+
             toggle = QPushButton()
             toggle.setIcon(qta.icon("fa5s.ban" if status == "Ativo" else "fa5s.check-circle", color="#849ABE"))
             action = "Desativar" if status == "Ativo" else "Ativar"
@@ -93,6 +104,7 @@ class UserTable(QFrame):
             toggle.setFixedSize(30, 30)
             toggle.setEnabled(False)
             buttons.addWidget(edit)
+            buttons.addWidget(btn_venda)
             buttons.addWidget(toggle)
             self.table.setCellWidget(row, 5, actions)
         self.table.cellDoubleClicked.connect(lambda row, column: self._edit(row))
