@@ -13,6 +13,8 @@ from stockflow.presentation.demo_users import DEMO_USERS
 class UserTable(QFrame):
     edit_requested = Signal(object)
 
+    venda_requested = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("userTableCard")
