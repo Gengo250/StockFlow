@@ -3,23 +3,41 @@
 -- ==========================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-CREATE OR REPLACE PROCEDURE validate_login (
+
+-- O nome antigo carregava o corpo quebrado (SELECT password) em bancos já
+-- migrados; removido para não sobrar procedure inválida ao lado da nova.
+DROP PROCEDURE IF EXISTS validate_login(VARCHAR, VARCHAR, OUT BOOLEAN);
+
+CREATE OR REPLACE PROCEDURE pr_validate_login (
   v_name VARCHAR,
   pass VARCHAR,
   OUT is_valid BOOLEAN
 )
 
 LANGUAGE plpgsql
+SET search_path = public, extensions
 AS $$
 DECLARE
   saved_hash VARCHAR;
 
 BEGIN
-  SELECT password into saved_hash
-  FROM access_register
-  WHERE v_name = name;
+  BEGIN
+    -- STRICT: access_register.name é UNIQUE, então mais de uma linha aqui
+    -- significa que a restrição caiu. Falhar alto é melhor que autenticar
+    -- contra um hash arbitrário.
+    SELECT pass_hash INTO STRICT saved_hash
+    FROM access_register
+    WHERE name = v_name;
 
-  IF saved_hash IS NOT NULL AND saved_hash = crypt(pass, saved_hash) THEN
+  EXCEPTION
+    -- Nome inexistente é login inválido, não erro.
+    WHEN NO_DATA_FOUND THEN
+      is_valid := FALSE;
+      RETURN;
+  END;
+
+  -- pass NULL faz crypt() devolver NULL; o ELSE cobre esse caso.
+  IF saved_hash = crypt(pass, saved_hash) THEN
     is_valid := TRUE;
 
   ELSE

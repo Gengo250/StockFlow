@@ -11,20 +11,16 @@ from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
 from stockflow.presentation.pages.coming_soon import ComingSoonPage
 from stockflow.presentation.pages.estoque import EstoquePage
-from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.users import UsersPage
-from stockflow.presentation.demo_products import DEMO_PRODUCTS
-from stockflow.presentation.pages.products import ProductsPage
-from stockflow.presentation.pages.product_details import ProductDetailsPage
-
+from stockflow.presentation.pages.vendas import VendasPage
 
 class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("StockFlow")
+        self.setWindowTitle("Atlas")
         self.resize(1920, 1080)
 
         self.setWindowOpacity(1.0)
@@ -87,18 +83,14 @@ class MainWindow(QMainWindow):
 
         self.editar_produto_page = NovoProdutoPage(edit_mode=True)
 
-        self.products = dict(DEMO_PRODUCTS)
-        self.movimentacoes_page = MovimentacoesPage(self.products)
-        self.products_page = ProductsPage(self.products)
-        self.product_details_page = ProductDetailsPage()
+        self.vendas_page = VendasPage()
 
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": dashboard_page,
             "estoque": self.estoque_page,
-            "movimentacoes": self.movimentacoes_page,
-            "vendas": ComingSoonPage("Vendas"),
-            "produtos": self.products_page,
+            "vendas": self.vendas_page,
+            "produtos": ComingSoonPage("Produtos"),
             "relatorios": ComingSoonPage("Relatórios"),
             "usuarios": UsersPage(),
             "configuracoes": ComingSoonPage("Configurações"),
@@ -110,7 +102,6 @@ class MainWindow(QMainWindow):
         pages.addWidget(self.novo_produto_page)
 
         pages.addWidget(self.editar_produto_page)
-        pages.addWidget(self.product_details_page)
 
         return pages
 
@@ -121,28 +112,44 @@ class MainWindow(QMainWindow):
     def _connect(self):
 
         self.sidebar.page_requested.connect(self.show_page)
-        self.products_page.product_requested.connect(self._show_product_details)
-        self.product_details_page.back_button.clicked.connect(
-            lambda: self.show_page("produtos")
+
+        self.page_widgets["usuarios"].user_table.venda_requested.connect(
+            self._associar_cliente_e_abrir_vendas
         )
 
-        self._new_product_origin = "estoque"
         self.estoque_page.new_product_button.clicked.connect(
-            lambda: self._show_new_product("estoque")
-        )
-        self.products_page.new_product_button.clicked.connect(
-            lambda: self._show_new_product("produtos")
+            lambda: self.pages.setCurrentWidget(
+                self.novo_produto_page
+            )
         )
 
         self.estoque_page.product_edit_requested.connect(
             self._show_edit_product
         )
 
-        for button in (self.novo_produto_page.back_button, self.novo_produto_page.cancel_button):
-            button.clicked.connect(lambda: self.show_page(self._new_product_origin))
+        self.novo_produto_page.back_button.clicked.connect(
+            lambda: self.pages.setCurrentWidget(
+                self.estoque_page
+            )
+        )
 
-        for button in (self.editar_produto_page.back_button, self.editar_produto_page.cancel_button):
-            button.clicked.connect(lambda: self.pages.setCurrentWidget(self.estoque_page))
+        self.novo_produto_page.cancel_button.clicked.connect(
+            lambda: self.pages.setCurrentWidget(
+                self.estoque_page
+            )
+        )
+
+        self.editar_produto_page.back_button.clicked.connect(
+            lambda: self.pages.setCurrentWidget(
+                self.estoque_page
+            )
+        )
+
+        self.editar_produto_page.cancel_button.clicked.connect(
+            lambda: self.pages.setCurrentWidget(
+                self.estoque_page
+            )
+        )
 
         self.show_page(DEFAULT_KEY)
 
@@ -161,12 +168,20 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(
             self.editar_produto_page
         )
+        
+    def _associar_cliente_e_abrir_vendas(self, nome_cliente):
+        """Abre Vendas com o cliente já selecionado.
 
-    def _show_product_details(self, code):
-        self.product_details_page.load_product(self.products.get(code))
-        self.pages.setCurrentWidget(self.product_details_page)
-        self.sidebar.set_active("produtos")
+        Quando a associação falha, a página é aberta mesmo assim: o aviso
+        preenchido por selecionar_cliente_externo explica o motivo e o foco
+        vai para o combo, para seleção manual. Descartar o retorno fazia a
+        navegação parecer bem-sucedida com o combo no placeholder.
+        """
+        associado = self.vendas_page.selecionar_cliente_externo(nome_cliente)
 
-    def _show_new_product(self, origin):
-        self._new_product_origin = origin
-        self.pages.setCurrentWidget(self.novo_produto_page)
+        self.show_page("vendas")
+
+        if not associado:
+            self.vendas_page.cliente_combo.setFocus()
+
+        return associado

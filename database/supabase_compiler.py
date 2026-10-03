@@ -32,15 +32,15 @@ CONFIG_FILE = os.path.join("supabase", "config.toml")
 PROJECT_REF_FILE = os.path.join("supabase", ".temp", "project-ref")
 
 EXPECTED_PROJECT_REF = os.getenv("SUPABASE_PROJECT_REF")
-EXECUTION_ORDER = ["tables", "views", "procedures", "triggers", "policies"]
+EXECUTION_ORDER = ["tables", "procedures", "views", "triggers", "policies"]
 
 DESTRUCTIVE = re.compile(r"\bdrop\s+(table|column|schema|type)\b", re.IGNORECASE)
 
 CONFIG_SNIPPET = """[db.migrations]
 schema_paths = [
   "./schemas/tables/*.sql",
-  "./schemas/views/*.sql",
   "./schemas/procedures/*.sql",
+  "./schemas/views/*.sql",
   "./schemas/triggers/*.sql",
   "./schemas/policies/*.sql",
 ]"""

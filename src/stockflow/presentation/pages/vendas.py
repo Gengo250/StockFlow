@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stockflow.presentation.demo_data import base_de_clientes
+
 
 class VendasPage(QWidget):
     """Página provisória para simulação de vendas e associação de clientes."""
@@ -58,13 +60,11 @@ class VendasPage(QWidget):
             }
         """)
 
-        # Base de clientes para simulação [ID, Nome, Status]
-        self.clientes = [
-            {"id": "CLI-001", "nome": "Ana Ferreira", "status": "Ativo"},
-            {"id": "CLI-002", "nome": "Carlos Mendes", "status": "Ativo"},
-            {"id": "CLI-003", "nome": "Patrícia Lima", "status": "Inativo"},
-            {"id": "CLI-004", "nome": "Juliana Ramos", "status": "Ativo"},
-        ]
+        # Base de clientes para simulação [ID, Nome, Status].
+        # Vem de demo_data, a mesma fonte da tabela de Usuários: enquanto as
+        # duas telas mantinham listas próprias, usuário ativo lá podia não
+        # existir aqui e a associação falhava sem explicação.
+        self.clientes = base_de_clientes()
 
         # Vendas históricas (preservam o nome do cliente associado no momento da venda)
         self.historico_vendas = [
@@ -161,8 +161,26 @@ class VendasPage(QWidget):
             data = self.cliente_combo.itemData(i)
             if data and data.get("nome") == cliente_nome:
                 self.cliente_combo.setCurrentIndex(i)
+                # setCurrentIndex não emite sinal quando o índice já era o
+                # atual, então o aviso anterior precisa ser limpo aqui.
+                self.warning_label.setText("")
                 return True
-        self.warning_label.setText(f"O cliente '{cliente_nome}' está inativo e não pode ser selecionado.")
+
+        # Sair do combo tem duas causas distintas: o cliente existe mas não
+        # está ativo, ou não existe na base. Relatar sempre "inativo" escondia
+        # divergências entre a base de Vendas e a tabela de Usuários.
+        cliente = next(
+            (c for c in self.clientes if c["nome"] == cliente_nome), None
+        )
+        if cliente is None:
+            self.warning_label.setText(
+                f"O cliente '{cliente_nome}' não existe na base de vendas."
+            )
+        else:
+            self.warning_label.setText(
+                f"O cliente '{cliente_nome}' está {cliente['status'].lower()} "
+                "e não pode ser selecionado."
+            )
         return False
 
     def _ao_selecionar_cliente(self, index):
