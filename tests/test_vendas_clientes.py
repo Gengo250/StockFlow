@@ -1,6 +1,20 @@
-"""Commit af9fb43 - feat(sales): provisional sales page + active customer link."""
+"""Commit af9fb43 - feat(sales): provisional sales page + active customer link.
+
+A US02 acrescentou a escolha de produto à venda, então "venda válida" aqui
+passou a exigir também um produto ativo. O que estes testes verificam
+continua sendo o vínculo com o CLIENTE; `produto_valido` só completa o
+formulário para que a gravação chegue até lá. A validação da situação do
+produto em si mora em `test_us02_validacao_produto_ativo.py`.
+"""
 
 import pytest
+
+PRODUTO_ATIVO = "PRD-009"
+
+
+def produto_valido(page):
+    """Completa o campo que a US02 tornou obrigatório na venda nova."""
+    assert page.selecionar_produto(PRODUTO_ATIVO) is True
 
 
 def itens_do_combo(page):
@@ -87,6 +101,7 @@ def test_venda_sem_cliente_e_bloqueada(vendas_page):
 
 def test_venda_sem_valor_e_bloqueada(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
+    produto_valido(vendas_page)
     vendas_page._registrar_venda()
     assert len(vendas_page.historico_vendas) == 2
     assert vendas_page.warning_label.text() == "Informe o valor da venda."
@@ -94,6 +109,7 @@ def test_venda_sem_valor_e_bloqueada(vendas_page):
 
 def test_venda_valida_entra_no_historico_com_o_cliente(vendas_page):
     vendas_page.selecionar_cliente_externo("Juliana Ramos")
+    produto_valido(vendas_page)
     vendas_page.val_input.setText("250,00")
     vendas_page._registrar_venda()
 
@@ -106,6 +122,7 @@ def test_venda_valida_entra_no_historico_com_o_cliente(vendas_page):
 
 def test_formulario_e_limpo_apos_a_venda(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
+    produto_valido(vendas_page)
     vendas_page.val_input.setText("10,00")
     vendas_page._registrar_venda()
     assert vendas_page.val_input.text() == ""
@@ -123,8 +140,13 @@ def test_ids_de_venda_nao_colidem(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
     for i in range(12):
         vendas_page.cliente_combo.setCurrentIndex(1)
+        produto_valido(vendas_page)
         vendas_page.val_input.setText(f"{i + 1},00")
         vendas_page._registrar_venda()
+
+    # Sem esta conferência o teste passaria de graça caso a gravação parasse
+    # de acontecer: duas vendas de origem nunca colidem entre si.
+    assert len(vendas_page.historico_vendas) == 14
 
     ids = [v["id"] for v in vendas_page.historico_vendas]
     assert len(ids) == len(set(ids)), f"IDs duplicados gerados: {sorted(ids)}"

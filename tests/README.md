@@ -21,6 +21,18 @@ A plataforma `offscreen` deixa os testes de UI rodarem sem servidor gráfico
 | `test_integracao_clientes_vendas.py` | `af9fb43` integração Usuários → Vendas |
 | `test_database_migrations.py` | `cc904e5` ordem e coerência das migrations SQL |
 | `test_supabase_compiler.py` | `cc904e5` comportamento do `supabase_compiler.py` |
+| `test_us02_validacao_produto_ativo.py` | US02 produto inativo recusado em venda nova; histórico preservado |
+| `unit/test_product_active_policy.py` | US02 política de domínio de produto ativo/inativo |
+| `unit/test_product_selection_service.py` | US02 serviço de seleção usado por compras, vendas e movimentações |
+
+## Falhas conhecidas (não são regressão)
+
+`test_estoque_busca_filtro.py` (15) e `test_estoque_alerta_baixo.py` (7) estão
+vermelhos desde antes desta branch: descrevem a US04 (busca, filtros por
+status e alerta de estoque baixo), cuja implementação se perdeu num merge —
+`EstoquePage` não tem mais `apply_filters` nem `search_input`. Os testes
+ficaram. A linha de base da suíte é **22 falhas**, confinadas a esses dois
+arquivos.
 
 ## Limitação conhecida
 
