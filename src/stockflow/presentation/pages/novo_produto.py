@@ -331,6 +331,15 @@ class NovoProdutoPage(QWidget):
         self.low_stock_alert.setChecked(True)
         self.product_status_toggle.setChecked(True)
 
+    def set_catalog_options(self, categories, units):
+        """Mostra apenas categorias e unidades ativas para novos produtos."""
+        self.category_input.clear()
+        self.category_input.addItem("Selecione uma categoria")
+        self.category_input.addItems(categories)
+
+        self.unit_input.clear()
+        self.unit_input.addItems(units)
+
     def set_code(self, code: str):
         """Preenche o SKU sugerido.
 
