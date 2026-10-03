@@ -8,21 +8,29 @@ CREATE TABLE public.categories (
     UNIQUE (company_id, id)           
 );
 
-CREATE TABLE public.products (
-    id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id     uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
-    barcode        text,
-    name           text NOT NULL CHECK (btrim(name) <> ''),
-    buy_price      numeric(10,2) CHECK (buy_price >= 0),
-    sell_price     numeric(10,2) NOT NULL CHECK (sell_price >= 0),
-    unit           public.unit_enum NOT NULL DEFAULT 'UN',
-    stock          integer NOT NULL DEFAULT 0 CHECK (stock >= 0),
-    item_category  uuid,
-    active         boolean NOT NULL DEFAULT true,
-    created_on     timestamptz NOT NULL DEFAULT now(),
-    UNIQUE (company_id, barcode),
-    FOREIGN KEY (company_id, item_category)
-        REFERENCES public.categories (company_id, id)
-        ON DELETE SET NULL (item_category)
-);
+create table public.products (
+  id uuid not null default gen_random_uuid (),
+  barcode text null,
+  name text not null,
+  buy_price numeric(10, 2) null,
+  sell_price numeric(10, 2) not null,
+  unit integer not null,
+  stock integer null default 0,
+  item_category uuid null,
+  created_on timestamp with time zone null default now(),
+  company_id uuid null,
+  active boolean not null default true,
+  constraint products_pkey primary key (id),
+  constraint products_barcode_key unique (barcode),
+  constraint products_company_id_fkey foreign KEY (company_id) references company (id),
+  constraint products_item_category_fkey foreign KEY (item_category) references categories (id) on delete set null,
+  constraint products_buy_price_check check ((buy_price >= (0)::numeric)),
+  constraint products_sell_price_check check ((sell_price >= (0)::numeric)),
+  constraint products_stock_check check ((stock >= 0)),
+  constraint products_unit_check check ((unit > 0))
+) TABLESPACE pg_default;
+
 CREATE INDEX idx_products_company ON public.products (company_id);
+create trigger trg_products_create_stock
+after INSERT on products for EACH row
+execute FUNCTION trg_products_create_stock ();
