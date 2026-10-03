@@ -14,13 +14,31 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from stockflow.application.services.product_selection_service import (
+    ProductSelectionService,
+)
+from stockflow.domain.enums.operation_kind import OperationKind
+from stockflow.domain.exceptions.inactive_product import InactiveProductError
+from stockflow.domain.exceptions.product_not_found import ProductNotFoundError
+from stockflow.infrastructure.repositories.demo_product_repository import (
+    DemoProductRepository,
+)
 from stockflow.presentation.demo_data import base_de_clientes
+from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
 
 class VendasPage(QWidget):
     """Página provisória para simulação de vendas e associação de clientes."""
 
-    def __init__(self, parent=None):
+    def __init__(self, products=None, product_selection=None, parent=None):
+        """Monta a tela sobre o catálogo compartilhado `code -> Product`.
+
+        Sem argumento cai numa CÓPIA de `DEMO_PRODUCTS`, para a página
+        continuar utilizável isolada sem escrever no catálogo do módulo. O
+        caminho que importa é o outro: a `MainWindow` passa o MESMO dict que
+        o Estoque grava, e é essa identidade que faz um produto desativado lá
+        sumir da seleção de venda aqui.
+        """
         super().__init__(parent)
         self.setObjectName("vendasPage")
         self.setStyleSheet("""
@@ -66,10 +84,28 @@ class VendasPage(QWidget):
         # existir aqui e a associação falhava sem explicação.
         self.clientes = base_de_clientes()
 
-        # Vendas históricas (preservam o nome do cliente associado no momento da venda)
+        # Catálogo e política de seleção (US02). O serviço é quem decide se
+        # um produto pode entrar numa venda nova; a tela não olha `active`
+        # por conta própria, para não virar uma segunda cópia da regra.
+        self.products = dict(DEMO_PRODUCTS) if products is None else products
+        self.product_selection = product_selection or ProductSelectionService(
+            DemoProductRepository(self.products)
+        )
+
+        # Vendas históricas. Guardam o NOME do cliente e o código/nome do
+        # produto como estavam no momento da venda — não uma referência ao
+        # cadastro. Desativar ou remover o produto depois não pode esvaziar
+        # a linha do que já aconteceu.
+        #
+        # VND-1001 aponta para PRD-004, que nem está mais no catálogo: é o
+        # caso que prova que a consulta do histórico não depende do cadastro.
         self.historico_vendas = [
-            {"id": "VND-1001", "cliente": "Patrícia Lima", "valor": "R$ 450,00", "data": "10/08/2026"},
-            {"id": "VND-1002", "cliente": "Ana Ferreira", "valor": "R$ 1.290,00", "data": "28/09/2026"},
+            {"id": "VND-1001", "cliente": "Patrícia Lima",
+             "produto_codigo": "PRD-004", "produto": "Cabo HDMI 2m",
+             "valor": "R$ 450,00", "data": "10/08/2026"},
+            {"id": "VND-1002", "cliente": "Ana Ferreira",
+             "produto_codigo": "PRD-007", "produto": "Mouse ergonômico",
+             "valor": "R$ 1.290,00", "data": "28/09/2026"},
         ]
 
         layout = QVBoxLayout(self)
@@ -105,6 +141,12 @@ class VendasPage(QWidget):
         self.warning_label = QLabel("")
         self.warning_label.setStyleSheet("color: #EF4444; font-size: 12px; font-weight: 500;")
 
+        # Combo de produto: só entra aqui o que a política deixa vender.
+        self.produto_combo = QComboBox()
+        self.produto_combo.setFixedHeight(42)
+        self.recarregar_produtos_disponiveis()
+        self.produto_combo.currentIndexChanged.connect(self._ao_selecionar_produto)
+
         self.val_input = QLineEdit()
         self.val_input.setPlaceholderText("Valor (R$)")
         self.val_input.setFixedHeight(42)
@@ -116,6 +158,7 @@ class VendasPage(QWidget):
         btn_salvar.clicked.connect(self._registrar_venda)
 
         row.addWidget(self.cliente_combo, 2)
+        row.addWidget(self.produto_combo, 2)
         row.addWidget(self.val_input, 1)
         row.addWidget(btn_salvar, 1)
         form_layout.addLayout(row)
@@ -134,8 +177,10 @@ class VendasPage(QWidget):
         table_layout.setContentsMargins(0, 0, 0, 0)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["ID Venda", "Cliente Associado", "Valor Total", "Data"])
+        self.table.setColumnCount(5)
+        self.table.setHorizontalHeaderLabels(
+            ["ID Venda", "Cliente Associado", "Produto", "Valor Total", "Data"]
+        )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setShowGrid(False)
         self.table.verticalHeader().hide()
@@ -154,6 +199,87 @@ class VendasPage(QWidget):
             # Clientes inativos não aparecem na seleção de nova venda
             if cli["status"] == "Ativo":
                 self.cliente_combo.addItem(f"{cli['nome']} ({cli['id']})", cli)
+
+    def recarregar_produtos_disponiveis(self):
+        """Preenche o combo apenas com produtos ativos para novas vendas.
+
+        A escolha atual é reapontada depois da recarga: o combo é refeito
+        toda vez que o catálogo muda, e perder a seleção no meio de uma
+        venda obrigaria o usuário a procurar o produto de novo. Se o produto
+        escolhido tiver sido desativado, ele simplesmente não volta.
+        """
+        escolhido = self.produto_combo.currentData()
+
+        self.produto_combo.clear()
+        self.produto_combo.addItem("Selecione um produto...", None)
+
+        for produto in self.product_selection.available_products():
+            self.produto_combo.addItem(
+                f"{produto.name} ({produto.code})",
+                {"codigo": produto.code, "nome": produto.name},
+            )
+
+        if escolhido:
+            self._apontar_produto(escolhido["codigo"])
+
+    def reload_products(self, products=None):
+        """Refaz a oferta de produtos a partir do catálogo atual.
+
+        O histórico NÃO é refeito aqui de propósito. Suas linhas guardam o
+        produto gravado na venda; reconstruí-las a partir do catálogo é
+        justamente o que apagaria a operação antiga cujo produto foi
+        desativado ou removido.
+        """
+        if products is not None and products is not self.products:
+            self.products = products
+            self.product_selection = ProductSelectionService(
+                DemoProductRepository(products)
+            )
+
+        self.recarregar_produtos_disponiveis()
+
+    def _apontar_produto(self, codigo):
+        """Põe o combo no produto pedido, se ele estiver na oferta."""
+        for i in range(self.produto_combo.count()):
+            data = self.produto_combo.itemData(i)
+            if data and data.get("codigo") == codigo:
+                self.produto_combo.setCurrentIndex(i)
+                return True
+        return False
+
+    def selecionar_produto(self, codigo):
+        """Escolhe o produto por código, recusando o que não pode ser vendido.
+
+        Fora da oferta há três causas diferentes, e tratá-las como uma só
+        esconde duas delas: o produto pode estar inativo (regra da US02), não
+        existir (divergência entre quem pediu e o catálogo) ou estar ativo e
+        ausente só porque o combo ficou velho. Quem distingue é a política.
+        """
+        if self._apontar_produto(codigo):
+            self.warning_label.setText("")
+            return True
+
+        try:
+            self.product_selection.ensure_selectable(codigo, OperationKind.VENDA)
+        except (InactiveProductError, ProductNotFoundError) as erro:
+            self.produto_combo.setCurrentIndex(0)
+            self.warning_label.setText(str(erro))
+            return False
+
+        # Ativo e fora do combo: a oferta é que estava desatualizada.
+        self.recarregar_produtos_disponiveis()
+        if self._apontar_produto(codigo):
+            self.warning_label.setText("")
+            return True
+
+        self.produto_combo.setCurrentIndex(0)
+        self.warning_label.setText(
+            f"O produto {codigo} não está disponível para venda."
+        )
+        return False
+
+    def _ao_selecionar_produto(self, index):
+        self.warning_label.setText("")
 
     def selecionar_cliente_externo(self, cliente_nome):
         """Permite que a tela de clientes peça para associar um cliente específico."""
@@ -188,26 +314,53 @@ class VendasPage(QWidget):
 
     def _registrar_venda(self):
         data = self.cliente_combo.currentData()
+        escolhido = self.produto_combo.currentData()
         valor = self.val_input.text().strip()
 
+        # A ordem das recusas segue a ordem dos campos na tela: apontar o
+        # último erro de um formulário meio vazio manda o usuário para o
+        # campo errado.
         if not data:
             self.warning_label.setText("Selecione um cliente ativo válido.")
+            return
+
+        if not escolhido:
+            self.warning_label.setText("Selecione um produto ativo válido.")
+            return
+
+        # Revalida contra o catálogo mesmo o produto tendo saído de um combo
+        # que só lista ativos. O combo é uma foto do catálogo no momento da
+        # montagem, e a tela de Estoque pode desativar o produto com a tela
+        # de Vendas aberta — sem esta checagem a venda passaria assim mesmo.
+        try:
+            produto = self.product_selection.ensure_selectable(
+                escolhido["codigo"], OperationKind.VENDA
+            )
+        except (InactiveProductError, ProductNotFoundError) as erro:
+            # Recarregar primeiro: a recarga mexe no combo e o sinal de
+            # mudança limpa o aviso. Invertido, a mensagem sumiria na hora.
+            self.recarregar_produtos_disponiveis()
+            self.warning_label.setText(str(erro))
             return
 
         if not valor:
             self.warning_label.setText("Informe o valor da venda.")
             return
 
-        # Persiste o vínculo gravando o nome do cliente no histórico da venda
+        # Persiste o vínculo gravando nome do cliente e código/nome do
+        # produto: a venda registrada passa a não depender mais do cadastro.
         nova_venda = {
             "id": f"VND-100{len(self.historico_vendas) + 1}",
             "cliente": data["nome"],
+            "produto_codigo": produto.code,
+            "produto": produto.name,
             "valor": f"R$ {valor}",
             "data": "Hoje",
         }
         self.historico_vendas.insert(0, nova_venda)
         self.val_input.clear()
         self.cliente_combo.setCurrentIndex(0)
+        self.produto_combo.setCurrentIndex(0)
         self.warning_label.setText("")
         self.atualizar_tabela_historico()
 
@@ -216,5 +369,9 @@ class VendasPage(QWidget):
         for row, venda in enumerate(self.historico_vendas):
             self.table.setItem(row, 0, QTableWidgetItem(venda["id"]))
             self.table.setItem(row, 1, QTableWidgetItem(venda["cliente"]))
-            self.table.setItem(row, 2, QTableWidgetItem(venda["valor"]))
-            self.table.setItem(row, 3, QTableWidgetItem(venda["data"]))
+            # O produto sai do que foi gravado na venda, NUNCA de uma
+            # releitura do catálogo: é isso que mantém visível a operação
+            # antiga cujo produto foi desativado ou saiu do cadastro.
+            self.table.setItem(row, 2, QTableWidgetItem(venda["produto"]))
+            self.table.setItem(row, 3, QTableWidgetItem(venda["valor"]))
+            self.table.setItem(row, 4, QTableWidgetItem(venda["data"]))
