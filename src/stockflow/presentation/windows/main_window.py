@@ -13,6 +13,7 @@ from stockflow.presentation.pages.coming_soon import ComingSoonPage
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.users import UsersPage
+from stockflow.presentation.pages.vendas import VendasPage
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.presentation.pages.products import ProductsPage
 from stockflow.presentation.pages.product_details import ProductDetailsPage
@@ -90,14 +91,19 @@ class MainWindow(QMainWindow):
         self.products_page = ProductsPage(self.products)
         self.product_details_page = ProductDetailsPage()
 
+        # Vendas e Usuários ficam como atributos: o botão de carrinho da
+        # tabela de Usuários precisa alcançar o combo de clientes de Vendas.
+        self.vendas_page = VendasPage()
+        self.users_page = UsersPage()
+
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": dashboard_page,
             "estoque": self.estoque_page,
-            "vendas": ComingSoonPage("Vendas"),
+            "vendas": self.vendas_page,
             "produtos": self.products_page,
             "relatorios": ComingSoonPage("Relatórios"),
-            "usuarios": UsersPage(),
+            "usuarios": self.users_page,
             "configuracoes": ComingSoonPage("Configurações"),
         }
 
@@ -121,6 +127,10 @@ class MainWindow(QMainWindow):
         self.products_page.product_requested.connect(self._show_product_details)
         self.product_details_page.back_button.clicked.connect(
             lambda: self.show_page("produtos")
+        )
+
+        self.users_page.user_table.venda_requested.connect(
+            self._associar_cliente_e_abrir_vendas
         )
 
         self._new_product_origin = "estoque"
@@ -150,6 +160,23 @@ class MainWindow(QMainWindow):
         )
 
         self.sidebar.set_active(key)
+
+    def _show_product_details(self, code):
+        """Abre a ficha do produto escolhido no catálogo.
+
+        Perdido no merge: _connect ligava product_requested a este método, que
+        não existia mais. O acesso ao atributo levantava AttributeError ainda
+        na construção da janela, e o login ficava parado sem explicação.
+        """
+        self.product_details_page.load_product(self.products.get(code))
+
+        self.pages.setCurrentWidget(self.product_details_page)
+
+    def _show_new_product(self, origin):
+        """Abre o cadastro de produto lembrando de onde o usuário veio."""
+        self._new_product_origin = origin
+
+        self.pages.setCurrentWidget(self.novo_produto_page)
 
     def _show_edit_product(self, product):
 

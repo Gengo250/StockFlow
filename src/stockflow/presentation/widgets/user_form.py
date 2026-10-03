@@ -32,9 +32,13 @@ class UserForm(QDialog):
         for label, field in (("Nome", self.name_input), ("E-mail", self.login_input), ("Perfil", self.role_input)):
             fields.addRow(label, field)
         if user:
+            # Linha de demo_data:
+            # (nome, login, departamento, perfil, status, último acesso, cor).
+            # user[2] é o departamento, não o perfil: lido como perfil, o combo
+            # caía no primeiro item e a edição mostrava o cargo errado.
             self.name_input.setText(user[0])
             self.login_input.setText(user[1])
-            self.role_input.setCurrentText(user[2])
+            self.role_input.setCurrentText(user[3])
         layout.addLayout(fields)
         actions = QHBoxLayout()
         actions.addStretch()

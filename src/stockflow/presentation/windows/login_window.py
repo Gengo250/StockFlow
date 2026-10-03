@@ -7,11 +7,13 @@ from PySide6.QtWidgets import (
     QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from stockflow.presentation.demo_users import DEMO_USERS
 from stockflow.presentation.styles.login import LOGIN_QSS
 
 
-DEMO_EMAIL = DEMO_USERS[0][1]
+# Credencial fixa da demonstração. Antes vinha de DEMO_USERS[0][1], o que
+# amarrava o login à ordem das linhas da tabela de Usuários: mexer naquela
+# base trocava a senha de acesso do app sem que nada ali indicasse isso.
+DEMO_EMAIL = "ana.ferreira@example.com"
 DEMO_PASSWORD = "StockFlow123"
 
 

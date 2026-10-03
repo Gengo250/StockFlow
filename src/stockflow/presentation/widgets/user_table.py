@@ -11,7 +11,22 @@ from stockflow.presentation.demo_data import linhas_de_usuarios
 # Dados demonstrativos exclusivos da apresentação.
 # A tela de Vendas lê a mesma base em demo_data, para que todo usuário
 # ativo aqui tenha um cliente associável lá.
+#
+# Contrato de cada linha:
+# (nome, login, departamento, perfil, status, último acesso, cor)
 DEMO_USERS = linhas_de_usuarios()
+
+COLUMNS = ("Usuário", "Departamento", "Perfil", "Status", "Último acesso", "Ações")
+ACTIONS_COLUMN = len(COLUMNS) - 1
+
+# Entrada neutra do filtro de perfil: equivale a "não filtrar".
+ALL_ROLES = "Todos os perfis"
+
+STATUS_COLORS = {
+    "Ativo": ("#0F7B4F", "#E4F7EF"),
+    "Inativo": ("#8A3B3B", "#FBE9E9"),
+    "Pendente": ("#8A6A1F", "#FDF3DF"),
+}
 
 
 class UserTable(QFrame):
@@ -25,8 +40,8 @@ class UserTable(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
-        self.table = QTableWidget(len(DEMO_USERS), 3)
-        self.table.setHorizontalHeaderLabels(["Usuário", "Perfil", "Ações"])
+        self.table = QTableWidget(len(DEMO_USERS), len(COLUMNS))
+        self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -37,41 +52,34 @@ class UserTable(QFrame):
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setMinimumSectionSize(100)
-        header.setSectionResizeMode(2, QHeaderView.Fixed)
-        self.table.setColumnWidth(2, 100)
+        header.setSectionResizeMode(ACTIONS_COLUMN, QHeaderView.Fixed)
+        self.table.setColumnWidth(ACTIONS_COLUMN, 120)
         for row, user in enumerate(DEMO_USERS):
-            name, email, role = user
-            color = {"Administrador": "#8129FF", "Estoquista": "#195BFF", "Financeiro": "#E78A00"}[role]
+            # A cor vem da própria linha. O mapa perfil -> cor que existia aqui
+            # só conhecia três perfis e levantava KeyError em "Gerente" e
+            # "Operador", derrubando a janela principal durante a construção.
+            name, login, department, role, status, last_access, color = user
             identity_item = QTableWidgetItem()
-            identity_item.setData(Qt.AccessibleTextRole, f"{name}, {email}")
+            identity_item.setData(Qt.AccessibleTextRole, f"{name}, {login}")
             self.table.setItem(row, 0, identity_item)
-            role_item = QTableWidgetItem()
-            role_item.setData(Qt.AccessibleTextRole, role)
-            self.table.setItem(row, 1, role_item)
-            self.table.setItem(row, 2, QTableWidgetItem())
-            self.table.setCellWidget(row, 0, self._identity(name, email, color))
-            self.table.setCellWidget(row, 1, self._role_badge(role, color))
-            actions = QWidget()
-            actions_layout = QHBoxLayout(actions)
-            actions_layout.setContentsMargins(12, 0, 12, 0)
-            edit = QPushButton()
-            edit.setObjectName("iconButton")
-            edit.setFixedSize(32, 32)
-            edit.setIcon(qta.icon("fa5s.pen", color="#849ABE"))
-            edit.setToolTip(f"Editar {name}")
-            edit.setAccessibleName(f"Editar {name}")
-            edit.clicked.connect(lambda checked=False, index=row: self._edit(index))
-            actions_layout.addWidget(edit)
-            actions_layout.addStretch()
-            self.table.setCellWidget(row, 2, actions)
+            self.table.setCellWidget(row, 0, self._identity(name, login, color))
+            for column, text in ((1, department), (2, role), (3, status), (4, last_access)):
+                item = QTableWidgetItem()
+                item.setData(Qt.AccessibleTextRole, text)
+                self.table.setItem(row, column, item)
+            self.table.setCellWidget(row, 1, self._plain(department))
+            self.table.setCellWidget(row, 2, self._role_badge(role, color))
+            self.table.setCellWidget(row, 3, self._status_badge(status))
+            self.table.setCellWidget(row, 4, self._plain(last_access))
+            self.table.setItem(row, ACTIONS_COLUMN, QTableWidgetItem())
+            self.table.setCellWidget(row, ACTIONS_COLUMN, self._actions(row, name, status))
         self.table.cellDoubleClicked.connect(lambda row, column: self._edit(row))
         layout.addWidget(self.table)
         footer = QHBoxLayout()
         footer.setContentsMargins(18, 12, 18, 12)
-        total = len(DEMO_USERS)
-        count = QLabel(f"{total} de {total} usuários exibidos")
-        count.setObjectName("muted")
-        footer.addWidget(count)
+        self.count_label = QLabel()
+        self.count_label.setObjectName("muted")
+        footer.addWidget(self.count_label)
         footer.addStretch()
         for text in ("Anterior", "1", "Próximo"):
             button = QPushButton(text)
@@ -79,10 +87,74 @@ class UserTable(QFrame):
             button.setEnabled(False)
             footer.addWidget(button)
         layout.addLayout(footer)
+        self._update_count()
+
+    def _actions(self, row, name, status):
+        actions = QWidget()
+        actions_layout = QHBoxLayout(actions)
+        actions_layout.setContentsMargins(12, 0, 12, 0)
+        actions_layout.setSpacing(4)
+        edit = QPushButton()
+        edit.setObjectName("iconButton")
+        edit.setFixedSize(32, 32)
+        edit.setIcon(qta.icon("fa5s.pen", color="#849ABE"))
+        edit.setToolTip(f"Editar {name}")
+        edit.setAccessibleName(f"Editar {name}")
+        edit.clicked.connect(lambda checked=False, index=row: self._edit(index))
+        actions_layout.addWidget(edit)
+        venda = QPushButton()
+        venda.setObjectName("iconButton")
+        venda.setFixedSize(32, 32)
+        venda.setIcon(qta.icon("fa5s.shopping-cart", color="#849ABE"))
+        # Só cliente ativo existe na base de Vendas. Habilitar o botão para
+        # inativo levava a uma associação que falhava em silêncio.
+        venda.setEnabled(status == "Ativo")
+        venda.setToolTip(
+            f"Registrar venda para {name}" if status == "Ativo"
+            else f"{name} está {status.lower()} e não pode ser associado a uma venda"
+        )
+        venda.setAccessibleName(f"Registrar venda para {name}")
+        venda.clicked.connect(lambda checked=False, cliente=name: self.venda_requested.emit(cliente))
+        actions_layout.addWidget(venda)
+        actions_layout.addStretch()
+        return actions
+
+    def filter_users(self, text="", role=""):
+        """Esconde as linhas que não casam com a busca e com o perfil.
+
+        Chamada pelos campos da tela de Usuários, que estavam ligados a um
+        método inexistente: digitar na busca derrubava a aplicação.
+        """
+        query = (text or "").strip().casefold()
+        wanted = (role or "").strip()
+        if wanted == ALL_ROLES:
+            wanted = ""
+        for row, user in enumerate(DEMO_USERS):
+            name, login, department, user_role = user[0], user[1], user[2], user[3]
+            haystack = f"{name} {login} {department}".casefold()
+            matches = (not query or query in haystack) and (not wanted or user_role == wanted)
+            self.table.setRowHidden(row, not matches)
+        self._update_count()
+
+    def _update_count(self):
+        shown = sum(not self.table.isRowHidden(row) for row in range(len(DEMO_USERS)))
+        self.count_label.setText(f"{shown} de {len(DEMO_USERS)} usuários exibidos")
 
     def _edit(self, row):
         self.table.selectRow(row)
         self.edit_requested.emit(DEMO_USERS[row])
+
+    @staticmethod
+    def _plain(text):
+        container = QWidget()
+        container.setAttribute(Qt.WA_TransparentForMouseEvents)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(12, 0, 12, 0)
+        value = QLabel(text)
+        value.setStyleSheet("color: #60799E; font-size: 12px;")
+        layout.addWidget(value)
+        layout.addStretch()
+        return container
 
     @staticmethod
     def _identity(name, email, color):
@@ -116,6 +188,20 @@ class UserTable(QFrame):
         badge = QLabel(role)
         badge.setFixedHeight(24)
         badge.setStyleSheet(f"color: {color}; background: #F7FAFF; border: 1px solid #DBE5F5; border-radius: 9px; padding: 3px 9px; font-size: 11px;")
+        layout.addWidget(badge)
+        layout.addStretch()
+        return container
+
+    @staticmethod
+    def _status_badge(status):
+        container = QWidget()
+        container.setAttribute(Qt.WA_TransparentForMouseEvents)
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(12, 0, 12, 0)
+        foreground, background = STATUS_COLORS.get(status, ("#60799E", "#F1F5FB"))
+        badge = QLabel(status)
+        badge.setFixedHeight(24)
+        badge.setStyleSheet(f"color: {foreground}; background: {background}; border-radius: 9px; padding: 3px 9px; font-size: 11px; font-weight: 600;")
         layout.addWidget(badge)
         layout.addStretch()
         return container
