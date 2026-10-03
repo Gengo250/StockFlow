@@ -7,7 +7,14 @@ from stockflow.presentation.demo_users import USER_ROLES
 
 
 class UserForm(QDialog):
-    def __init__(self, user=None, parent=None):
+    def __init__(self, user=None, parent=None, pode_gerenciar=False):
+        """Formulário de usuário.
+
+        `pode_gerenciar` nasce `False` de propósito. O diálogo é construído
+        direto por `tests/test_ui_regression.py` e pode vir a ser construído
+        por outro caminho; abrir liberado e esperar que alguém trave é como
+        um controle fica aberto quando esse alguém não é chamado.
+        """
         super().__init__(parent)
         self.setObjectName("userForm")
         self.setWindowTitle("Editar usuário" if user else "Novo usuário")
@@ -47,8 +54,16 @@ class UserForm(QDialog):
         cancel.clicked.connect(self.reject)
         save = QPushButton("Salvar alterações" if user else "Cadastrar usuário")
         save.setObjectName("primaryButton")
+        # Continua desabilitado para TODO mundo: não existe caminho de
+        # gravação de usuário ainda (`fn_create_company_user` não está ligada
+        # à tela). O papel só muda o motivo que o usuário lê — prometer
+        # "em breve" a quem nunca vai poder salvar seria mentira.
         save.setEnabled(False)
-        save.setToolTip("Disponível após integração das operações administrativas")
+        save.setToolTip(
+            "Disponível após integração das operações administrativas"
+            if pode_gerenciar
+            else "Somente administradores podem gerenciar usuários"
+        )
         actions.addWidget(cancel)
         actions.addWidget(save)
         layout.addLayout(actions)

@@ -37,6 +37,18 @@ class UserTable(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("userTableCard")
+        # Botões de editar de cada linha. Eles só existem dentro de
+        # cellWidget, e sem esta lista aplicar a permissão exigiria varrer a
+        # tabela por índice de coluna — qualquer mudança de layout quebraria
+        # o controle em silêncio. Mesmo papel de `StockTable.edit_buttons`.
+        self.edit_buttons = []
+        # Última permissão aplicada, guardada no widget e não só em quem
+        # chama: um QPushButton nasce habilitado, então qualquer caminho que
+        # venha a recriar as linhas precisa reaplicar o estado (foi esse o
+        # bug da StockTable). Hoje `filter_users` apenas esconde linhas e os
+        # botões sobrevivem, mas a memória fica aqui para que um futuro
+        # repovoamento não devolva "Editar" a quem não é ADMIN.
+        self._actions_enabled = True
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
@@ -101,6 +113,10 @@ class UserTable(QFrame):
         edit.setToolTip(f"Editar {name}")
         edit.setAccessibleName(f"Editar {name}")
         edit.clicked.connect(lambda checked=False, index=row: self._edit(index))
+        # Editar usuário é operação de ADMIN (`fn_update_company_user`), então
+        # entra no controle de permissão.
+        edit.setEnabled(self._actions_enabled)
+        self.edit_buttons.append(edit)
         actions_layout.addWidget(edit)
         venda = QPushButton()
         venda.setObjectName("iconButton")
@@ -118,6 +134,17 @@ class UserTable(QFrame):
         actions_layout.addWidget(venda)
         actions_layout.addStretch()
         return actions
+
+    def set_actions_enabled(self, enabled: bool):
+        """Liga/desliga as ações de administração de usuário da tabela.
+
+        O botão de carrinho fica de fora de propósito: registrar venda para
+        um cliente não é gerenciar usuário, e ele já tem a sua própria regra
+        (só cliente ativo). Aqui vale `fn_is_admin`, que governa editar.
+        """
+        self._actions_enabled = enabled
+        for button in self.edit_buttons:
+            button.setEnabled(enabled)
 
     def filter_users(self, text="", role=""):
         """Esconde as linhas que não casam com a busca e com o perfil.
@@ -141,6 +168,14 @@ class UserTable(QFrame):
         self.count_label.setText(f"{shown} de {len(DEMO_USERS)} usuários exibidos")
 
     def _edit(self, row):
+        """Pede a edição da linha. Silencioso quando o papel não pode editar.
+
+        O duplo clique na linha chega aqui SEM passar pelo botão de editar:
+        desabilitar o botão sozinho deixaria a edição a um clique duplo de
+        distância para quem não é ADMIN.
+        """
+        if not self._actions_enabled:
+            return
         self.table.selectRow(row)
         self.edit_requested.emit(DEMO_USERS[row])
 
