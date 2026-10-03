@@ -12,7 +12,11 @@ from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.infrastructure.repositories.demo_product_repository import (
     DemoProductRepository,
 )
-from stockflow.domain.permissions import can_manage_products
+from stockflow.domain.permissions import (
+    can_manage_products,
+    can_manage_users,
+    ensure_can_manage_users,
+)
 from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
@@ -41,6 +45,11 @@ class MainWindow(QMainWindow):
         # Resultado da última tentativa de gravação. Serve para diagnóstico e
         # para os testes; NUNCA para decidir permissão — isso é do serviço.
         self.last_save_error = None
+
+        # Resultado da última tentativa de navegação restrita. Mesmo
+        # contrato do de gravação: diagnóstico e teste, NUNCA decisão de
+        # permissão — isso é da política.
+        self.last_navigation_error = None
 
         self.setWindowTitle("StockFlow")
         self.resize(1920, 1080)
@@ -185,13 +194,39 @@ class MainWindow(QMainWindow):
 
         self.show_page(DEFAULT_KEY)
 
+    # Telas que exigem permissão para serem ABERTAS, não só para gravar.
+    # Usuários entra aqui porque `fn_list_company_users` recusa o não-admin:
+    # pelo banco, nem a listagem é dele.
+    RESTRICTED_PAGES = {"usuarios": ensure_can_manage_users}
+
     def show_page(self, key):
+        """Navega para uma página. Devolve `False` quando a recusa acontece.
+
+        Esconder o item do menu é controle visual, e controle visual se
+        burla: este método é chamável por sinal, por teste e por código
+        futuro. A verificação mora aqui, no caminho que de fato troca a
+        tela — o mesmo motivo pelo qual a gravação de produto é verificada
+        no serviço e não no handler do botão.
+        """
+        guarda = self.RESTRICTED_PAGES.get(key)
+        if guarda is not None:
+            try:
+                guarda(self.session, action="abrir a administração de usuários")
+            except PermissionDeniedError as erro:
+                # A janela não pode ficar meio-navegada: nem troca a página,
+                # nem marca o item como ativo.
+                self.last_navigation_error = erro
+                QMessageBox.critical(self, "Acesso restrito", str(erro))
+                return False
+
+        self.last_navigation_error = None
 
         self.pages.setCurrentWidget(
             self.page_widgets[key]
         )
 
         self.sidebar.set_active(key)
+        return True
 
     def _show_product_details(self, code):
         """Abre a ficha do produto escolhido no catálogo.
@@ -266,6 +301,20 @@ class MainWindow(QMainWindow):
         self.estoque_page.new_product_button.setEnabled(pode_escrever)
         self.products_page.new_product_button.setEnabled(pode_escrever)
         self.estoque_page.stock_table.set_actions_enabled(pode_escrever)
+
+        # Regra diferente da de produto: administrar usuário é só do ADMIN,
+        # como `fn_is_admin`. Reaproveitar `pode_escrever` aqui entregaria a
+        # tela de usuários ao estoquista.
+        pode_gerenciar_usuarios = can_manage_users(self.session)
+
+        self.users_page.apply_permission(pode_gerenciar_usuarios)
+        self.sidebar.set_item_visible("usuarios", pode_gerenciar_usuarios)
+
+        # Relogin: a janela sobrevive ao logout, então o ADMIN pode ter
+        # deixado a tela de usuários na frente. Sem isto, o próximo usuário
+        # entraria já olhando para ela.
+        if not pode_gerenciar_usuarios and self.pages.currentWidget() is self.users_page:
+            self.show_page(DEFAULT_KEY)
 
         self.sidebar.set_user(self.session)
         self.top_bar.set_user(self.session)
