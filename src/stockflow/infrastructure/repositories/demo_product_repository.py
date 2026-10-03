@@ -89,6 +89,19 @@ class DemoProductRepository:
     def exists(self, code: str) -> bool:
         return code in self._products
 
+    def get(self, code: str):
+        """Leitura por código, sem filtrar por situação.
+
+        O inativo continua sendo devolvido: quem decide se ele serve para a
+        operação é a política da US02, e a consulta de operações antigas
+        depende justamente de ainda alcançá-lo.
+        """
+        return self._products.get(code)
+
+    def list_all(self):
+        """Catálogo na ordem de cadastro, ativos e inativos."""
+        return tuple(self._products.values())
+
     def next_code(self) -> str:
         """Código livre para um cadastro novo, derivado do catálogo atual."""
         return next_product_code(self._products)
