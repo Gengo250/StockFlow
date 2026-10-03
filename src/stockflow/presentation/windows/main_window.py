@@ -170,5 +170,18 @@ class MainWindow(QMainWindow):
         )
         
     def _associar_cliente_e_abrir_vendas(self, nome_cliente):
-        self.vendas_page.selecionar_cliente_externo(nome_cliente)
+        """Abre Vendas com o cliente já selecionado.
+
+        Quando a associação falha, a página é aberta mesmo assim: o aviso
+        preenchido por selecionar_cliente_externo explica o motivo e o foco
+        vai para o combo, para seleção manual. Descartar o retorno fazia a
+        navegação parecer bem-sucedida com o combo no placeholder.
+        """
+        associado = self.vendas_page.selecionar_cliente_externo(nome_cliente)
+
         self.show_page("vendas")
+
+        if not associado:
+            self.vendas_page.cliente_combo.setFocus()
+
+        return associado

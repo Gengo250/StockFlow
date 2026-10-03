@@ -1,5 +1,10 @@
+-- Caixa. Independente das demais tabelas.
+
 CREATE TABLE access_register (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- UNIQUE: pr_validate_login resolve o hash por nome com SELECT ... INTO.
+  -- Sem a restrição, dois cadastros homônimos deixam uma conta autenticar
+  -- com a senha da outra.
   name      TEXT NOT NULL UNIQUE,
   pass_hash TEXT NOT NULL
 );

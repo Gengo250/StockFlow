@@ -1,7 +1,14 @@
-"""Commit cc904e5 - comportamento do database/supabase_compiler.py."""
+"""Comportamento do database/supabase_compiler.py.
+
+O compilador artesanal foi substituído por um wrapper sobre
+`supabase db schema declarative sync`: ele espelha `code/` em
+`supabase/schemas/` e deixa a geração da migration para a CLI. Os testes
+cobrem a parte que roda sem Docker e sem a CLI — o espelhamento e a leitura
+do .env — e guardam a regressão que motivou a reescrita: origem e destino
+apontando para a mesma pasta.
+"""
 
 import importlib.util
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -20,89 +27,132 @@ def carregar_compiler():
 @pytest.fixture
 def sandbox(tmp_path, monkeypatch):
     """Roda o compiler num diretório descartável, nunca no projeto real."""
+    modulo = carregar_compiler()  # o módulo faz chdir para database/ ao importar
     monkeypatch.chdir(tmp_path)
-    modulo = carregar_compiler()
-    modulo.setup_directories()
+
+    for pasta in modulo.EXECUTION_ORDER:
+        (tmp_path / "code" / pasta).mkdir(parents=True, exist_ok=True)
+    (tmp_path / "supabase" / "migrations").mkdir(parents=True, exist_ok=True)
+
     return modulo, tmp_path
 
 
-def test_setup_cria_todas_as_pastas(sandbox):
+# ----------------------------------------------- a regressão que motivou tudo
+
+def test_origem_e_destino_sao_pastas_diferentes():
+    """SOURCE_DIR == ARCHIVE_DIR fazia o arquivo bruto nunca sair do caminho
+    de compilação, e a execução seguinte gerava uma segunda migration para a
+    mesma tabela."""
+    modulo = carregar_compiler()
+    assert Path(modulo.SOURCE_DIR) != Path(modulo.SCHEMAS_DIR)
+    assert Path(modulo.SOURCE_DIR) != Path(modulo.MIGRATIONS_DIR)
+
+
+def test_compilador_nao_gera_migration_por_conta_propria():
+    """A numeração passou a ser responsabilidade da CLI do Supabase."""
+    fonte = COMPILER.read_text(encoding="utf-8")
+    assert "strftime" not in fonte
+    assert "timedelta" not in fonte
+
+
+# --------------------------------------------------------- espelhamento
+
+def test_sync_espelha_code_em_schemas(sandbox):
     modulo, raiz = sandbox
+    (raiz / "code" / "tables" / "a.sql").write_text("-- tabela a", encoding="utf-8")
+    (raiz / "code" / "procedures" / "b.sql").write_text("-- proc b", encoding="utf-8")
+
+    modulo.sync_schemas()
+
+    assert (raiz / "supabase" / "schemas" / "tables" / "a.sql").read_text(encoding="utf-8") == "-- tabela a"
+    assert (raiz / "supabase" / "schemas" / "procedures" / "b.sql").read_text(encoding="utf-8") == "-- proc b"
+
+
+def test_sync_preserva_o_conteudo_do_sql(sandbox):
+    modulo, raiz = sandbox
+    conteudo = "CREATE TABLE exemplo (\n  id UUID PRIMARY KEY\n);\n"
+    (raiz / "code" / "tables" / "exemplo.sql").write_text(conteudo, encoding="utf-8")
+
+    modulo.sync_schemas()
+
+    espelhado = raiz / "supabase" / "schemas" / "tables" / "exemplo.sql"
+    assert espelhado.read_text(encoding="utf-8") == conteudo
+
+
+def test_rodar_duas_vezes_nao_duplica_nada(sandbox):
+    modulo, raiz = sandbox
+    (raiz / "code" / "tables" / "a.sql").write_text("-- tabela a", encoding="utf-8")
+
+    modulo.sync_schemas()
+    modulo.sync_schemas()
+
+    espelhados = sorted((raiz / "supabase" / "schemas").rglob("*.sql"))
+    assert [p.name for p in espelhados] == ["a.sql"]
+
+
+def test_arquivo_removido_de_code_some_de_schemas(sandbox):
+    modulo, raiz = sandbox
+    (raiz / "code" / "tables" / "a.sql").write_text("-- tabela a", encoding="utf-8")
+    modulo.sync_schemas()
+
+    (raiz / "code" / "tables" / "a.sql").unlink()
+    modulo.sync_schemas()
+
+    assert not (raiz / "supabase" / "schemas" / "tables" / "a.sql").exists()
+
+
+def test_sync_cria_uma_pasta_por_etapa_da_ordem(sandbox):
+    modulo, raiz = sandbox
+    modulo.sync_schemas()
+
     for pasta in modulo.EXECUTION_ORDER:
-        assert (raiz / "archive" / pasta).is_dir()
-    assert (raiz / "supabase" / "migrations").is_dir()
+        assert (raiz / "supabase" / "schemas" / pasta).is_dir()
 
 
-def test_arquivos_sao_lidos_na_ordem_de_execucao(sandbox):
+# ---------------------------------------------------------- list_migrations
+
+def test_list_migrations_enxerga_apenas_sql(sandbox):
     modulo, raiz = sandbox
-    (raiz / "archive" / "policies" / "a.sql").write_text("-- policy")
-    (raiz / "archive" / "tables" / "a.sql").write_text("-- table")
-    (raiz / "archive" / "procedures" / "a.sql").write_text("-- proc")
+    migrations = raiz / "supabase" / "migrations"
+    (migrations / "20261001000000_a.sql").write_text("-- a", encoding="utf-8")
+    (migrations / "README.md").write_text("doc", encoding="utf-8")
 
-    pastas = [Path(f).parent.name for f in modulo.get_sql_files_in_order()]
-    assert pastas == ["tables", "procedures", "policies"]
-
-
-def test_migrations_recebem_timestamps_crescentes(sandbox):
-    modulo, raiz = sandbox
-    (raiz / "archive" / "tables" / "a.sql").write_text("CREATE TABLE a ();")
-    (raiz / "archive" / "tables" / "b.sql").write_text("CREATE TABLE b ();")
-
-    modulo.process_and_create_migrations(modulo.get_sql_files_in_order())
-
-    nomes = sorted(p.name for p in (raiz / "supabase" / "migrations").glob("*.sql"))
-    assert len(nomes) == 2
-    assert [n[:14] for n in nomes] == sorted(n[:14] for n in nomes)
+    nomes = {Path(p).name for p in modulo.list_migrations()}
+    assert nomes == {"20261001000000_a.sql"}
 
 
-def test_migration_preserva_o_conteudo_do_sql(sandbox):
-    modulo, raiz = sandbox
-    (raiz / "archive" / "tables" / "a.sql").write_text("CREATE TABLE a (id INT);")
-    modulo.process_and_create_migrations(modulo.get_sql_files_in_order())
+# ------------------------------------------------------------- load_env
 
-    gerado = next((raiz / "supabase" / "migrations").glob("*.sql")).read_text()
-    assert "CREATE TABLE a (id INT);" in gerado
-    assert "SOURCE: tables/a.sql" in gerado
-
-
-def test_archive_realmente_move_os_arquivos_compilados(sandbox):
-    """Depois de compilar, o .sql cru não deve ser recompilado na próxima rodada."""
-    modulo, raiz = sandbox
-    (raiz / "archive" / "tables" / "a.sql").write_text("CREATE TABLE a ();")
-
-    arquivos = modulo.get_sql_files_in_order()
-    modulo.process_and_create_migrations(arquivos)
-    modulo.archive_files(arquivos)
-
-    assert modulo.get_sql_files_in_order() == [], (
-        "SOURCE_DIR e ARCHIVE_DIR são o mesmo diretório: nada é arquivado"
+def test_load_env_le_pares_e_ignora_comentarios(tmp_path, monkeypatch):
+    modulo = carregar_compiler()
+    env = tmp_path / ".env"
+    env.write_text(
+        "# comentário\n"
+        "\n"
+        'SUPABASE_PROJECT_REF="abc123"\n'
+        "OUTRO=valor simples\n"
+        "LINHA_SEM_IGUAL\n",
+        encoding="utf-8",
     )
+    monkeypatch.delenv("SUPABASE_PROJECT_REF", raising=False)
+    monkeypatch.delenv("OUTRO", raising=False)
+
+    modulo.load_env(str(env))
+
+    import os
+
+    assert os.environ["SUPABASE_PROJECT_REF"] == "abc123"
+    assert os.environ["OUTRO"] == "valor simples"
 
 
-def test_rodar_duas_vezes_nao_duplica_migrations(sandbox, monkeypatch):
-    """Duas execuções em momentos diferentes não podem gerar a mesma tabela 2x."""
-    modulo, raiz = sandbox
-    (raiz / "archive" / "tables" / "a.sql").write_text("CREATE TABLE a ();")
+def test_load_env_nao_sobrescreve_variavel_ja_definida(tmp_path, monkeypatch):
+    modulo = carregar_compiler()
+    env = tmp_path / ".env"
+    env.write_text("SUPABASE_PROJECT_REF=do-arquivo\n", encoding="utf-8")
+    monkeypatch.setenv("SUPABASE_PROJECT_REF", "do-ambiente")
 
-    momentos = iter([
-        datetime(2026, 10, 1, 10, 0, 0),
-        datetime(2026, 10, 1, 11, 0, 0),
-    ])
+    modulo.load_env(str(env))
 
-    class RelogioFixo(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return next(momentos)
+    import os
 
-    monkeypatch.setattr(modulo, "datetime", RelogioFixo)
-
-    for _ in range(2):
-        arquivos = modulo.get_sql_files_in_order()
-        modulo.process_and_create_migrations(arquivos)
-        modulo.archive_files(arquivos)
-
-    gerados = list((raiz / "supabase" / "migrations").glob("*_tables_a.sql"))
-    assert len(gerados) == 1, (
-        f"a mesma tabela virou {len(gerados)} migrations: "
-        "o segundo push tentaria CREATE TABLE duas vezes"
-    )
+    assert os.environ["SUPABASE_PROJECT_REF"] == "do-ambiente"

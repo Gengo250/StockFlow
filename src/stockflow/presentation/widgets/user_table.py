@@ -5,18 +5,13 @@ from PySide6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from stockflow.presentation.demo_data import linhas_de_usuarios
+
 
 # Dados demonstrativos exclusivos da apresentação.
-DEMO_USERS = (
-    ("Ana Ferreira", "ana.ferreira@stockflow.com.br", "TI", "Administrador", "Ativo", "Hoje, 09:14", "#8129FF"),
-    ("Carlos Mendes", "c.mendes@stockflow.com.br", "Estoque", "Gerente", "Ativo", "Hoje, 08:47", "#195BFF"),
-    ("Juliana Ramos", "j.ramos@stockflow.com.br", "Vendas", "Operador", "Ativo", "Ontem, 17:30", "#00A77A"),
-    ("Roberto Souza", "r.souza@stockflow.com.br", "Estoque", "Operador", "Ativo", "Ontem, 16:05", "#E98600"),
-    ("Patrícia Lima", "p.lima@stockflow.com.br", "Financeiro", "Financeiro", "Inativo", "12/08/2026", "#E21885"),
-    ("Diego Alves", "d.alves@stockflow.com.br", "Vendas", "Gerente", "Ativo", "28/09/2026, 07:52", "#009BB9"),
-    ("Mariana Costa", "m.costa@stockflow.com.br", "Compras", "Operador", "Pendente", "Nunca", "#6045F5"),
-    ("Felipe Torres", "f.torres@stockflow.com.br", "Financeiro", "Financeiro", "Ativo", "27/09/2026, 18:11", "#EF6500"),
-)
+# A tela de Vendas lê a mesma base em demo_data, para que todo usuário
+# ativo aqui tenha um cliente associável lá.
+DEMO_USERS = linhas_de_usuarios()
 
 
 class UserTable(QFrame):
@@ -111,7 +106,8 @@ class UserTable(QFrame):
         layout.addWidget(self.table)
         footer = QHBoxLayout()
         footer.setContentsMargins(18, 12, 18, 12)
-        count = QLabel("8 de 8 usuários exibidos")
+        total = len(DEMO_USERS)
+        count = QLabel(f"{total} de {total} usuários exibidos")
         count.setObjectName("muted")
         footer.addWidget(count)
         footer.addStretch()

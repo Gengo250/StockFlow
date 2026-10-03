@@ -62,8 +62,10 @@ enabled = true
 # Supports paths relative to supabase directory: "./schemas/*.sql", "./database".
 schema_paths = [
   "./schemas/tables/*.sql",
-  "./schemas/views/*.sql",
+  # procedures antes de views: vw_stock_situation chama fn_stock_state, e o
+  # corpo de uma view é validado na criação.
   "./schemas/procedures/*.sql",
+  "./schemas/views/*.sql",
   "./schemas/triggers/*.sql",
   "./schemas/policies/*.sql",
 ]

@@ -1,18 +1,21 @@
-"""Commit cc904e5 - migrations geradas pelo database/supabase_compiler.py.
+"""Coerência estática das migrations em database/supabase/migrations.
 
 Não há Postgres, psql nem Supabase CLI neste ambiente, então estes testes
-validam estaticamente a ordem das migrations e a coerência entre as colunas
-declaradas nas tabelas e as colunas usadas pelas procedures.
+validam estaticamente a ordem de aplicação das migrations e a coerência entre
+as colunas declaradas nas tabelas e as colunas usadas pelas funções.
+
+As migrations passaram a conviver com dois estilos de nome: as antigas geradas
+pelo compilador (`<ts>_<pasta>_<arquivo>.sql`) e as do Supabase CLI
+(`<ts>_fn_*.sql`, `<ts>_01_*.sql`). Os testes aceitam os dois e cobram apenas
+o que importa para a aplicação: timestamp válido, ordem crescente e
+dependências criadas antes do uso.
 """
 
 import re
 from pathlib import Path
 
-import pytest
-
 RAIZ = Path(__file__).resolve().parents[1]
 MIGRATIONS = RAIZ / "database" / "supabase" / "migrations"
-ORDEM = ["tables", "views", "procedures", "triggers", "policies"]
 
 
 def arquivos():
@@ -23,27 +26,60 @@ def sql_completo():
     return "\n".join(f.read_text(encoding="utf-8") for f in arquivos())
 
 
-def colunas_da_tabela(nome):
-    corpo = re.search(
-        rf"CREATE TABLE {nome}\s*\((.*?)\n\);",
+def corpo_da_tabela(nome):
+    """Bloco entre parênteses do CREATE TABLE, com ou sem prefixo de schema."""
+    achado = re.search(
+        rf"CREATE TABLE (?:public\.)?{nome}\s*\((.*?)\n\);",
         sql_completo(),
         re.S | re.I,
     )
-    assert corpo, f"tabela {nome} não encontrada"
-    encontradas = []
-    for linha in corpo.group(1).splitlines():
+    assert achado, f"tabela {nome} não encontrada"
+    return achado.group(1)
+
+
+IGNORAR_NA_TABELA = (
+    "CHECK", "CONSTRAINT", "PRIMARY KEY", "FOREIGN KEY",
+    "UNIQUE", "REFERENCES", "ON ",
+)
+
+
+def linhas_de_coluna(nome):
+    for linha in corpo_da_tabela(nome).splitlines():
         linha = linha.strip().rstrip(",")
-        if not linha or linha.upper().startswith(("CHECK", "CONSTRAINT", "PRIMARY KEY", "FOREIGN KEY")):
+        if not linha or linha.upper().startswith(IGNORAR_NA_TABELA):
             continue
-        encontradas.append(linha.split()[0].lower())
-    return encontradas
+        yield linha
+
+
+def colunas_da_tabela(nome):
+    return [linha.split()[0].lower() for linha in linhas_de_coluna(nome)]
+
+
+def colunas_obrigatorias(nome):
+    """NOT NULL sem DEFAULT: o INSERT precisa informar explicitamente."""
+    obrigatorias = set()
+    for linha in linhas_de_coluna(nome):
+        alto = linha.upper()
+        if "NOT NULL" in alto and "DEFAULT" not in alto:
+            obrigatorias.add(linha.split()[0].lower())
+    return obrigatorias
+
+
+def corpo_da_rotina(nome):
+    achado = re.search(
+        rf"CREATE OR REPLACE (?:FUNCTION|PROCEDURE) (?:public\.)?{nome}\s*\(.*?\$\$;",
+        sql_completo(),
+        re.S | re.I,
+    )
+    assert achado, f"rotina {nome} não encontrada"
+    return achado.group(0)
 
 
 # ------------------------------------------------------ nomes e ordem
 
 def test_todas_as_migrations_tem_timestamp_valido():
     for arquivo in arquivos():
-        assert re.match(r"^\d{14}_[a-z]+_[a-z_]+\.sql$", arquivo.name), arquivo.name
+        assert re.match(r"^\d{14}_[A-Za-z0-9_\-]+\.sql$", arquivo.name), arquivo.name
 
 
 def test_timestamps_sao_crescentes_e_unicos():
@@ -52,82 +88,99 @@ def test_timestamps_sao_crescentes_e_unicos():
     assert len(stamps) == len(set(stamps))
 
 
-def test_ordem_de_execucao_respeita_tables_antes_de_procedures():
-    categorias = [a.name[15:].split("_")[0] for a in arquivos()]
-    indices = [ORDEM.index(c) for c in categorias]
-    assert indices == sorted(indices), f"ordem incorreta: {categorias}"
-
-
-def test_nenhuma_migration_duplicada_para_a_mesma_origem():
-    origens = [a.name[15:] for a in arquivos()]
-    assert len(origens) == len(set(origens)), f"origens repetidas: {origens}"
-
-
 # ------------------------------------------------- coerência do schema
 
 def test_tabelas_esperadas_existem():
     sql = sql_completo()
-    for tabela in ("access_register", "register", "categories", "products"):
-        assert re.search(rf"CREATE TABLE {tabela}\b", sql, re.I), tabela
+    for tabela in ("access_register", "register", "categories", "products", "company"):
+        assert re.search(rf"CREATE TABLE (?:public\.)?{tabela}\b", sql, re.I), tabela
 
 
-def test_foreign_keys_apontam_para_tabelas_criadas_antes():
-    sql = sql_completo()
-    posicoes = {
-        t: sql.upper().index(f"CREATE TABLE {t.upper()}")
-        for t in ("access_register", "register", "categories", "products")
-    }
-    assert posicoes["access_register"] < posicoes["register"]
-    assert posicoes["categories"] < posicoes["products"]
+def test_toda_tabela_referenciada_e_criada_em_migration_anterior():
+    """FK para tabela criada depois quebra o `supabase db push` em banco limpo."""
+    criada_em = {}
+    for posicao, arquivo in enumerate(arquivos()):
+        texto = arquivo.read_text(encoding="utf-8")
+        for tabela in re.findall(r"CREATE TABLE (?:public\.)?(\w+)", texto, re.I):
+            criada_em.setdefault(tabela.lower(), posicao)
+
+    fora_de_ordem = []
+    for posicao, arquivo in enumerate(arquivos()):
+        texto = arquivo.read_text(encoding="utf-8")
+        for alvo in re.findall(r"REFERENCES\s+(?:public\.)?(\w+)", texto, re.I):
+            alvo = alvo.lower()
+            origem = criada_em.get(alvo)
+            if origem is None:
+                fora_de_ordem.append(f"{arquivo.name} -> {alvo} (nunca criada)")
+            elif origem > posicao:
+                fora_de_ordem.append(
+                    f"{arquivo.name} referencia {alvo}, criada só em "
+                    f"{arquivos()[origem].name}"
+                )
+
+    assert fora_de_ordem == [], f"dependências fora de ordem: {fora_de_ordem}"
 
 
 def test_tipo_unit_enum_criado_antes_de_ser_usado():
     sql = sql_completo()
-    assert sql.upper().index("CREATE TYPE UNIT_ENUM") < sql.upper().index("UNIT UNIT_ENUM")
+    criacao = re.search(r"CREATE TYPE (?:public\.)?unit_enum\b", sql, re.I)
+    uso = re.search(r"^\s*unit\s+(?:public\.)?unit_enum\b", sql, re.I | re.M)
+    assert criacao and uso, "tipo unit_enum não encontrado"
+    assert criacao.start() < uso.start()
 
 
-def test_procedure_validate_login_usa_colunas_que_existem():
-    """validate_login lê uma coluna da tabela access_register."""
+def test_procedure_de_login_usa_colunas_que_existem():
+    """pr_validate_login lê uma coluna que existe em access_register."""
     colunas = colunas_da_tabela("access_register")
-    corpo = re.search(
-        r"CREATE OR REPLACE PROCEDURE validate_login.*?\$\$;",
-        sql_completo(),
-        re.S | re.I,
-    )
-    assert corpo, "procedure validate_login não encontrada"
-
     selecionada = re.search(
-        r"SELECT\s+(\w+)\s+into\s+saved_hash",
-        corpo.group(0),
+        r"SELECT\s+(\w+)\s+into\s+(?:STRICT\s+)?saved_hash",
+        corpo_da_rotina("pr_validate_login"),
         re.I,
     ).group(1).lower()
 
     assert selecionada in colunas, (
-        f"validate_login faz SELECT {selecionada} em access_register, "
+        f"pr_validate_login faz SELECT {selecionada} em access_register, "
         f"mas a tabela só tem {colunas}"
     )
 
 
-def test_create_products_usa_colunas_que_existem():
-    colunas = set(colunas_da_tabela("products"))
-    corpo = re.search(
-        r"CREATE OR REPLACE FUNCTION create_products.*?\$\$;",
-        sql_completo(),
-        re.S | re.I,
-    )
-    insert = re.search(r"INSERT INTO products\s*\((.*?)\)", corpo.group(0), re.S | re.I)
-    usadas = {c.strip().lower() for c in insert.group(1).split(",") if c.strip()}
-    assert usadas <= colunas, f"colunas inexistentes: {usadas - colunas}"
-
-
 def test_login_exige_nome_unico():
-    """validate_login usa SELECT ... INTO por nome; sem UNIQUE o retorno é ambíguo."""
-    corpo = re.search(
-        r"CREATE TABLE access_register\s*\((.*?)\n\);",
-        sql_completo(),
-        re.S | re.I,
-    ).group(1)
-    linha_name = [l for l in corpo.splitlines() if l.strip().lower().startswith("name")][0]
+    """O hash é resolvido por nome com SELECT ... INTO; sem UNIQUE é ambíguo."""
+    linha_name = [
+        l for l in corpo_da_tabela("access_register").splitlines()
+        if l.strip().lower().startswith("name")
+    ][0]
     assert "UNIQUE" in linha_name.upper(), (
-        "access_register.name não é UNIQUE, mas validate_login busca o hash por nome"
+        "access_register.name não é UNIQUE, mas o login busca o hash por nome"
     )
+
+
+def test_login_falha_alto_quando_ha_nome_duplicado():
+    """INTO STRICT: duplicata precisa estourar, não autenticar contra um hash qualquer."""
+    corpo = corpo_da_rotina("pr_validate_login")
+    assert re.search(r"into\s+STRICT\s+saved_hash", corpo, re.I), (
+        "SELECT ... INTO sem STRICT mantém uma linha arbitrária em caso de duplicata"
+    )
+
+
+# -------------------------------------------- inserções multi-tenant
+
+def test_insert_de_produto_preenche_todas_as_colunas_obrigatorias():
+    """company_id é NOT NULL sem default desde que o schema virou multi-tenant."""
+    for tabela, rotina in (("categories", "fn_create_categories"),
+                           ("products", "fn_create_products")):
+        colunas = set(colunas_da_tabela(tabela))
+        obrigatorias = colunas_obrigatorias(tabela)
+
+        insert = re.search(
+            rf"INSERT INTO (?:public\.)?{tabela}\s*\((.*?)\)",
+            corpo_da_rotina(rotina),
+            re.S | re.I,
+        )
+        usadas = {c.strip().lower() for c in insert.group(1).split(",") if c.strip()}
+
+        assert usadas <= colunas, f"{rotina}: colunas inexistentes {usadas - colunas}"
+        assert obrigatorias <= usadas, (
+            f"{rotina} não informa {obrigatorias - usadas} em {tabela}, "
+            "que são NOT NULL sem default"
+        )

@@ -1,11 +1,4 @@
--- ==========================================
--- SOURCE: procedures/products.sql
--- ==========================================
-
--- As versões sem company_id violavam o NOT NULL de categories/products desde
--- que o schema virou multi-tenant; removidas para não sobrarem inutilizáveis.
-DROP FUNCTION IF EXISTS create_categories(TEXT);
-DROP FUNCTION IF EXISTS create_products(TEXT, TEXT, NUMERIC, NUMERIC, unit_enum, INTEGER, TEXT);
+-- Cadastro de categorias e produtos. Depende de 02_authz.
 
 CREATE OR REPLACE FUNCTION public.fn_create_categories (
   p_company_id UUID,

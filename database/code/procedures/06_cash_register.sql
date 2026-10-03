@@ -1,12 +1,6 @@
--- ==========================================
--- SOURCE: procedures/cash_register.sql
--- ==========================================
+-- Login do caixa. Independente do resto.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
--- O nome antigo carregava o corpo quebrado (SELECT password) em bancos já
--- migrados; removido para não sobrar procedure inválida ao lado da nova.
-DROP PROCEDURE IF EXISTS validate_login(VARCHAR, VARCHAR, OUT BOOLEAN);
 
 CREATE OR REPLACE PROCEDURE pr_validate_login (
   v_name VARCHAR,

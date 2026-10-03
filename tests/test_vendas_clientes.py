@@ -53,9 +53,27 @@ def test_selecionar_cliente_inativo_e_recusado_com_aviso(vendas_page):
 
 def test_cliente_desconhecido_recebe_mensagem_correta(vendas_page):
     """Um nome que não existe na base não é 'inativo' - é inexistente."""
-    assert vendas_page.selecionar_cliente_externo("Roberto Souza") is False
+    assert vendas_page.selecionar_cliente_externo("Fulano Inexistente") is False
     aviso = vendas_page.warning_label.text().lower()
     assert "inativo" not in aviso, f"mensagem enganosa: {vendas_page.warning_label.text()!r}"
+    assert "não existe" in aviso
+
+
+def test_cliente_pendente_nao_e_relatado_como_inativo(vendas_page):
+    """Mariana Costa está pendente, não inativa - o aviso precisa distinguir."""
+    assert vendas_page.selecionar_cliente_externo("Mariana Costa") is False
+    aviso = vendas_page.warning_label.text().lower()
+    assert "pendente" in aviso
+    assert "inativo" not in aviso
+
+
+def test_aviso_antigo_some_ao_associar_cliente_ativo(vendas_page):
+    """Combo já no índice certo não emite sinal; o aviso tem que sair mesmo assim."""
+    vendas_page.selecionar_cliente_externo("Patrícia Lima")
+    assert vendas_page.warning_label.text() != ""
+
+    assert vendas_page.selecionar_cliente_externo("Ana Ferreira") is True
+    assert vendas_page.warning_label.text() == ""
 
 
 # ------------------------------------------------------ registro de venda
