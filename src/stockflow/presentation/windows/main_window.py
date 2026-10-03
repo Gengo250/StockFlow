@@ -129,7 +129,12 @@ class MainWindow(QMainWindow):
 
         # Vendas e Usuários ficam como atributos: o botão de carrinho da
         # tabela de Usuários precisa alcançar o combo de clientes de Vendas.
-        self.vendas_page = VendasPage()
+        #
+        # Vendas recebe o MESMO catálogo das demais telas; é essa identidade
+        # que faz um produto desativado no Estoque deixar de ser oferecido
+        # numa venda nova (US02). Uma cópia aqui ofereceria para sempre o
+        # catálogo como ele estava quando a janela abriu.
+        self.vendas_page = VendasPage(self.products)
         self.users_page = UsersPage()
 
         # A ordem de insercao reproduz os indices originais de main.py
@@ -391,9 +396,16 @@ class MainWindow(QMainWindow):
           os botões de ação — um botão novo nasce habilitado, e sem isso uma
           gravação devolveria editar/excluir a quem não pode gravar.
         - Ficha do produto: só é recarregada quando está aberta na frente.
+        - Vendas: a oferta de produtos é um combo montado a partir dos
+          ativos. Sem recarregar, o produto que acabou de ser desativado
+          continuaria vendável até alguém reabrir a aplicação — e o recém
+          cadastrado não apareceria. O histórico de vendas NÃO é tocado:
+          suas linhas guardam o produto gravado na venda, não uma leitura
+          do catálogo.
         """
         self.products_page.reload_products()
         self.estoque_page.reload_products()
+        self.vendas_page.reload_products()
 
         produto = self.products.get(code)
         if produto is not None and self.pages.currentWidget() is self.product_details_page:
