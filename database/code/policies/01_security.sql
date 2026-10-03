@@ -99,7 +99,8 @@ DECLARE
     'fn_get_login_credentials', 'fn_register_company', 'fn_set_own_pass_hash',
     'fn_create_company_user', 'fn_update_company_user', 'fn_toggle_company_user',
     'fn_list_company_users', 'fn_create_categories', 'fn_create_products',
-    'fn_set_product_active', 'fn_set_min_stock', 'fn_set_min_stock_batch',
+    'fn_update_products', 'fn_set_product_active',
+    'fn_set_min_stock', 'fn_set_min_stock_batch',
     'fn_stock_panel', 'fn_company_stock_state',
     -- auxiliares usadas pelas policies e pela view
     'fn_current_user_id', 'fn_has_role', 'fn_is_member', 'fn_stock_state'
