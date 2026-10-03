@@ -3,6 +3,7 @@ import qtawesome as qta
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
+from stockflow.application.dto.product_input import ProductInput
 from stockflow.presentation.widgets.product_form import (
     BasicInfoCard,
     BeforeRegisterCard,
@@ -11,6 +12,42 @@ from stockflow.presentation.widgets.product_form import (
     ProductStatusCard,
     StockControlCard,
 )
+
+
+def formatar_moeda(valor) -> str:
+    """Formata no mesmo padrão de `demo_products`: "R$ 2.499,90".
+
+    O catálogo guarda preço como texto já formatado. Gravar "2499.9" aqui
+    faria a ficha do produto mostrar um valor com cara de bug ao lado dos
+    demais, e a tela de estoque ordenar por string errada.
+    """
+    bruto = f"{float(valor):,.2f}"
+    return "R$ " + bruto.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+
+
+def valor_de_moeda(texto) -> float:
+    """Inverte `formatar_moeda`: "R$ 2.499,90" vira 2499.9.
+
+    Necessário para reabrir um produto gravado: o catálogo guarda o preço já
+    formatado e o campo da tela é um `QDoubleSpinBox`, que só aceita número.
+    Texto irreconhecível vira 0.0 em vez de explodir — o formulário é o único
+    lugar onde o usuário consegue corrigir o valor.
+    """
+    if texto is None:
+        return 0.0
+    limpo = str(texto).replace("R$", "").strip().replace(".", "").replace(",", ".")
+    try:
+        return float(limpo or 0)
+    except ValueError:
+        return 0.0
+
+
+def _para_inteiro(texto) -> int:
+    """Estoque do catálogo (texto) para o inteiro que o `QSpinBox` aceita."""
+    try:
+        return int(str(texto).strip() or 0)
+    except ValueError:
+        return 0
 
 
 class NovoProdutoPage(QWidget):
@@ -158,10 +195,30 @@ class NovoProdutoPage(QWidget):
             else "Adicione as informações comerciais e de estoque do item."
         )
         subtitle.setStyleSheet("background-color: transparent; color: #64748B; font-size: 14px;")
+        self.permission_warning = QLabel(
+            "Seu perfil não tem permissão para cadastrar ou editar produtos. "
+            "Fale com um administrador."
+        )
+        self.permission_warning.setWordWrap(True)
+        self.permission_warning.setObjectName("permissionWarning")
+        self.permission_warning.setStyleSheet("""
+            QLabel#permissionWarning {
+                background-color: #FEF2F2;
+                color: #B91C1C;
+                border: 1px solid #FECACA;
+                border-radius: 10px;
+                padding: 10px 12px;
+                font-size: 13px;
+                font-weight: 600;
+            }
+        """)
+        self.permission_warning.hide()
+
         left_layout.addWidget(self.back_button, alignment=Qt.AlignLeft)
         left_layout.addSpacing(6)
         left_layout.addWidget(title)
         left_layout.addWidget(subtitle)
+        left_layout.addWidget(self.permission_warning)
 
         actions = QWidget()
         actions_layout = QHBoxLayout(actions)
@@ -178,6 +235,12 @@ class NovoProdutoPage(QWidget):
             }
             QPushButton:hover { background-color: #F8FAFC; }
         """)
+        # ATENÇÃO: "Salvar rascunho" ainda não tem handler — nenhum clique
+        # grava coisa alguma hoje. `apply_permission` já o desabilita junto
+        # com o botão de salvar para que ele não prometa uma ação que o papel
+        # não tem. Quem for conectar um handler PRECISA passar pelo
+        # `ProductService`: ligar o botão direto ao repositório devolveria ao
+        # vendedor exatamente a escrita que a US01 fecha.
         self.draft_button = self._action_button("Salvar rascunho", """
             QPushButton {
                 background-color: transparent;
@@ -221,15 +284,109 @@ class NovoProdutoPage(QWidget):
         button.setStyleSheet(style)
         return button
 
+    def apply_permission(self, pode_escrever: bool):
+        """Controles visuais do papel atual.
+
+        É só a primeira camada: a recusa que vale é a do `ProductService`.
+        Esconder o botão sem checar na gravação deixaria qualquer caminho
+        alternativo (atalho, script, bug de estado) escrever no catálogo.
+        """
+        self.save_button.setEnabled(pode_escrever)
+        self.draft_button.setEnabled(pode_escrever)
+        self.permission_warning.setVisible(not pode_escrever)
+
+    def collect_input(self) -> ProductInput:
+        """Lê os widgets e devolve o DTO que o serviço espera."""
+        return ProductInput(
+            code=self.code_input.text().strip(),
+            name=self.name_input.text().strip(),
+            category=self.category_input.currentText(),
+            unit=self.unit_input.currentText(),
+            sale_price=formatar_moeda(self.sale_price_input.value()),
+            cost=formatar_moeda(self.cost_price_input.value()),
+            stock=str(self.initial_stock_input.value()),
+            active=self.product_status_toggle.isChecked(),
+        )
+
+    def clear_form(self):
+        """Devolve o formulário ao estado de cadastro em branco.
+
+        A página é um widget único reaproveitado a cada abertura. Sem esta
+        limpeza, o que sobrou de uma tentativa anterior — inclusive de uma que
+        falhou — reaparece na próxima e é gravado como dado do produto novo.
+        """
+        self.code_input.clear()
+        self.name_input.clear()
+        self.category_input.setCurrentIndex(0)
+        self.description_input.clear()
+        self.cost_price_input.setValue(0)
+        self.sale_price_input.setValue(0)
+        self.unit_input.setCurrentIndex(0)
+        self.ncm_input.clear()
+        self.ean_input.clear()
+        self.initial_stock_input.setValue(0)
+        self.minimum_stock_input.setValue(0)
+        self.location_input.clear()
+        self.supplier_input.setCurrentIndex(0)
+        self.low_stock_alert.setChecked(True)
+        self.product_status_toggle.setChecked(True)
+
+    def set_code(self, code: str):
+        """Preenche o SKU sugerido.
+
+        O campo é somente leitura e marcado como "Automático" na tela, então
+        este é o único caminho que o usuário tem para obter um código: sem a
+        chamada, o cadastro vai ao serviço com o código de outro produto.
+        """
+        self.code_input.setText(code)
+
+    @staticmethod
+    def _selecionar(combo, texto):
+        """Seleciona o valor no combo, acrescentando-o se ainda não existir.
+
+        Categorias e unidades de produtos antigos podem não estar na lista
+        fixa da tela; sem acrescentar, o combo cairia no primeiro item e a
+        edição trocaria o valor do produto sem ninguém pedir.
+        """
+        if not texto:
+            return
+        if combo.findText(texto) < 0:
+            combo.addItem(texto)
+        combo.setCurrentText(texto)
+
     def load_product(self, product):
-        code, name, category, stock, price, status = product
+        """Carrega na tela o produto que vai ser editado.
+
+        Aceita o `Product` completo do catálogo e, por compatibilidade, a
+        tupla de 6 campos da tabela de Estoque (código, nome, categoria,
+        estoque, preço de venda, status de estoque).
+
+        Prefira SEMPRE o `Product`: a tupla não carrega custo, unidade nem o
+        sinalizador de ativo, e `collect_input` lê todos os campos da tela na
+        hora de salvar. Carregar pela tupla grava "R$ 0,00" no custo e
+        devolve a unidade para o primeiro item da lista. O status da tupla é
+        de estoque ("Normal"/"Baixo"/"Crítico"), nunca "Inativo", então ele
+        também não diz se o produto está ativo.
+        """
+        if isinstance(product, tuple):
+            code, name, category, stock, sale_price, _stock_status = product
+            unit = cost = None
+            active = True
+        else:
+            code = product.code
+            name = product.name
+            category = product.category
+            stock = product.stock
+            sale_price = product.sale_price
+            unit = product.unit
+            cost = product.cost
+            active = product.active
+
         self.code_input.setText(code)
         self.name_input.setText(name)
-        if self.category_input.findText(category) < 0:
-            self.category_input.addItem(category)
-        self.category_input.setCurrentText(category)
-        self.initial_stock_input.setValue(int(stock))
-        self.sale_price_input.setValue(
-            float(price.removeprefix("R$ ").replace(".", "").replace(",", "."))
-        )
-        self.product_status_toggle.setChecked(status != "Inativo")
+        self._selecionar(self.category_input, category)
+        self._selecionar(self.unit_input, unit)
+        self.initial_stock_input.setValue(_para_inteiro(stock))
+        self.sale_price_input.setValue(valor_de_moeda(sale_price))
+        self.cost_price_input.setValue(valor_de_moeda(cost))
+        self.product_status_toggle.setChecked(bool(active))

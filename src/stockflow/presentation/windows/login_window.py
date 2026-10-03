@@ -1,5 +1,3 @@
-import hmac
-
 import qtawesome as qta
 from PySide6.QtCore import Qt, QSettings, Signal
 from PySide6.QtWidgets import (
@@ -7,14 +5,18 @@ from PySide6.QtWidgets import (
     QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
+from stockflow.presentation.demo_accounts import DEMO_ACCOUNTS, autenticar, conta_admin
+from stockflow.presentation.roles import rotulo_de_papel
 from stockflow.presentation.styles.login import LOGIN_QSS
 
 
 # Credencial fixa da demonstração. Antes vinha de DEMO_USERS[0][1], o que
 # amarrava o login à ordem das linhas da tabela de Usuários: mexer naquela
 # base trocava a senha de acesso do app sem que nada ali indicasse isso.
-DEMO_EMAIL = "ana.ferreira@example.com"
-DEMO_PASSWORD = "StockFlow123"
+# Agora apontam para a conta ADMIN de `demo_accounts`, que é quem guarda o
+# papel de cada conta — este módulo não pode ter uma segunda cópia da senha.
+DEMO_EMAIL = conta_admin().email
+DEMO_PASSWORD = conta_admin().password
 
 
 def label(text, name, wrap=False):
@@ -25,7 +27,9 @@ def label(text, name, wrap=False):
 
 
 class LoginWindow(QWidget):
-    authenticated = Signal()
+    # Carrega a `Session` do usuário: quem abre a janela principal precisa
+    # saber o papel, e não só que alguém entrou.
+    authenticated = Signal(object)
 
     def __init__(self, settings=None):
         super().__init__()
@@ -174,7 +178,19 @@ class LoginWindow(QWidget):
         self.toggle_password.setIcon(qta.icon("fa5.eye-slash" if visible else "fa5.eye", color="#8ca1c2"))
 
     def _show_access_help(self):
-        QMessageBox.information(self, "Acesso à demonstração", f"E-mail: {DEMO_EMAIL}\nSenha: {DEMO_PASSWORD}\n\nEsta versão usa uma conta local de demonstração.\nRecuperação por e-mail ainda não está disponível.")
+        contas = "\n\n".join(
+            f"{rotulo_de_papel(conta.role)} — {conta.name}\n"
+            f"E-mail: {conta.email}\nSenha: {conta.password}"
+            for conta in DEMO_ACCOUNTS
+        )
+        QMessageBox.information(
+            self,
+            "Acesso à demonstração",
+            f"{contas}\n\nCada conta entra com um papel diferente: só "
+            "Administrador e Estoque podem cadastrar ou editar produtos.\n"
+            "Esta versão usa contas locais de demonstração.\n"
+            "Recuperação por e-mail ainda não está disponível.",
+        )
 
     def _submit(self):
         email = self.email_input.text().strip().casefold()
@@ -183,14 +199,15 @@ class LoginWindow(QWidget):
             self.error.setText("Preencha o e-mail e a senha para entrar.")
             (self.email_input if not email else self.password_input).setFocus()
             return
-        if email != DEMO_EMAIL or not hmac.compare_digest(password.encode(), DEMO_PASSWORD.encode()):
+        session = autenticar(email, password)
+        if session is None:
             self.error.setText("E-mail ou senha incorretos. Tente novamente.")
             self.password_input.clear()
             self.password_input.setFocus()
             return
         self.settings.setValue("login/email", email if self.remember_email.isChecked() else "")
         self.reset()
-        self.authenticated.emit()
+        self.authenticated.emit(session)
 
     def reset(self):
         self.password_input.clear()

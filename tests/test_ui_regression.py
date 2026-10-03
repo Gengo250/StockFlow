@@ -6,6 +6,7 @@ os.environ['QT_QPA_PLATFORMTHEME'] = ''
 os.environ['QT_STYLE_OVERRIDE'] = 'Fusion'
 
 from PySide6.QtWidgets import QApplication, QPushButton
+from stockflow.presentation.demo_accounts import conta_admin
 from stockflow.presentation.demo_users import DEMO_USERS, USER_ROLES
 from stockflow.presentation.widgets.user_form import UserForm
 from stockflow.presentation.widgets.user_table import ACTIONS_COLUMN
@@ -18,7 +19,7 @@ class UIRegressionTest(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_inventory_actions_forms_and_navigation(self):
-        window = MainWindow()
+        window = MainWindow(conta_admin().session())
         self.addCleanup(window.close)
         window.show()
         window.show_page('estoque')
@@ -49,7 +50,7 @@ class UIRegressionTest(unittest.TestCase):
             self.assertTrue(window.top_bar.isVisible())
 
     def test_catalog_reflow_and_filters(self):
-        window = MainWindow()
+        window = MainWindow(conta_admin().session())
         self.addCleanup(window.close)
         catalog = window.products_page
         catalog.setParent(None)
@@ -80,7 +81,7 @@ class UIRegressionTest(unittest.TestCase):
         # Este teste descrevia a base antiga de tres pessoas com perfil em
         # user[2] e acoes na coluna 2; seguia verde contra uma tela que nao
         # existe mais desde que a base passou a vir de demo_data.
-        window = MainWindow()
+        window = MainWindow(conta_admin().session())
         self.addCleanup(window.close)
         users = window.page_widgets['usuarios'].user_table
         users.edit_requested.disconnect()

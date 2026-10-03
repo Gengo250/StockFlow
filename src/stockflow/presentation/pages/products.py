@@ -53,12 +53,8 @@ class ProductsPage(QWidget):
         self.grid.setAlignment(Qt.AlignTop)
         self.cards = {}
         self._layout_state = None
-        maximum = max((int(product.stock) for product in products.values()), default=1)
-        for code, product in products.items():
-            card = ProductCard(product, max(maximum, 1))
-            card.setParent(content)
-            card.clicked.connect(lambda checked=False, key=code: self.product_requested.emit(key))
-            self.cards[code] = card
+        self._cards_container = content
+        self._build_cards()
         self.scroll.setWidget(content)
         layout.addWidget(self.scroll, 1)
         self.empty_message = QLabel('Nenhum produto encontrado. Tente outra busca.')
@@ -66,6 +62,43 @@ class ProductsPage(QWidget):
         self.empty_message.setWordWrap(True)
         layout.addWidget(self.empty_message)
         self.search_input.textChanged.connect(self._arrange_cards)
+        self._arrange_cards()
+
+    def _build_cards(self):
+        """Cria um card por produto do catálogo atual."""
+        maximum = max(
+            (int(product.stock) for product in self.products.values()), default=1
+        )
+        for code, product in self.products.items():
+            card = ProductCard(product, max(maximum, 1))
+            card.setParent(self._cards_container)
+            card.clicked.connect(
+                lambda checked=False, key=code: self.product_requested.emit(key)
+            )
+            self.cards[code] = card
+
+    def reload_products(self, products=None):
+        """Reconstrói os cards a partir do catálogo.
+
+        Os cards são widgets montados com os valores do produto no momento da
+        criação; não existe caminho de atualização dentro do `ProductCard`.
+        Então refletir uma gravação é refazê-los. A busca digitada é
+        preservada de propósito: o usuário que salvou um produto no meio de
+        uma pesquisa não deve perder o filtro — `_arrange_cards` relê o texto
+        que já está no campo.
+        """
+        if products is not None:
+            self.products = products
+        for card in self.cards.values():
+            # setParent(None) tira o card do grid; deleteLater devolve a
+            # memória sem derrubar um sinal que ainda esteja em curso.
+            card.setParent(None)
+            card.deleteLater()
+        self.cards = {}
+        self._build_cards()
+        # O layout anterior descrevia cards que não existem mais: sem zerar o
+        # estado, `_arrange_cards` acharia que não há nada a redesenhar.
+        self._layout_state = None
         self._arrange_cards()
 
     def _arrange_cards(self):

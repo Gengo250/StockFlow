@@ -13,10 +13,20 @@ class LoginFlow:
         self.main = None
         self.login.authenticated.connect(self.open_main)
 
-    def open_main(self):
+    def open_main(self, session):
+        # Sem valor padrão de propósito: `session=None` fazia os dois ramos
+        # falharem abertos — a janela nova nascia com a sessão ausente e a
+        # janela reaproveitada mantinha as permissões do usuário anterior.
+        # O sinal `authenticated` sempre entrega uma sessão; chamar sem ela
+        # agora é um TypeError, e não um acesso concedido em silêncio.
+        if self.main is not None:
+            # Relogar com outra conta precisa reaplicar a sessão na janela que
+            # já existe. Antes ela era só reexibida: o SELLER entrava e herdava
+            # a tela montada para o ADMIN, com o botão de salvar ainda ativo.
+            self.main.apply_session(session)
         if self.main is None:
             try:
-                self.main = MainWindow()
+                self.main = MainWindow(session)
             except Exception:
                 # Slot do Qt: uma exceção aqui só vai para o stderr e o
                 # controle volta para a janela de login intacta. Sem este

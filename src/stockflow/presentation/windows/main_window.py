@@ -1,11 +1,18 @@
 from PySide6.QtWidgets import (
     QMainWindow,
+    QMessageBox,
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
     QStackedWidget,
 )
 
+from stockflow.application.services.product_service import ProductService
+from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+from stockflow.infrastructure.repositories.demo_product_repository import (
+    DemoProductRepository,
+)
+from stockflow.domain.permissions import can_manage_products
 from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
@@ -21,8 +28,19 @@ from stockflow.presentation.pages.product_details import ProductDetailsPage
 
 class MainWindow(QMainWindow):
 
-    def __init__(self):
+    def __init__(self, session=None):
         super().__init__()
+
+        # Sem sessão a janela abre SEM permissão de escrita. Assumir o ADMIN
+        # da demonstração aqui concedia, em silêncio, exatamente o acesso que
+        # esta tela existe para controlar: bastava construir `MainWindow()`
+        # fora do login para receber o catálogo gravável. Quem precisa de
+        # escrita informa a sessão (`MainWindow(conta_admin().session())`).
+        self.session = session
+
+        # Resultado da última tentativa de gravação. Serve para diagnóstico e
+        # para os testes; NUNCA para decidir permissão — isso é do serviço.
+        self.last_save_error = None
 
         self.setWindowTitle("StockFlow")
         self.resize(1920, 1080)
@@ -81,13 +99,22 @@ class MainWindow(QMainWindow):
 
         dashboard_page.setStyleSheet(theme.DASHBOARD_PAGE_QSS)
 
-        self.estoque_page = EstoquePage()
+        # O catálogo nasce antes das páginas: Estoque e Produtos recebem o
+        # MESMO dict em que o repositório grava, e é essa identidade que faz
+        # uma recarga mostrar o que acabou de ser salvo. Uma cópia por tela
+        # compilaria igual e congelaria a lista na primeira montagem.
+        self.products = dict(DEMO_PRODUCTS)
+        # O serviço é quem aplica a regra de papel; o repositório só escreve
+        # no catálogo em memória que as telas já compartilham.
+        self.product_repository = DemoProductRepository(self.products)
+        self.product_service = ProductService(self.product_repository)
+
+        self.estoque_page = EstoquePage(self.products)
 
         self.novo_produto_page = NovoProdutoPage()
 
         self.editar_produto_page = NovoProdutoPage(edit_mode=True)
 
-        self.products = dict(DEMO_PRODUCTS)
         self.products_page = ProductsPage(self.products)
         self.product_details_page = ProductDetailsPage()
 
@@ -145,11 +172,16 @@ class MainWindow(QMainWindow):
             self._show_edit_product
         )
 
+        self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
+        self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
+
         for button in (self.novo_produto_page.back_button, self.novo_produto_page.cancel_button):
             button.clicked.connect(lambda: self.show_page(self._new_product_origin))
 
         for button in (self.editar_produto_page.back_button, self.editar_produto_page.cancel_button):
             button.clicked.connect(lambda: self.pages.setCurrentWidget(self.estoque_page))
+
+        self.apply_session(self.session)
 
         self.show_page(DEFAULT_KEY)
 
@@ -173,19 +205,140 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(self.product_details_page)
 
     def _show_new_product(self, origin):
-        """Abre o cadastro de produto lembrando de onde o usuário veio."""
+        """Abre o cadastro de produto lembrando de onde o usuário veio.
+
+        O formulário é um widget único: abrir sem limpar entregaria ao
+        próximo cadastro os campos da tentativa anterior. E o SKU é somente
+        leitura na tela, então é aqui que ele precisa ser gerado — sem isso o
+        campo manteria um código fixo e todo cadastro colidiria com o produto
+        que já tem esse código.
+        """
         self._new_product_origin = origin
+
+        self.novo_produto_page.clear_form()
+        self.novo_produto_page.set_code(self.product_repository.next_code())
 
         self.pages.setCurrentWidget(self.novo_produto_page)
 
     def _show_edit_product(self, product):
+        """Abre a edição do produto escolhido na tabela de Estoque.
 
-        self.editar_produto_page.load_product(product)
+        O sinal da tabela traz a tupla de 6 campos montada na construção da
+        página, a partir do catálogo de demonstração — e não de
+        `self.products`. Editar por ela custava caro duas vezes: os campos
+        ausentes na tupla (custo, unidade, ativo) eram gravados zerados, e a
+        segunda edição do mesmo produto recarregava o estado ORIGINAL,
+        desfazendo a primeira. Por isso aqui só o código é aproveitado: o
+        produto que vai para o formulário vem sempre do catálogo vivo.
+        """
+        code = product[0] if isinstance(product, tuple) else product.code
+
+        # Guardar qual produto está aberto deixa a edição independente do que
+        # o widget mostra.
+        self._editing_code = code
+
+        self.editar_produto_page.load_product(self.products.get(code, product))
 
         self.pages.setCurrentWidget(
             self.editar_produto_page
         )
         
+    # ======================================================
+    # SESSÃO E PERMISSÃO
+    # ======================================================
+
+    def apply_session(self, session=None):
+        """Aplica o papel da sessão a tudo que depende dele.
+
+        Também é o caminho do relogin: a janela sobrevive ao logout, então
+        reexibi-la sem reaplicar a sessão entregava ao novo usuário os
+        controles liberados para o anterior.
+        """
+        if session is not None:
+            self.session = session
+
+        # `can_manage_products` já nega sessão ausente, então não há caminho
+        # em que a janela sem login apareça com os controles liberados.
+        pode_escrever = can_manage_products(self.session)
+
+        self.novo_produto_page.apply_permission(pode_escrever)
+        self.editar_produto_page.apply_permission(pode_escrever)
+        self.estoque_page.new_product_button.setEnabled(pode_escrever)
+        self.products_page.new_product_button.setEnabled(pode_escrever)
+        self.estoque_page.stock_table.set_actions_enabled(pode_escrever)
+
+        self.sidebar.set_user(self.session)
+        self.top_bar.set_user(self.session)
+
+    # ======================================================
+    # GRAVAÇÃO DE PRODUTO
+    # ======================================================
+
+    def _save_new_product(self):
+        """Cadastra o produto do formulário.
+
+        O handler não repete a checagem de papel de propósito: duas cópias da
+        regra divergem com o tempo, e a que vale é a do serviço — a mesma que
+        o `fn_has_role` do banco espelha.
+        """
+        data = self.novo_produto_page.collect_input()
+        try:
+            code = self.product_service.create_product(self.session, data)
+        except PermissionDeniedError as erro:
+            self._report_save_error("Cadastro não permitido", erro)
+            return
+        except ValueError as erro:
+            self._report_save_error("Não foi possível cadastrar", erro)
+            return
+
+        self.last_save_error = None
+        self._refresh_product_views(code)
+        self.show_page(self._new_product_origin)
+
+    def _save_edited_product(self):
+        data = self.editar_produto_page.collect_input()
+        code = getattr(self, "_editing_code", None) or data.code
+        try:
+            code = self.product_service.update_product(self.session, code, data)
+        except PermissionDeniedError as erro:
+            self._report_save_error("Edição não permitida", erro)
+            return
+        except LookupError as erro:
+            self._report_save_error("Não foi possível salvar", erro)
+            return
+
+        self.last_save_error = None
+        self._refresh_product_views(code)
+        self.pages.setCurrentWidget(self.estoque_page)
+
+    def _report_save_error(self, titulo, erro):
+        """Registra e mostra a recusa sem tocar no catálogo."""
+        self.last_save_error = erro
+        QMessageBox.critical(self, titulo, str(erro))
+
+    def _refresh_product_views(self, code):
+        """Reflete nas telas o produto recém-gravado.
+
+        O repositório escreveu em `self.products`, mas NENHUMA tela relê esse
+        dict sozinha — ler o dict compartilhado não é o mesmo que redesenhar:
+
+        - Produtos: `ProductsPage` monta os cards uma única vez; sem o
+          `reload_products` abaixo, o produto novo não ganhava card e o
+          editado continuava mostrando os valores antigos.
+        - Estoque: as linhas da tabela são itens criados na montagem, pelo
+          mesmo motivo; `reload_products` as refaz a partir do catálogo. A
+          permissão do papel é reaplicada dentro da `StockTable`, que recria
+          os botões de ação — um botão novo nasce habilitado, e sem isso uma
+          gravação devolveria editar/excluir a quem não pode gravar.
+        - Ficha do produto: só é recarregada quando está aberta na frente.
+        """
+        self.products_page.reload_products()
+        self.estoque_page.reload_products()
+
+        produto = self.products.get(code)
+        if produto is not None and self.pages.currentWidget() is self.product_details_page:
+            self.product_details_page.load_product(produto)
+
     def _associar_cliente_e_abrir_vendas(self, nome_cliente):
         """Abre Vendas com o cliente já selecionado.
 

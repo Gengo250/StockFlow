@@ -54,7 +54,13 @@ class BasicInfoCard(FormCard):
         sku_layout = QHBoxLayout(sku_wrapper)
         sku_layout.setContentsMargins(12, 0, 12, 0)
         sku_layout.setSpacing(8)
-        self.code_input = QLineEdit("PRD-009")
+        # Nasce vazio: o SKU é gerado a partir do catálogo quando a página é
+        # aberta (`MainWindow._show_new_product` -> `set_code`) ou vem do
+        # produto carregado na edição. O valor fixo que ficava aqui era um
+        # código de produto REAL do catálogo, então todo cadastro colidia com
+        # ele e morria em "Já existe um produto com o código PRD-009".
+        self.code_input = QLineEdit()
+        self.code_input.setPlaceholderText("Gerado automaticamente")
         self.code_input.setReadOnly(True)
         self.code_input.setStyleSheet(
             "background-color: transparent; color: #334155; border: none; font-size: 14px;"
