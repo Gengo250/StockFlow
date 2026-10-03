@@ -12,13 +12,9 @@ $$;
 
 
 CREATE OR REPLACE FUNCTION public.fn_my_companies()
-RETURNS TABLE (company_id uuid, company_name text, user_role public.user_role)
-LANGUAGE sql STABLE SECURITY DEFINER
-SET search_path = public AS $$
-    SELECT c.id, c.name, cd.role
-      FROM public.company_users cd
-      JOIN public.company c ON c.id = cd.company_id
-     WHERE cd.user_account_id = public.fn_current_user_id()
-       AND cd.active AND c.active
-     ORDER BY c.name;
+RETURNS SETOF uuid 
+LANGUAGE sql STABLE SECURITY DEFINER AS $$
+    SELECT company_id
+    FROM public.company_users
+    WHERE access_register_id = public.fn_current_user_id();
 $$;
