@@ -18,9 +18,9 @@ from stockflow.domain.enums.user_role import UserRole
 from stockflow.presentation.demo_accounts import conta_por_papel
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.presentation.pages.estoque import EstoquePage
+from stockflow.presentation.widgets.stock_table import ACTIONS_COLUMN
 from stockflow.presentation.windows.main_window import MainWindow
 
-ACTIONS_COLUMN = 6
 CODE_COLUMN = 0
 STOCK_COLUMN = 3
 
@@ -110,7 +110,7 @@ def test_estoque_mostra_o_produto_recem_cadastrado(janela, sem_dialogos):
     assert estoque.table.rowCount() == linhas_antes + 1
     assert codigo in codigos_na_tabela(estoque)
     assert celulas(estoque, linha_do_codigo(estoque, codigo)) == [
-        codigo, "Webcam 4K", "Eletrônicos", "30", "R$ 499,00", "Normal",
+        codigo, "Webcam 4K", "Eletrônicos", "30", "R$ 499,00", "Normal", "Ativo",
     ]
 
 

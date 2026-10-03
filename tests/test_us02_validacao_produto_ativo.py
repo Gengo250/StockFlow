@@ -52,6 +52,13 @@ def itens_do_combo(combo):
     return [combo.itemText(i) for i in range(combo.count())]
 
 
+def linha_do_produto(page, code):
+    for row in range(page.table.rowCount()):
+        if page.table.item(row, 0).text() == code:
+            return row
+    raise AssertionError(f"Produto {code} não encontrado na tabela de estoque.")
+
+
 def coluna(page, column):
     return [page.table.item(r, column).text() for r in range(page.table.rowCount())]
 
@@ -262,3 +269,45 @@ def test_desativar_pela_edicao_tira_o_produto_da_venda(janela, sem_dialogos):
     assert not any(
         "PRD-009" in t for t in itens_do_combo(window.vendas_page.produto_combo)
     )
+
+
+def test_reativar_pela_edicao_preserva_historico_e_retorna_a_selecao(
+    janela, sem_dialogos
+):
+    """O status pode voltar a ativo sem apagar vendas já registradas."""
+    window = janela()
+    vendas = window.vendas_page
+    historico_antes = [dict(venda) for venda in vendas.historico_vendas]
+
+    window.estoque_page.stock_table.edit_buttons[0].click()
+    form = window.editar_produto_page
+    assert form.code_input.text() == "PRD-009"
+    form.product_status_toggle.setChecked(False)
+    form.save_button.click()
+
+    assert window.last_save_error is None
+    assert window.products["PRD-009"].active is False
+    linha = linha_do_produto(window.estoque_page, "PRD-009")
+    assert window.estoque_page.table.item(linha, 5).text() == "Normal"
+    assert window.estoque_page.table.item(linha, 6).text() == "Inativo"
+    assert not any("PRD-009" in t for t in itens_do_combo(vendas.produto_combo))
+    assert vendas.historico_vendas == historico_antes
+    window._show_product_details("PRD-009")
+    assert window.product_details_page.values["active"].text() == "Inativo"
+
+    window.estoque_page.stock_table.edit_buttons[0].click()
+    form = window.editar_produto_page
+    assert form.code_input.text() == "PRD-009"
+    assert not form.product_status_toggle.isChecked()
+    form.product_status_toggle.setChecked(True)
+    form.save_button.click()
+
+    assert window.last_save_error is None
+    assert window.products["PRD-009"].active is True
+    linha = linha_do_produto(window.estoque_page, "PRD-009")
+    assert window.estoque_page.table.item(linha, 5).text() == "Normal"
+    assert window.estoque_page.table.item(linha, 6).text() == "Ativo"
+    assert any("PRD-009" in t for t in itens_do_combo(vendas.produto_combo))
+    assert vendas.historico_vendas == historico_antes
+    window._show_product_details("PRD-009")
+    assert window.product_details_page.values["active"].text() == "Ativo"
