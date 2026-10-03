@@ -6,22 +6,27 @@ from stockflow.application.dto.product_input import ProductInput
 
 
 class ProductRepository(Protocol):
-    """Contrato que a infraestrutura deve satisfazer.
-
-    Em uma implementação de banco, as verificações de status devem respeitar
-    o escopo RLS da empresa e as gravações devem passar pelas funções
-    autorizadas documentadas para o backend.
-    """
+    """Contrato que a infraestrutura (Supabase) deve satisfazer."""
 
     def exists(self, code: str) -> bool: ...
 
-    def is_category_active(self, category: str) -> bool: ...
+    def get(self, code: str):
+        """Produto gravado sob o código, ou `None` se não houver.
 
-    def is_unit_active(self, unit: str) -> bool: ...
+        Devolver `None` em vez de levantar é deliberado: quem chama precisa
+        distinguir ausência de inativo, e a distinção é da política (US02),
+        não da persistência.
+        """
+        ...
 
-    def list_active_categories(self) -> tuple[str, ...]: ...
+    def list_all(self):
+        """Catálogo inteiro, na ordem de cadastro — inativos inclusive.
 
-    def list_active_units(self) -> tuple[str, ...]: ...
+        Filtrar aqui seria esconder o inativo também de quem precisa dele:
+        a listagem do catálogo, a ficha do produto e a consulta de operações
+        antigas.
+        """
+        ...
 
     def create(self, data: ProductInput) -> str:
         """Retorna o code gravado."""
