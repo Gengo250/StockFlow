@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
 )
 from stockflow.presentation.styles import inventory
 
-ACTIONS_COLUMN = 6
+ACTIONS_COLUMN = 7
 
 
 class StockTable(QFrame):
@@ -18,9 +18,12 @@ class StockTable(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Código", "Produto", "Categoria", "Estoque", "Preço", "Status", "Ações"]
+            [
+                "Código", "Produto", "Categoria", "Estoque", "Preço",
+                "Situação do estoque", "Status do produto", "Ações",
+            ]
         )
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)

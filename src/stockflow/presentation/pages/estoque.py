@@ -35,10 +35,11 @@ class EstoquePage(QWidget):
         layout.addWidget(self.stock_table)
 
     def _build_rows(self):
-        """Converte o catálogo nas tuplas de 6 campos que a tabela exibe."""
+        """Converte o catálogo nas tuplas exibidas pela tabela."""
         return [
             (product.code, product.name, product.category, product.stock,
-             product.sale_price, product.stock_status)
+             product.sale_price, product.stock_status,
+             "Ativo" if product.active else "Inativo")
             for product in self.products.values()
         ]
 
