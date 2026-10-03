@@ -109,6 +109,22 @@ class Sidebar(QFrame):
 
         return button
 
+    def set_item_visible(self, key, visible: bool):
+        """Mostra ou esconde um item do menu conforme a permissão do papel.
+
+        Esconder é o certo aqui, e não desabilitar: a tela de Usuários nem
+        existe para quem não é ADMIN, porque `fn_list_company_users` recusa
+        até a listagem. Um item cinza prometeria uma tela que o banco não
+        entrega.
+
+        O item escondido continua em `self.buttons`: `apply_session` precisa
+        poder devolvê-lo no relogin de um ADMIN.
+        """
+        button = self.buttons.get(key)
+        if button is None:
+            return
+        button.setVisible(visible)
+
     def set_active(self, key):
 
         for button_key, button in self.buttons.items():
