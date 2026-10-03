@@ -47,6 +47,20 @@ Se o item não estiver mais disponível, uma mensagem orienta o retorno à lista
 O catálogo usa dados demonstrativos locais, compartilhados com o estoque em
 `presentation/demo_products.py`; ainda não há integração com banco de dados.
 
+Em **Vendas**, uma venda nova escolhe cliente, produto e valor. A lista de
+produtos oferece apenas os que estão **ativos**: desativar um item no Estoque
+(ou pelo formulário de edição) o retira da seleção na hora, e a gravação
+revalida a situação antes de registrar — a lista é uma foto, e o produto pode
+ser desativado com a tela de Vendas aberta. O **histórico** não muda: cada
+venda guarda o produto que foi associado a ela, então operações antigas
+continuam exibindo o item original mesmo depois de ele ser desativado ou sair
+do catálogo.
+
+A mesma regra vale para compras e movimentações operacionais quando essas
+telas existirem: a situação do produto tem um dono só,
+`domain/product_status.py`, consultado pelos módulos através de
+`application/services/product_selection_service.py`.
+
 Para validar navegação, detalhes, formulários, filtros e grade responsiva sem abrir uma janela:
 
 ```bash
@@ -60,6 +74,18 @@ app/                                  ponto de entrada
 └── __main__.py                       chama run()
 
 src/stockflow/
+├── domain/                           regras que não dependem de tela nem de banco
+│   ├── permissions.py                quem pode cadastrar/editar produto e usuário
+│   ├── product_status.py             produto ativo/inativo em operações novas
+│   ├── enums/                        papéis de usuário e tipos de operação
+│   └── exceptions/                   recusas nomeadas do domínio
+├── application/                      casos de uso sobre o domínio
+│   ├── services/product_service.py           cadastro e edição de produto
+│   ├── services/product_selection_service.py seleção de produto por compras,
+│   │                                         vendas e movimentações
+│   ├── ports/                        contratos que a infraestrutura satisfaz
+│   └── dto/                          dados como a UI os entrega
+├── infrastructure/                   adaptadores de persistência
 └── presentation/                     camada de interface
     ├── app.py                        run(): cria o QApplication e abre a janela
     ├── windows/main_window.py        MainWindow: janela, menu lateral e páginas
@@ -75,7 +101,7 @@ src/stockflow/
     └── pages/                        composição das telas
 ```
 
-As demais pastas (`src/stockflow/domain`, `application`, `infrastructure`, `shared`, além de `migrations` e `assets`) estão reservadas para as próximas etapas — cada uma tem seu próprio README com a descrição e a equipe responsável.
+As pastas `shared`, `migrations` e `assets` seguem reservadas para as próximas etapas — cada uma tem seu próprio README com a descrição e a equipe responsável.
 
 ## Executável desktop (beta)
 
