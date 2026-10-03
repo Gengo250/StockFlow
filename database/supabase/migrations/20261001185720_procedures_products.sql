@@ -26,7 +26,6 @@ BEGIN
   RETURN v_new_id;
 END;
 $$;
-
 CREATE OR REPLACE FUNCTION create_products (
   p_barcode TEXT,
   p_name TEXT,

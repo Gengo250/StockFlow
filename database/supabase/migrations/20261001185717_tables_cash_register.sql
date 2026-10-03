@@ -9,7 +9,6 @@ CREATE TABLE access_register (
   pass_hash TEXT NOT NULL
   
 );
-
 CREATE TABLE register (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 

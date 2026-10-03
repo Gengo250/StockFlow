@@ -3,7 +3,6 @@
 -- ==========================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 CREATE OR REPLACE PROCEDURE validate_login (
   v_name VARCHAR,
   pass VARCHAR,
