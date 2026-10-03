@@ -7,9 +7,12 @@ from stockflow.presentation.widgets.user_table import DEMO_USERS
 
 @pytest.fixture
 def janela(qapp):
+    from stockflow.presentation.demo_accounts import conta_admin
     from stockflow.presentation.windows.main_window import MainWindow
 
-    return MainWindow()
+    # A janela sem sessão abre sem permissão de escrita; este teste precisa
+    # da tela como um usuário autenticado a vê.
+    return MainWindow(conta_admin().session())
 
 
 def botao_venda(tabela, nome):

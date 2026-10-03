@@ -3,6 +3,7 @@ import qtawesome as qta
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QLineEdit, QToolButton
 
+from stockflow.presentation.roles import iniciais, rotulo_de_papel
 from stockflow.presentation.styles import theme
 
 
@@ -49,3 +50,10 @@ class TopBar(QFrame):
         layout.addWidget(self.search_input)
         layout.addWidget(self.notifications_button)
         layout.addWidget(self.avatar)
+
+    def set_user(self, session=None):
+        """Avatar e tooltip do usuário logado; sem sessão, o rótulo genérico."""
+        nome = getattr(session, "name", None) or "Usuário"
+        papel = rotulo_de_papel(getattr(session, "role", None)) if session else "Administrador"
+        self.avatar.setText(iniciais(nome))
+        self.avatar.setToolTip(f"{nome} · {papel}")
