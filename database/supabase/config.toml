@@ -2,7 +2,7 @@
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the
 # working directory name when running `supabase init`.
-project_id = "StockFlow"
+project_id = "database"
 
 [api]
 enabled = true
@@ -60,7 +60,13 @@ max_client_conn = 100
 enabled = true
 # Specifies an ordered list of schema files, directories, or glob patterns that describe your database.
 # Supports paths relative to supabase directory: "./schemas/*.sql", "./database".
-schema_paths = []
+schema_paths = [
+  "./schemas/tables/*.sql",
+  "./schemas/views/*.sql",
+  "./schemas/procedures/*.sql",
+  "./schemas/triggers/*.sql",
+  "./schemas/policies/*.sql",
+]
 
 [db.seed]
 # If enabled, seeds the database after migrations during a db reset.

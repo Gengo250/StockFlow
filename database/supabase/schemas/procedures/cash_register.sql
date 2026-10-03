@@ -1,6 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE OR REPLACE PROCEDURE validate_login (
+
+CREATE OR REPLACE PROCEDURE pr_validate_login (
   v_name VARCHAR,
   pass VARCHAR,
   OUT is_valid BOOLEAN
@@ -12,7 +13,8 @@ DECLARE
   saved_hash VARCHAR;
 
 BEGIN
-  SELECT password into saved_hash
+
+  SELECT pass_hash into saved_hash
   FROM access_register
   WHERE v_name = name;
 

@@ -1,6 +1,8 @@
-CREATE OR REPLACE FUNCTION create_categories (
+CREATE OR REPLACE FUNCTION fn_create_categories (
   p_name TEXT
 )
+
+
 RETURNS UUID 
 LANGUAGE plpgsql
 AS $$
@@ -23,7 +25,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION create_products (
+CREATE OR REPLACE FUNCTION fn_create_products (
   p_barcode TEXT,
   p_name TEXT,
   p_sell_price NUMERIC (10, 2),
@@ -71,4 +73,3 @@ BEGIN
   RETURN v_new_id;
 END;
 $$;
-
