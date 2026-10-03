@@ -8,6 +8,7 @@ os.environ["QT_STYLE_OVERRIDE"] = "Fusion"
 
 from PySide6.QtWidgets import QApplication
 
+from stockflow.presentation.demo_accounts import conta_admin
 from stockflow.presentation.windows.main_window import MainWindow
 
 
@@ -17,7 +18,7 @@ class ProductDetailsTest(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     def test_catalog_details_return_and_failure(self):
-        window = MainWindow()
+        window = MainWindow(conta_admin().session())
         self.addCleanup(window.close)
         window.show()
         window.sidebar.buttons["produtos"].click()

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from PySide6.QtCore import Qt, QSize, Signal
 
+from stockflow.presentation.roles import iniciais, rotulo_de_papel
 from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.menu_button import create_menu_button
 
@@ -215,12 +216,12 @@ class Sidebar(QFrame):
             0
         )
 
-        avatar = QLabel("US")
+        self.avatar = QLabel("US")
 
-        avatar.setAlignment(Qt.AlignCenter)
-        avatar.setFixedSize(38, 38)
+        self.avatar.setAlignment(Qt.AlignCenter)
+        self.avatar.setFixedSize(38, 38)
 
-        avatar.setStyleSheet(theme.AVATAR_QSS)
+        self.avatar.setStyleSheet(theme.AVATAR_QSS)
 
         user_info = QWidget()
 
@@ -229,16 +230,19 @@ class Sidebar(QFrame):
         user_info_layout.setContentsMargins(0, 0, 0, 0)
         user_info_layout.setSpacing(0)
 
-        user_name = QLabel("Usuário")
+        # Nome e papel vinham fixos como "Usuário / Administrador". Com a
+        # US01 o papel decide o que a tela libera, então exibir sempre
+        # "Administrador" era exatamente o aviso errado para um vendedor.
+        self.user_name = QLabel("Usuário")
 
-        user_name.setStyleSheet(theme.USER_NAME_QSS)
+        self.user_name.setStyleSheet(theme.USER_NAME_QSS)
 
-        user_role = QLabel("Administrador")
+        self.user_role = QLabel("Administrador")
 
-        user_role.setStyleSheet(theme.USER_ROLE_QSS)
+        self.user_role.setStyleSheet(theme.USER_ROLE_QSS)
 
-        user_info_layout.addWidget(user_name)
-        user_info_layout.addWidget(user_role)
+        user_info_layout.addWidget(self.user_name)
+        user_info_layout.addWidget(self.user_role)
 
         self.logout_button = QPushButton()
 
@@ -254,10 +258,18 @@ class Sidebar(QFrame):
 
         self.logout_button.setStyleSheet(theme.LOGOUT_BUTTON_QSS)
 
-        user_layout.addWidget(avatar)
+        user_layout.addWidget(self.avatar)
         user_layout.addSpacing(8)
         user_layout.addWidget(user_info)
         user_layout.addStretch()
         user_layout.addWidget(self.logout_button)
 
         return container
+
+    def set_user(self, session=None):
+        """Mostra quem está logado. Sem sessão, mantém o rótulo genérico."""
+        nome = getattr(session, "name", None) or "Usuário"
+        papel = rotulo_de_papel(getattr(session, "role", None)) if session else "Administrador"
+        self.user_name.setText(nome)
+        self.user_role.setText(papel)
+        self.avatar.setText(iniciais(nome))

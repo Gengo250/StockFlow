@@ -9,6 +9,7 @@ os.environ['QT_STYLE_OVERRIDE'] = 'Fusion'
 
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QScrollArea
+from stockflow.presentation.demo_accounts import conta_admin
 from stockflow.presentation.windows.main_window import MainWindow
 from stockflow.presentation.widgets.user_form import UserForm
 from stockflow.presentation.demo_users import DEMO_USERS
@@ -34,7 +35,7 @@ def capture(output, baseline=None):
         count += 1
 
     for width, height in ((1440, 900), (1024, 768)):
-        window = MainWindow()
+        window = MainWindow(conta_admin().session())
         window.resize(width, height)
         window.show()
         prefix = str(width)
