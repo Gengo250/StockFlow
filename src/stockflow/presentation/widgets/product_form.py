@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-
+from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 from stockflow.presentation.widgets.form_fields import (
     FormCard, LABEL_QSS, _card_header, _combo, _divider, _field,
     _line_edit, _money_input, _stock_input,
@@ -139,10 +139,7 @@ class PriceTaxCard(FormCard):
         self.sale_price_input = _money_input()
         sale.layout().addWidget(self.sale_price_input)
         unit = _field("Unidade")
-        self.unit_input = _combo([
-            "Unidade (UN)", "Caixa (CX)", "Pacote (PCT)",
-            "Quilograma (KG)", "Grama (G)", "Litro (L)", "Metro (M)",
-        ])
+        self.unit_input = _combo(PRODUCT_UNITS)
         unit.layout().addWidget(self.unit_input)
         first_row.addWidget(cost)
         first_row.addWidget(sale)

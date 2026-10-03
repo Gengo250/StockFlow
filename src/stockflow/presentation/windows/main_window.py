@@ -256,6 +256,10 @@ class MainWindow(QMainWindow):
         self._new_product_origin = origin
 
         self.novo_produto_page.clear_form()
+        self.novo_produto_page.set_catalog_options(
+            self.product_repository.list_active_categories(),
+            self.product_repository.list_active_units(),
+        )
         self.novo_produto_page.set_code(self.product_repository.next_code())
 
         self.pages.setCurrentWidget(self.novo_produto_page)
@@ -277,6 +281,10 @@ class MainWindow(QMainWindow):
         # o widget mostra.
         self._editing_code = code
 
+        self.editar_produto_page.set_catalog_options(
+            self.product_repository.list_active_categories(),
+            self.product_repository.list_active_units(),
+        )
         self.editar_produto_page.load_product(self.products.get(code, product))
 
         self.pages.setCurrentWidget(
@@ -358,6 +366,9 @@ class MainWindow(QMainWindow):
             self._report_save_error("Edição não permitida", erro)
             return
         except LookupError as erro:
+            self._report_save_error("Não foi possível salvar", erro)
+            return
+        except ValueError as erro:
             self._report_save_error("Não foi possível salvar", erro)
             return
 

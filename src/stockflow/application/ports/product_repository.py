@@ -6,10 +6,22 @@ from stockflow.application.dto.product_input import ProductInput
 
 
 class ProductRepository(Protocol):
-    """Contrato que a infraestrutura (Supabase) deve satisfazer."""
+    """Contrato que a infraestrutura deve satisfazer.
+
+    Em uma implementação de banco, as verificações de status devem respeitar
+    o escopo RLS da empresa e as gravações devem passar pelas funções
+    autorizadas documentadas para o backend.
+    """
 
     def exists(self, code: str) -> bool: ...
 
+    def is_category_active(self, category: str) -> bool: ...
+
+    def is_unit_active(self, unit: str) -> bool: ...
+
+    def list_active_categories(self) -> tuple[str, ...]: ...
+
+    def list_active_units(self) -> tuple[str, ...]: ...
     def get(self, code: str):
         """Produto gravado sob o código, ou `None` se não houver.
 
