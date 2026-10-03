@@ -5,9 +5,13 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from stockflow.presentation.demo_data import linhas_de_usuarios
 
-from stockflow.presentation.demo_users import DEMO_USERS
 
+# Dados demonstrativos exclusivos da apresentação.
+# A tela de Vendas lê a mesma base em demo_data, para que todo usuário
+# ativo aqui tenha um cliente associável lá.
+DEMO_USERS = linhas_de_usuarios()
 
 
 class UserTable(QFrame):
@@ -62,21 +66,19 @@ class UserTable(QFrame):
             self.table.setCellWidget(row, 2, actions)
         self.table.cellDoubleClicked.connect(lambda row, column: self._edit(row))
         layout.addWidget(self.table)
-        self.count = QLabel()
-        self.count.setObjectName("muted")
-        self.count.setContentsMargins(18, 12, 18, 12)
-        layout.addWidget(self.count)
-        self.filter_users()
-
-    def filter_users(self, query="", role="Todos os perfis"):
-        query = query.strip().casefold()
-        visible = 0
-        for row, (name, email, profile) in enumerate(DEMO_USERS):
-            match = (query in f"{name} {email}".casefold()
-                     and (role == "Todos os perfis" or profile == role))
-            self.table.setRowHidden(row, not match)
-            visible += match
-        self.count.setText(f"{visible} de {len(DEMO_USERS)} usuários exibidos")
+        footer = QHBoxLayout()
+        footer.setContentsMargins(18, 12, 18, 12)
+        total = len(DEMO_USERS)
+        count = QLabel(f"{total} de {total} usuários exibidos")
+        count.setObjectName("muted")
+        footer.addWidget(count)
+        footer.addStretch()
+        for text in ("Anterior", "1", "Próximo"):
+            button = QPushButton(text)
+            button.setObjectName("primaryButton" if text == "1" else "secondaryButton")
+            button.setEnabled(False)
+            footer.addWidget(button)
+        layout.addLayout(footer)
 
     def _edit(self, row):
         self.table.selectRow(row)

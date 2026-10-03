@@ -158,12 +158,20 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentWidget(
             self.editar_produto_page
         )
+        
+    def _associar_cliente_e_abrir_vendas(self, nome_cliente):
+        """Abre Vendas com o cliente já selecionado.
 
-    def _show_product_details(self, code):
-        self.product_details_page.load_product(self.products.get(code))
-        self.pages.setCurrentWidget(self.product_details_page)
-        self.sidebar.set_active("produtos")
+        Quando a associação falha, a página é aberta mesmo assim: o aviso
+        preenchido por selecionar_cliente_externo explica o motivo e o foco
+        vai para o combo, para seleção manual. Descartar o retorno fazia a
+        navegação parecer bem-sucedida com o combo no placeholder.
+        """
+        associado = self.vendas_page.selecionar_cliente_externo(nome_cliente)
 
-    def _show_new_product(self, origin):
-        self._new_product_origin = origin
-        self.pages.setCurrentWidget(self.novo_produto_page)
+        self.show_page("vendas")
+
+        if not associado:
+            self.vendas_page.cliente_combo.setFocus()
+
+        return associado
