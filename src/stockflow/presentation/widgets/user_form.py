@@ -3,6 +3,8 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QVBoxLayout,
 )
 
+from stockflow.presentation.demo_users import USER_ROLES
+
 
 class UserForm(QDialog):
     def __init__(self, user=None, parent=None):
@@ -24,24 +26,15 @@ class UserForm(QDialog):
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Nome completo")
         self.login_input = QLineEdit()
-        self.login_input.setPlaceholderText("Login do usuário")
+        self.login_input.setPlaceholderText("E-mail do usuário")
         self.role_input = QComboBox()
-        self.role_input.addItems(["Operador", "Gerente", "Administrador", "Financeiro"])
-        self.status_input = QComboBox()
-        self.status_input.addItems(["Ativo", "Inativo", "Pendente"])
-        for label, field in (("Nome", self.name_input), ("Login", self.login_input), ("Perfil", self.role_input), ("Status", self.status_input)):
+        self.role_input.addItems(USER_ROLES)
+        for label, field in (("Nome", self.name_input), ("E-mail", self.login_input), ("Perfil", self.role_input)):
             fields.addRow(label, field)
-        self.password_input = None
         if user:
             self.name_input.setText(user[0])
             self.login_input.setText(user[1])
-            self.role_input.setCurrentText(user[3])
-            self.status_input.setCurrentText(user[4])
-        else:
-            self.password_input = QLineEdit()
-            self.password_input.setEchoMode(QLineEdit.Password)
-            self.password_input.setPlaceholderText("Digite uma senha")
-            fields.addRow("Senha", self.password_input)
+            self.role_input.setCurrentText(user[2])
         layout.addLayout(fields)
         actions = QHBoxLayout()
         actions.addStretch()

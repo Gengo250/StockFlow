@@ -112,9 +112,10 @@ class Sidebar(QFrame):
 
         for button_key, button in self.buttons.items():
 
-            button.setObjectName(
-                "activeButton" if button_key == key else ""
-            )
+            object_name = "activeButton" if button_key == key else ""
+            if button.objectName() == object_name:
+                continue
+            button.setObjectName(object_name)
 
             button.style().unpolish(button)
             button.style().polish(button)

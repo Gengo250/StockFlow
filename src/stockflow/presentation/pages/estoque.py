@@ -1,655 +1,78 @@
 import qtawesome as qta
+from PySide6.QtCore import QSize, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QLineEdit,
-    QFrame,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
-    QAbstractItemView,
-)
-
-from PySide6.QtCore import Qt, QSize, Signal
+from stockflow.presentation.demo_products import DEMO_PRODUCTS
+from stockflow.presentation.styles import inventory
+from stockflow.presentation.widgets.stock_table import StockTable
 
 
 class EstoquePage(QWidget):
-
     product_edit_requested = Signal(object)
 
     def __init__(self):
         super().__init__()
-
         self.setObjectName("estoquePage")
-
-        self.setStyleSheet("""
-    QWidget#estoquePage {
-        background-color: #F0F5FF;
-    }
-""")
-
-        # ==================================================
-        # PRODUTOS CARREGADOS (Estrutura: [código, nome, categoria, estoque, preço, status, ativo])
-        # ==================================================
-
+        self.setStyleSheet(inventory.PAGE_QSS)
         self.produtos = [
-            ["PRD-009", "Monitor LG UltraWide 34\"", "Eletrônicos", "18", "R$ 2.499,90", "Normal", True, 10],
-            ["PRD-008", "Teclado mecânico sem fio", "Periféricos", "6", "R$ 459,90", "Baixo", True, 10],
-            ["PRD-007", "Mouse ergonômico", "Periféricos", "2", "R$ 189,90", "Crítico", True, 5],
-            ["PRD-006", "Cabo HDMI 2.0", "Acessórios", "0", "R$ 29,90", "Crítico", True, 10],
+            (product.code, product.name, product.category, product.stock,
+             product.sale_price, product.stock_status)
+            for product in DEMO_PRODUCTS.values()
         ]
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setSpacing(18)
+        layout.addLayout(self._create_header())
+        layout.addLayout(self._create_filters())
+        self.stock_table = StockTable(self.produtos)
+        self.stock_table.product_edit_requested.connect(self.product_edit_requested.emit)
+        self.table = self.stock_table.table
+        layout.addWidget(self.stock_table)
 
-
-        main_layout = QVBoxLayout(self)
-
-        main_layout.setContentsMargins(
-            22,
-            22,
-            22,
-            22
-        )
-
-        main_layout.setSpacing(18)
-
-
-        # ==================================================
-        # CABEÇALHO
-        # ==================================================
-
-        header_layout = QHBoxLayout()
-
-        title_container = QWidget()
-
-        title_layout = QVBoxLayout(title_container)
-
-        title_layout.setContentsMargins(0, 0, 0, 0)
-        title_layout.setSpacing(2)
-
-
+    def _create_header(self):
+        layout = QHBoxLayout()
+        container = QWidget()
+        texts = QVBoxLayout(container)
+        texts.setContentsMargins(0, 0, 0, 0)
+        texts.setSpacing(2)
         title = QLabel("Controle de Estoque")
-
-        title.setStyleSheet("""
-            color: #0F172A;
-            font-size: 26px;
-            font-weight: 700;
-        """)
-
-
-        self.subtitle = QLabel(
-            f"{len(self.produtos)} produtos cadastrados"
-        )
-
-        self.subtitle.setStyleSheet("""
-            color: #64748B;
-            font-size: 14px;
-        """)
-
-
-        title_layout.addWidget(title)
-        title_layout.addWidget(self.subtitle)
-
-
+        title.setStyleSheet(inventory.TITLE_QSS)
+        subtitle = QLabel(f"{len(self.produtos)} produtos cadastrados")
+        subtitle.setStyleSheet(inventory.SUBTITLE_QSS)
+        texts.addWidget(title)
+        texts.addWidget(subtitle)
         self.new_product_button = QPushButton("Novo Produto")
-
-        self.new_product_button.setIcon(
-            qta.icon(
-                "fa5s.plus",
-                color="white"
-            )
-        )
-
+        self.new_product_button.setIcon(qta.icon("fa5s.plus", color="white"))
         self.new_product_button.setIconSize(QSize(14, 14))
-
         self.new_product_button.setFixedHeight(40)
+        self.new_product_button.setStyleSheet(inventory.NEW_BUTTON_QSS)
+        layout.addWidget(container)
+        layout.addStretch()
+        layout.addWidget(self.new_product_button)
+        return layout
 
-        self.new_product_button.setStyleSheet("""
-            QPushButton {
-                background-color: #2563EB;
-                color: white;
-
-                border: none;
-                border-radius: 12px;
-
-                padding: 0px 18px;
-
-                font-size: 14px;
-                font-weight: 500;
-            }
-
-            QPushButton:hover {
-                background-color: #1D4ED8;
-            }
-        """)
-
-
-        header_layout.addWidget(title_container)
-
-        header_layout.addStretch()
-
-        header_layout.addWidget(self.new_product_button)
-
-
-        main_layout.addLayout(header_layout)
-
-
-        # ==================================================
-        # BUSCA + FILTROS
-        # ==================================================
-
-        filter_layout = QHBoxLayout()
-
-        filter_layout.setSpacing(10)
-
-
-        self.search_input = QLineEdit()
-
-        self.search_input.setPlaceholderText(
-            "Buscar por nome, código ou categoria..."
-        )
-
-        self.search_input.setFixedHeight(44)
-
-        self.search_input.addAction(
-            qta.icon(
-                "fa5s.search",
-                color="#94A3B8"
-            ),
-            QLineEdit.LeadingPosition
-        )
-
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                background-color: white;
-
-                border: 1px solid #BFDBFE;
-                border-radius: 12px;
-
-                padding: 0px 12px;
-
-                color: #0F172A;
-
-                font-size: 14px;
-            }
-
-            QLineEdit:focus {
-                border: 2px solid #93C5FD;
-            }
-        """)
-
-
-        # Conecta o campo de pesquisa à função de filtragem
-        self.search_input.textChanged.connect(self.apply_filters)
-
-        filter_layout.addWidget(self.search_input, 1)
-
-
-        # ==================================================
-        # BOTÕES DE FILTRO
-        # ==================================================
-
+    def _create_filters(self):
+        layout = QHBoxLayout()
+        layout.setSpacing(10)
+        search = QLineEdit()
+        search.setPlaceholderText("Buscar produto ou código...")
+        search.setFixedHeight(44)
+        search.addAction(qta.icon("fa5s.search", color="#94A3B8"), QLineEdit.LeadingPosition)
+        search.setStyleSheet(inventory.SEARCH_QSS)
+        layout.addWidget(search, 1)
         self.filter_buttons = []
-
-        filtros = [
-            "Todos",
-            "Normal",
-            "Baixo",
-            "Crítico",
-            "Inativos"
-        ]
-
-        for index, texto in enumerate(filtros):
-
-            button = QPushButton(texto)
-
+        for index, text in enumerate(("Todos", "Normal", "Baixo", "Crítico")):
+            button = QPushButton(text)
             button.setCheckable(True)
-
             button.setFixedHeight(44)
-
             button.setMinimumWidth(82)
-
-            button.setStyleSheet("""
-                QPushButton {
-                    background-color: white;
-                    color: #475569;
-
-                    border: 1px solid #DBEAFE;
-                    border-radius: 12px;
-
-                    padding: 0px 16px;
-
-                    font-size: 14px;
-                }
-
-                QPushButton:hover {
-                    border: 1px solid #93C5FD;
-                }
-
-                QPushButton:checked {
-                    background-color: #2563EB;
-                    color: white;
-
-                    border: none;
-                }
-            """)
-
-            if index == 0:
-                button.setChecked(True)
-
-            button.clicked.connect(
-                lambda checked, btn=button:
-                self.select_filter(btn)
-            )
-
+            button.setStyleSheet(inventory.FILTER_QSS)
+            button.setChecked(index == 0)
+            button.clicked.connect(lambda checked=False, btn=button: self.select_filter(btn))
             self.filter_buttons.append(button)
-
-            filter_layout.addWidget(button)
-
-
-        main_layout.addLayout(filter_layout)
-
-
-        # ==================================================
-        # CONTAINER DA TABELA
-        # ==================================================
-
-        table_container = QFrame()
-
-        table_container.setStyleSheet("""
-            QFrame {
-                background-color: white;
-
-                border: 1px solid #DBEAFE;
-                border-radius: 16px;
-            }
-        """)
-
-        table_layout = QVBoxLayout(table_container)
-
-        table_layout.setContentsMargins(0, 0, 0, 0)
-        table_layout.setSpacing(0)
-
-
-        # ==================================================
-        # TABELA
-        # ==================================================
-
-        self.table = QTableWidget()
-
-        self.table.setColumnCount(7)
-
-        self.table.setHorizontalHeaderLabels(
-            [
-                "Código",
-                "Produto",
-                "Categoria",
-                "Estoque",
-                "Preço",
-                "Status",
-                "Ações",
-            ]
-        )
-
-        self.table.setEditTriggers(
-            QAbstractItemView.NoEditTriggers
-        )
-
-        self.table.setSelectionBehavior(
-            QAbstractItemView.SelectRows
-        )
-
-        self.table.setSelectionMode(
-            QAbstractItemView.SingleSelection
-        )
-
-        self.table.verticalHeader().setVisible(False)
-
-        self.table.setShowGrid(False)
-
-        self.table.setAlternatingRowColors(False)
-
-        self.table.setFocusPolicy(Qt.NoFocus)
-
-        self.table.setStyleSheet("""
-    QTableWidget {
-        background-color: #FFFFFF;
-        color: #0F172A;
-
-        border: none;
-
-        font-size: 14px;
-    }
-
-    QTableWidget::viewport {
-        background-color: #FFFFFF;
-    }
-
-    QTableWidget::item {
-        background-color: #FFFFFF;
-
-        border-bottom: 1px solid #EFF6FF;
-
-        padding: 8px;
-    }
-
-    QTableWidget::item:selected {
-        background-color: #EFF6FF;
-        color: #0F172A;
-    }
-
-    QHeaderView::section {
-        background-color: #F8FBFF;
-        color: #64748B;
-
-        border: none;
-        border-bottom: 1px solid #DBEAFE;
-
-        padding: 10px;
-
-        font-size: 12px;
-        font-weight: 600;
-    }
-""")
-
-
-        # ==================================================
-        # TAMANHO DAS COLUNAS
-        # ==================================================
-
-        header = self.table.horizontalHeader()
-
-        header.setSectionResizeMode(
-            0,
-            QHeaderView.ResizeToContents
-        )
-
-        header.setSectionResizeMode(
-            1,
-            QHeaderView.Stretch
-        )
-
-        header.setSectionResizeMode(
-            2,
-            QHeaderView.ResizeToContents
-        )
-
-        header.setSectionResizeMode(
-            3,
-            QHeaderView.ResizeToContents
-        )
-
-        header.setSectionResizeMode(
-            4,
-            QHeaderView.ResizeToContents
-        )
-
-        header.setSectionResizeMode(
-            5,
-            QHeaderView.ResizeToContents
-        )
-
-        header.setSectionResizeMode(
-            6,
-            QHeaderView.ResizeToContents
-        )
-
-
-        # ==================================================
-        # ALTURA DAS LINHAS
-        # ==================================================
-
-        self.table.verticalHeader().setDefaultSectionSize(62)
-
-
-        table_layout.addWidget(self.table)
-
-        main_layout.addWidget(table_container)
-
-
-        # Preenchimento inicial considerando os filtros
-        self.apply_filters()
-
-
-    # ======================================================
-    # LÓGICA DE FILTRAGEM E ATUALIZAÇÃO DA TABELA
-    # ======================================================
-
-    def get_selected_filter(self):
-
-        for button in self.filter_buttons:
-            if button.isChecked():
-                return button.text()
-
-        return "Todos"
-
+            layout.addWidget(button)
+        return layout
 
     def select_filter(self, selected_button):
-
         for button in self.filter_buttons:
-            button.setChecked(
-                button == selected_button
-            )
-
-        self.apply_filters()
-
-
-    def apply_filters(self):
-        search_query = self.search_input.text().strip().lower()
-        active_filter = self.get_selected_filter()
-
-        filtered_products = []
-
-        for produto in self.produtos:
-            codigo = produto[0]
-            nome = produto[1]
-            categoria = produto[2]
-            estoque_atual = int(produto[3])
-            ativo = produto[6]
-            estoque_minimo = produto[7] if len(produto) > 7 else 5
-
-            # US04: Define status com base no estoque mínimo
-            if estoque_atual <= max(1, estoque_minimo // 2):
-                calculated_status = "Crítico"
-            elif estoque_atual <= estoque_minimo:
-                calculated_status = "Baixo"
-            else:
-                calculated_status = "Normal"
-
-            produto[5] = calculated_status
-
-            matches_search = (
-                search_query in codigo.lower()
-                or search_query in nome.lower()
-                or search_query in categoria.lower()
-            )
-
-            if active_filter == "Todos":
-                matches_filter = ativo
-            elif active_filter == "Inativos":
-                matches_filter = not ativo
-            else:
-                matches_filter = ativo and (calculated_status == active_filter)
-
-            if matches_search and matches_filter:
-                filtered_products.append(produto)
-
-        # US04: Ordena do menor para o maior estoque na exibição de alertas
-        if active_filter in ["Baixo", "Crítico"]:
-            filtered_products.sort(key=lambda item: int(item[3]))
-
-        self.populate_table(filtered_products)
-
-
-    def populate_table(self, produtos_para_exibir):
-
-        self.table.setRowCount(len(produtos_para_exibir))
-
-        self.subtitle.setText(
-            f"{len(produtos_para_exibir)} produtos cadastrados"
-        )
-
-        for row, produto in enumerate(produtos_para_exibir):
-
-            codigo = QTableWidgetItem(
-                produto[0]
-            )
-
-            codigo.setForeground(
-                Qt.blue
-            )
-
-            self.table.setItem(
-                row,
-                0,
-                codigo
-            )
-
-
-            self.table.setItem(
-                row,
-                1,
-                QTableWidgetItem(produto[1])
-            )
-
-
-            self.table.setItem(
-                row,
-                2,
-                QTableWidgetItem(produto[2])
-            )
-
-
-            self.table.setItem(
-                row,
-                3,
-                QTableWidgetItem(produto[3])
-            )
-
-
-            self.table.setItem(
-                row,
-                4,
-                QTableWidgetItem(produto[4])
-            )
-
-
-            status_texto = produto[5] if produto[6] else "Inativo"
-
-            self.table.setItem(
-                row,
-                5,
-                QTableWidgetItem(status_texto)
-            )
-
-
-            # ==================================================
-            # BOTÕES DE AÇÃO
-            # ==================================================
-
-            actions_widget = QWidget()
-
-            actions_layout = QHBoxLayout(actions_widget)
-
-            actions_layout.setContentsMargins(
-                0,
-                0,
-                0,
-                0
-            )
-
-            actions_layout.setSpacing(6)
-
-
-            edit_button = QPushButton()
-
-            edit_button.setIcon(
-                qta.icon(
-                    "fa5s.pen",
-                    color="#94A3B8"
-                )
-            )
-
-            edit_button.setFixedSize(28, 28)
-
-            edit_button.setToolTip("Editar produto")
-
-            edit_button.clicked.connect(
-                lambda checked=False, item=produto:
-                self.product_edit_requested.emit(item)
-            )
-
-            edit_button.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: none;
-                }
-
-                QPushButton:hover {
-                    background-color: #EFF6FF;
-                    border-radius: 6px;
-                }
-            """)
-
-
-            toggle_button = QPushButton()
-
-            ativo = produto[6]
-
-            icon_name = "fa5s.ban" if ativo else "fa5s.check-circle"
-            icon_color = "#EF4444" if ativo else "#10B981"
-            tooltip_text = "Desativar produto" if ativo else "Ativar produto"
-
-            toggle_button.setIcon(
-                qta.icon(
-                    icon_name,
-                    color=icon_color
-                )
-            )
-
-            toggle_button.setFixedSize(28, 28)
-
-            toggle_button.setToolTip(tooltip_text)
-
-            toggle_button.clicked.connect(
-                lambda checked=False, item=produto:
-                self.toggle_product_status(item)
-            )
-
-            toggle_button.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    border: none;
-                }
-
-                QPushButton:hover {
-                    background-color: #FEF2F2;
-                    border-radius: 6px;
-                }
-            """)
-
-
-            actions_layout.addWidget(
-                edit_button
-            )
-
-            actions_layout.addWidget(
-                toggle_button
-            )
-
-
-            self.table.setCellWidget(
-                row,
-                6,
-                actions_widget
-            )
-
-
-    def toggle_product_status(self, produto):
-
-        # Alterna a flag de ativo/inativo (produto[6])
-        produto[6] = not produto[6]
-
-        self.apply_filters()
+            button.setChecked(button == selected_button)
