@@ -8,6 +8,7 @@ os.environ['QT_STYLE_OVERRIDE'] = 'Fusion'
 from PySide6.QtWidgets import QApplication, QPushButton
 from stockflow.presentation.demo_users import DEMO_USERS, USER_ROLES
 from stockflow.presentation.widgets.user_form import UserForm
+from stockflow.presentation.widgets.user_table import ACTIONS_COLUMN
 from stockflow.presentation.windows.main_window import MainWindow
 
 
@@ -74,27 +75,40 @@ class UIRegressionTest(unittest.TestCase):
         self.assertEqual(catalog.grid.count(), 3)
 
     def test_user_filters_and_edit_actions(self):
+        # Linha de usuário:
+        # (nome, login, departamento, perfil, status, último acesso, cor).
+        # Este teste descrevia a base antiga de tres pessoas com perfil em
+        # user[2] e acoes na coluna 2; seguia verde contra uma tela que nao
+        # existe mais desde que a base passou a vir de demo_data.
         window = MainWindow()
         self.addCleanup(window.close)
         users = window.page_widgets['usuarios'].user_table
         users.edit_requested.disconnect()
         requested = []
         users.edit_requested.connect(requested.append)
+        rows = range(len(DEMO_USERS))
         for row, user in enumerate(DEMO_USERS):
-            users.table.cellWidget(row, 2).findChild(QPushButton).click()
+            users.table.cellWidget(row, ACTIONS_COLUMN).findChild(QPushButton).click()
             self.assertEqual(requested[-1], user)
             form = UserForm(user)
             self.assertEqual(form.name_input.text(), user[0])
             self.assertEqual(form.login_input.text(), user[1])
-            self.assertEqual(form.role_input.currentText(), user[2])
+            self.assertEqual(form.role_input.currentText(), user[3])
             self.assertEqual(form.role_input.count(), len(USER_ROLES))
             form.close()
-            users.filter_users(role=user[2])
-            self.assertEqual([i for i in range(3) if not users.table.isRowHidden(i)], [row])
+            # Varias pessoas dividem o mesmo perfil: o filtro mostra todas.
+            users.filter_users(role=user[3])
+            self.assertEqual(
+                [i for i in rows if not users.table.isRowHidden(i)],
+                [i for i, other in enumerate(DEMO_USERS) if other[3] == user[3]],
+            )
+            # O nome e unico, entao a busca isola a linha editada.
+            users.filter_users(user[0])
+            self.assertEqual([i for i in rows if not users.table.isRowHidden(i)], [row])
         users.filter_users('missing')
-        self.assertTrue(all(users.table.isRowHidden(i) for i in range(3)))
+        self.assertTrue(all(users.table.isRowHidden(i) for i in rows))
         users.filter_users()
-        self.assertTrue(all(not users.table.isRowHidden(i) for i in range(3)))
+        self.assertTrue(all(not users.table.isRowHidden(i) for i in rows))
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 from stockflow.presentation.widgets.user_form import UserForm
 from stockflow.presentation.widgets.user_summary import UserSummary
 from stockflow.presentation.demo_users import DEMO_USERS, USER_ROLES
-from stockflow.presentation.widgets.user_table import UserTable
+from stockflow.presentation.widgets.user_table import ALL_ROLES, UserTable
 
 
 from stockflow.presentation.styles.users import USERS_QSS
@@ -53,7 +53,7 @@ class UsersPage(QWidget):
         search.addAction(qta.icon("fa5s.search", color="#849ABE"), QLineEdit.LeadingPosition)
         layout.addWidget(search, 1)
         role = QComboBox()
-        role.addItems(["Todos os perfis", *USER_ROLES])
+        role.addItems([ALL_ROLES, *USER_ROLES])
         role.setAccessibleName("Filtrar por perfil")
         layout.addWidget(role)
         search.textChanged.connect(
