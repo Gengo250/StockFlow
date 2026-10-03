@@ -3,6 +3,7 @@
 from stockflow.application.dto.product_input import ProductInput
 from stockflow.application.ports.product_repository import ProductRepository
 from stockflow.domain.permissions import ensure_can_manage_products
+from stockflow.domain.validators.product import validate_product
 
 
 class ProductService:
@@ -18,6 +19,11 @@ class ProductService:
 
         if self._repository.exists(data.code):
             raise ValueError(f"Já existe um produto com o código {data.code}.")
+        validate_product(
+            data,
+            category_is_active=self._repository.is_category_active,
+            unit_is_active=self._repository.is_unit_active,
+        )
         return self._repository.create(data)
 
     def update_product(self, session, code: str, data: ProductInput) -> str:
@@ -26,4 +32,13 @@ class ProductService:
 
         if not self._repository.exists(code):
             raise LookupError(f"Produto {code} não encontrado.")
+
+        if data.code != code and self._repository.exists(data.code):
+            raise ValueError(f"Já existe um produto com o código {data.code}.")
+
+        validate_product(
+            data,
+            category_is_active=self._repository.is_category_active,
+            unit_is_active=self._repository.is_unit_active,
+        )
         return self._repository.update(code, data)

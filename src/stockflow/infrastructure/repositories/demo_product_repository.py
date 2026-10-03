@@ -7,6 +7,7 @@ de banco depois não muda nada acima desta camada.
 """
 
 from stockflow.application.dto.product_input import ProductInput
+from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 
 # Depender da apresentação é uma inversão aceita só enquanto o `Product` da
 # demonstração é o único modelo de leitura existente. O adaptador de banco vai
@@ -17,6 +18,8 @@ from stockflow.presentation.demo_products import Product
 # voltar (o merge levou `apply_filters`/`search_input` da EstoquePage junto),
 # usar um valor fixo é melhor do que inventar uma segunda regra de status.
 DEFAULT_MINIMUM_STOCK = 10
+ACTIVE_DEMO_CATEGORIES = frozenset({"Eletrônicos", "Periféricos"})
+ACTIVE_DEMO_UNITS = frozenset(PRODUCT_UNITS)
 
 
 def derive_stock_status(stock: int, minimum: int = DEFAULT_MINIMUM_STOCK) -> str:
@@ -82,12 +85,36 @@ def _para_inteiro(valor) -> int:
 
 
 class DemoProductRepository:
-    def __init__(self, products: dict, minimum_stock: int = DEFAULT_MINIMUM_STOCK):
+    def __init__(
+        self,
+        products: dict,
+        minimum_stock: int = DEFAULT_MINIMUM_STOCK,
+        active_categories=None,
+        active_units=ACTIVE_DEMO_UNITS,
+    ):
         self._products = products
         self._minimum_stock = minimum_stock
+        self._active_categories = (
+            set(ACTIVE_DEMO_CATEGORIES)
+            if active_categories is None
+            else set(active_categories)
+        )
+        self._active_units = set(active_units)
 
     def exists(self, code: str) -> bool:
         return code in self._products
+
+    def is_category_active(self, category: str) -> bool:
+        return category in self._active_categories
+
+    def is_unit_active(self, unit: str) -> bool:
+        return unit in self._active_units
+
+    def list_active_categories(self) -> tuple[str, ...]:
+        return tuple(sorted(self._active_categories))
+
+    def list_active_units(self) -> tuple[str, ...]:
+        return tuple(unit for unit in PRODUCT_UNITS if unit in self._active_units)
 
     def next_code(self) -> str:
         """Código livre para um cadastro novo, derivado do catálogo atual."""

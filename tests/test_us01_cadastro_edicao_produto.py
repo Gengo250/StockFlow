@@ -117,6 +117,18 @@ def test_cadastro_pelo_caminho_do_usuario_nao_depende_do_campo_de_codigo(
     assert criado.stock == "30"
 
 
+def test_formulario_carrega_apenas_catalogo_ativo(janela):
+    window = janela(sessao(UserRole.ADMIN))
+
+    window.estoque_page.new_product_button.click()
+
+    assert window.novo_produto_page.category_input.count() == 3
+    assert window.novo_produto_page.category_input.itemText(0) == "Selecione uma categoria"
+    assert window.novo_produto_page.category_input.findText("Eletrônicos") >= 0
+    assert window.novo_produto_page.category_input.findText("Periféricos") >= 0
+    assert window.novo_produto_page.unit_input.findText("Unidade (UN)") >= 0
+
+
 def test_dois_cadastros_seguidos_recebem_codigos_diferentes(janela, sem_dialogos):
     window = janela(sessao(UserRole.ADMIN))
 
@@ -196,6 +208,23 @@ def test_edicao_nao_reativa_produto_inativo(janela, sem_dialogos):
 
     assert window.last_save_error is None
     assert window.products["PRD-050"].active is False
+
+
+def test_edicao_com_categoria_nao_selecionada_exibe_erro_e_nao_grava(
+    janela, sem_dialogos
+):
+    window = janela(sessao(UserRole.ADMIN))
+    antes = window.products["PRD-009"]
+
+    window.estoque_page.stock_table.edit_buttons[0].click()
+    page = window.editar_produto_page
+    page.category_input.setCurrentIndex(0)
+    page.save_button.click()
+
+    assert isinstance(window.last_save_error, ValueError)
+    assert "Categoria é obrigatória" in str(window.last_save_error)
+    assert window.products["PRD-009"] == antes
+    assert sem_dialogos
 
 
 def test_duas_edicoes_do_mesmo_produto_nao_se_apagam(janela, sem_dialogos):

@@ -34,6 +34,14 @@ class RepositorioEspiao:
         self.chamadas.append(("exists", code))
         return code in self.produtos
 
+    def is_category_active(self, category):
+        self.chamadas.append(("category_active", category))
+        return category in {"Eletrônicos", "Periféricos"}
+
+    def is_unit_active(self, unit):
+        self.chamadas.append(("unit_active", unit))
+        return unit == "Unidade (UN)"
+
     def create(self, data):
         self.chamadas.append(("create", data))
         self.produtos[data.code] = data
