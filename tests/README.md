@@ -24,15 +24,25 @@ A plataforma `offscreen` deixa os testes de UI rodarem sem servidor gráfico
 | `test_us02_validacao_produto_ativo.py` | US02 produto inativo recusado em venda nova; histórico preservado |
 | `unit/test_product_active_policy.py` | US02 política de domínio de produto ativo/inativo |
 | `unit/test_product_selection_service.py` | US02 serviço de seleção usado por compras, vendas e movimentações |
+| `test_estoque_busca_filtro.py` | US03 consulta de saldo/mínimo/situação, busca e ativar/desativar |
+| `test_estoque_alerta_baixo.py` | US04 um teste por critério de conclusão do cartão |
+| `test_movimentacoes_estoque.py` | US03 saldo derivado das movimentações confirmadas (estático) |
+| `unit/test_supabase_product_repository.py` | adaptador de catálogo no Supabase, contra cliente falso |
+| `unit/test_supabase_auth.py` | login pelo Supabase Auth e montagem da sessão |
+| `unit/test_backend_selection.py` | escolha entre demonstração e banco por `STOCKFLOW_BACKEND` |
+| `unit/test_user_directory.py` | tradução da linha de usuário e leitura por `fn_list_company_users` |
+| `test_usuarios_do_banco.py` | tela de Usuários trocando demonstração por dados da empresa |
 
-## Falhas conhecidas (não são regressão)
+## Linha de base
 
-`test_estoque_busca_filtro.py` (15) e `test_estoque_alerta_baixo.py` (7) estão
-vermelhos desde antes desta branch: descrevem a US04 (busca, filtros por
-status e alerta de estoque baixo), cuja implementação se perdeu num merge —
-`EstoquePage` não tem mais `apply_filters` nem `search_input`. Os testes
-ficaram. A linha de base da suíte é **22 falhas**, confinadas a esses dois
-arquivos.
+**A suíte passa inteira.** Qualquer vermelho é regressão.
+
+Histórico, para quem encontrar a referência antiga: até a recuperação da US04
+a linha de base eram **22 falhas** em `test_estoque_busca_filtro.py` (15) e
+`test_estoque_alerta_baixo.py` (7). A implementação da história tinha se
+perdido num merge e só os testes sobreviveram. Ela voltou em
+`presentation/pages/estoque.py` (busca, filtros, `apply_filters`,
+`toggle_product_status`) e `domain/stock_level.py` (cálculo do status).
 
 ## Limitação conhecida
 

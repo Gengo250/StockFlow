@@ -23,8 +23,10 @@ class UsersPage(QWidget):
     uma operação administrativa a quem o banco recusaria.
     """
 
-    def __init__(self):
+    def __init__(self, users=None):
+        """Tela sobre as linhas recebidas; sem elas, cai na demonstração."""
         super().__init__()
+        self.users = tuple(DEMO_USERS if users is None else users)
         self.setObjectName("usersPage")
         self.setStyleSheet(USERS_QSS)
         layout = QVBoxLayout(self)
@@ -35,8 +37,14 @@ class UsersPage(QWidget):
         headings.setSpacing(5)
         title = QLabel("Administração de Usuários")
         title.setObjectName("pageTitle")
-        subtitle = QLabel(f"{len(DEMO_USERS)} usuários fictícios · Dados demonstrativos")
-        subtitle.setObjectName("muted")
+        # O subtítulo diz a ORIGEM dos dados. Deixar "Dados demonstrativos"
+        # fixo faria a tela ligada ao banco continuar se anunciando como
+        # fictícia — e foi exatamente esse rótulo que explicou por que um
+        # usuário real não aparecia aqui.
+        self.subtitle = QLabel()
+        self.subtitle.setObjectName("muted")
+        subtitle = self.subtitle
+        self._atualizar_subtitulo(users is not None)
         headings.addWidget(title)
         headings.addWidget(subtitle)
         header.addLayout(headings)
@@ -47,9 +55,10 @@ class UsersPage(QWidget):
         self.new_user_button.clicked.connect(lambda: self._open_form())
         header.addWidget(self.new_user_button)
         layout.addLayout(header)
-        layout.addWidget(UserSummary())
+        self.summary = UserSummary(self.users)
+        layout.addWidget(self.summary)
         layout.addLayout(self._toolbar())
-        self.user_table = UserTable()
+        self.user_table = UserTable(self.users)
         self.user_table.edit_requested.connect(self._open_form)
         layout.addWidget(self.user_table, 1)
         # Nasce fechada: a permissão chega depois, por `apply_session`. Abrir
@@ -57,16 +66,56 @@ class UsersPage(QWidget):
         # ficar aberta quando esse alguém não for chamado.
         self.apply_permission(False)
 
+    def load_users(self, users):
+        """Troca a lista exibida pelas linhas recebidas (vindas do banco).
+
+        Existe porque a listagem é restrita ao ADMIN: `fn_list_company_users`
+        recusa qualquer outro papel. Buscar no banco durante a construção da
+        `MainWindow` faria a janela de um SELLER morrer montando uma tela que
+        ele nem pode abrir — por isso a página nasce com a demonstração e só
+        troca quando alguém com permissão navega até aqui.
+        """
+        self.users = tuple(users)
+        self.user_table.set_users(self.users)
+        self.summary.set_users(self.users)
+        self._atualizar_perfis_do_filtro()
+        self._atualizar_subtitulo(True)
+
+    def _atualizar_perfis_do_filtro(self):
+        atual = self.role_filter.currentText()
+        self.role_filter.blockSignals(True)
+        self.role_filter.clear()
+        self.role_filter.addItems([ALL_ROLES, *self._perfis()])
+        # Preserva a escolha quando ela ainda existe; senão volta ao neutro,
+        # em vez de deixar a tabela filtrada por um perfil que sumiu da lista.
+        indice = self.role_filter.findText(atual)
+        self.role_filter.setCurrentIndex(indice if indice >= 0 else 0)
+        self.role_filter.blockSignals(False)
+        self.user_table.filter_users(self.search_input.text(), self.role_filter.currentText())
+
+    def _perfis(self):
+        """Perfis presentes nos dados, não a lista fixa da demonstração."""
+        return tuple(dict.fromkeys(user[3] for user in self.users)) or USER_ROLES
+
+    def _atualizar_subtitulo(self, do_banco: bool):
+        origem = "Dados da empresa" if do_banco else "Dados demonstrativos"
+        plural = "usuário" if len(self.users) == 1 else "usuários"
+        self.subtitle.setText(f"{len(self.users)} {plural} · {origem}")
+
     def _toolbar(self):
         layout = QHBoxLayout()
         layout.setSpacing(10)
-        search = QLineEdit()
+        # Guardados como atributo: `load_users` precisa alcançá-los para
+        # reconstruir a lista de perfis e reaplicar o filtro atual.
+        self.search_input = search = QLineEdit()
         search.setPlaceholderText("Buscar por nome ou e-mail...")
         search.setAccessibleName("Buscar usuários")
         search.addAction(qta.icon("fa5s.search", color="#849ABE"), QLineEdit.LeadingPosition)
         layout.addWidget(search, 1)
-        role = QComboBox()
-        role.addItems([ALL_ROLES, *USER_ROLES])
+        self.role_filter = role = QComboBox()
+        # Perfis presentes nos dados, não a lista fixa da demonstração: filtrar
+        # por um perfil que ninguém tem devolve tabela vazia sem explicação.
+        role.addItems([ALL_ROLES, *self._perfis()])
         role.setAccessibleName("Filtrar por perfil")
         layout.addWidget(role)
         search.textChanged.connect(

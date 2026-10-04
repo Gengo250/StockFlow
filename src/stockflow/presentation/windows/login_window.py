@@ -5,7 +5,11 @@ from PySide6.QtWidgets import (
     QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from stockflow.presentation.demo_accounts import DEMO_ACCOUNTS, autenticar, conta_admin
+# `autenticar` vem do seletor de backend, não de `demo_accounts`: é ele que
+# decide entre as contas locais e o Supabase Auth. `DEMO_ACCOUNTS` continua
+# vindo daqui porque só alimenta o aviso de "acesso à demonstração".
+from stockflow.presentation.backend import authenticate as autenticar
+from stockflow.presentation.demo_accounts import DEMO_ACCOUNTS, conta_admin
 from stockflow.presentation.roles import rotulo_de_papel
 from stockflow.presentation.styles.login import LOGIN_QSS
 
@@ -199,7 +203,16 @@ class LoginWindow(QWidget):
             self.error.setText("Preencha o e-mail e a senha para entrar.")
             (self.email_input if not email else self.password_input).setFocus()
             return
-        session = autenticar(email, password)
+        try:
+            session = autenticar(email, password)
+        except Exception as erro:
+            # Falha de infraestrutura, não de credencial: conta do Auth sem
+            # vínculo, usuário sem empresa, `.env` ausente ou servidor fora.
+            # Digitar de novo não resolve nenhuma delas, então a senha NÃO é
+            # limpa e a mensagem é a real — tratá-las como "senha incorreta"
+            # mandaria o usuário tentar a mesma coisa indefinidamente.
+            self.error.setText(str(erro))
+            return
         if session is None:
             self.error.setText("E-mail ou senha incorretos. Tente novamente.")
             self.password_input.clear()

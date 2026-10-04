@@ -67,31 +67,22 @@ BEGIN
 
     IF v_category_id IS NULL THEN
       RAISE EXCEPTION 'Item category doesnt exist' USING ERRCODE = 'foreign_key_violation';
-
     END IF;
   END IF;
 
+  -- Nasce com saldo zero; o saldo informado vira a primeira movimentação.
   INSERT INTO public.products (
-    company_id,
-    barcode,
-    name,
-    buy_price,
-    sell_price,
-    unit,
-    stock,
-    item_category
+    company_id, barcode, name, buy_price, sell_price, unit, stock, item_category
   )
   VALUES (
-    p_company_id,
-    p_barcode,
-    p_name,
-    p_buy_price,
-    p_sell_price,
-    p_unit,
-    p_stock,
-    v_category_id
+    p_company_id, p_barcode, p_name, p_buy_price, p_sell_price, p_unit, 0, v_category_id
   )
   RETURNING id into v_new_id;
+
+  IF COALESCE(p_stock, 0) > 0 THEN
+    PERFORM public.fn_register_movement(
+      p_company_id, v_new_id, 'ENTRADA', p_stock, 'Saldo inicial do cadastro', true);
+  END IF;
 
   RETURN v_new_id;
 END;
@@ -128,24 +119,19 @@ SET search_path = public AS $$
 DECLARE
   v_company     UUID;
   v_category_id UUID;
+  v_atual       INTEGER;
+  v_delta       INTEGER;
 BEGIN
-  SELECT company_id INTO v_company
+  SELECT company_id, stock INTO v_company, v_atual
     FROM public.products
    WHERE id = p_product_id;
 
-  -- Mesma estratégia de fn_set_product_active: mensagem única para produto
-  -- inexistente e para falta de permissão, para não vazar a existência de
-  -- produtos de outra empresa. A checagem vem antes de qualquer gravação:
-  -- chamada negada não altera dado nenhum.
   IF v_company IS NULL
      OR NOT public.fn_has_role(v_company, ARRAY['ADMIN','STOCK']::public.user_role[]) THEN
     RAISE EXCEPTION 'Produto não encontrado ou sem permissão'
       USING ERRCODE = 'insufficient_privilege';
   END IF;
 
-  -- Categoria escopada pela empresa do produto, igual a fn_create_products: a
-  -- FK composta (company_id, item_category) recusaria categoria de outra
-  -- empresa de qualquer forma, mas aqui o erro sai nomeado.
   IF p_item_category IS NOT NULL THEN
     SELECT id INTO v_category_id
       FROM public.categories
@@ -156,15 +142,29 @@ BEGIN
     END IF;
   END IF;
 
+  -- `stock` SAI do UPDATE: quem muda saldo é movimentação.
   UPDATE public.products
      SET barcode       = COALESCE(p_barcode, barcode),
          name          = COALESCE(p_name, name),
          buy_price     = COALESCE(p_buy_price, buy_price),
          sell_price    = COALESCE(p_sell_price, sell_price),
          unit          = COALESCE(p_unit, unit),
-         stock         = COALESCE(p_stock, stock),
          item_category = COALESCE(v_category_id, item_category)
    WHERE id = p_product_id;
+
+  -- Saldo informado vira a movimentação que falta para chegar nele. O
+  -- formulário manda a tela inteira, então "igual ao atual" é o caso comum e
+  -- não pode gerar movimentação de quantidade zero.
+  IF p_stock IS NOT NULL THEN
+    v_delta := p_stock - v_atual;
+    IF v_delta > 0 THEN
+      PERFORM public.fn_register_movement(
+        v_company, p_product_id, 'ENTRADA', v_delta, 'Ajuste pelo cadastro', true);
+    ELSIF v_delta < 0 THEN
+      PERFORM public.fn_register_movement(
+        v_company, p_product_id, 'SAIDA', -v_delta, 'Ajuste pelo cadastro', true);
+    END IF;
+  END IF;
 END;
 $$;
 

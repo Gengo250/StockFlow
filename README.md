@@ -44,8 +44,36 @@ cadastro de credenciais ou recuperação por e-mail nesta versão.
 Em **Produtos**, busque um item e clique no card do produto. A tela mostra identificador, nome, categoria, unidade, preço
 de venda, custo e status ativo/inativo. **Voltar para produtos** preserva a busca.
 Se o item não estiver mais disponível, uma mensagem orienta o retorno à listagem.
-O catálogo usa dados demonstrativos locais, compartilhados com o estoque em
-`presentation/demo_products.py`; ainda não há integração com banco de dados.
+Por padrão o catálogo usa dados demonstrativos locais, compartilhados com o
+estoque em `presentation/demo_products.py`. Para gravar no Supabase, veja
+**Backend de banco** abaixo.
+
+Em **Estoque** (US03), a tabela mostra **saldo, mínimo e situação** de cada
+produto, e a busca localiza por código, nome ou categoria. A situação NÃO é um
+valor gravado: vem de `domain/stock_level.py`, que é **tradução literal de
+`public.fn_stock_state`** e é recalculada a cada redesenho.
+
+| Situação | Regra |
+|---|---|
+| — | mínimo ausente ou zero: sem limiar configurado, não alerta |
+| `Crítico` | saldo zerado |
+| `Baixo` | saldo **menor ou igual** ao mínimo |
+| `Atenção` | acima do mínimo, mas a menos de 20% dele |
+| `Normal` | o resto |
+
+O filtro **`Abaixo do mínimo`** é a consulta da US04 em um clique: produtos
+ativos, com mínimo configurado, cujo saldo é menor ou igual a esse mínimo —
+ordenados do mais urgente para o menos. Quem não tem mínimo definido fica de
+fora, por isso a coluna mostra `—` em vez de `0`. No banco a mesma consulta é
+a view `vw_stock_alerts`.
+
+A regra tem um dono só, e é o banco: enquanto a UI teve regra própria, ela
+divergia de `fn_stock_state` em 5 de 11 casos — a tela dizia `Crítico` onde um
+relatório SQL dizia `Baixo`, e produto sem mínimo aparecia no alerta.
+
+O botão de ação da linha **desativa** o produto (soft-delete, como
+`fn_set_product_active`); ele some da lista e só reaparece em `Inativos`, de
+onde pode ser reativado.
 
 Em **Vendas**, uma venda nova escolhe cliente, produto e valor. A lista de
 produtos oferece apenas os que estão **ativos**: desativar um item no Estoque
@@ -61,11 +89,72 @@ telas existirem: a situação do produto tem um dono só,
 `domain/product_status.py`, consultado pelos módulos através de
 `application/services/product_selection_service.py`.
 
-Para validar navegação, detalhes, formulários, filtros e grade responsiva sem abrir uma janela:
+## Testes
+
+Para validar navegação, detalhes, formulários, filtros e grade responsiva sem
+abrir uma janela:
 
 ```bash
-uv run python -m unittest discover -s tests -v
+QT_QPA_PLATFORM=offscreen uv run --with pytest python -m pytest tests/ -q
 ```
+
+Sempre com o caminho `tests/`: `pytest` sem argumento varre `scripts/` e tenta
+coletar `scripts/test_supabase_connection.py`, que fala com a rede.
+
+## Backend de banco
+
+A aplicação roda em **demonstração por padrão** — catálogo em memória, contas
+locais, nenhuma rede. Para gravar no Supabase:
+
+```bash
+STOCKFLOW_BACKEND=supabase uv run stockflow
+```
+
+O opt-in é explícito, e não "usa banco se houver `.env`": o `.env` deste
+repositório existe para os scripts de verificação, e deduzir intenção dele
+faria a aplicação exigir rede numa máquina onde isso não foi pedido.
+
+Antes do primeiro login com o banco, três passos — nesta ordem:
+
+1. **Aplique as migrations** `20261003180000_auth_jwt_identity.sql` (identidade
+   por JWT e permissões) e `20261004090000_user_directory.sql` (departamento e
+   último acesso na tela de Usuários). Sem a primeira, `fn_current_user_id()`
+   só lê a variável de sessão `app.user_id`, que um cliente REST não tem como
+   definir, e `anon`/`authenticated` não têm privilégio nenhum — toda chamada
+   responde `permission denied`.
+2. **Crie os usuários no Supabase Auth** (painel ou `auth.admin`).
+3. **Vincule e autorize cada conta**: `user_accounts.auth_user_id` apontando
+   para o Auth, e uma linha em `company_users` com empresa e papel. O roteiro
+   pronto, com diagnóstico do que falta, está em
+   `scripts/provisionar_usuario.sql`. Sem o vínculo o login falha com mensagem
+   própria, dizendo exatamente isso.
+
+O que muda com o backend ligado: o login passa a ser `sign_in_with_password`,
+a empresa e o papel vêm de `fn_my_companies`, e toda gravação vai por função
+`SECURITY DEFINER` (`fn_create_products`, `fn_update_products`,
+`fn_set_product_active`, `fn_set_min_stock`) — as tabelas não têm `GRANT` de
+INSERT/UPDATE para nenhuma role de aplicação.
+
+O **saldo** não é um número digitado: é a soma das **movimentações
+confirmadas** (`stock_movements`). `fn_create_products` e `fn_update_products`
+não escrevem `products.stock` — registram movimentação, e um trigger recalcula
+a coluna a partir das linhas com situação `CONFIRMADA`. Movimentação nasce
+`PENDENTE`: registrar não é confirmar, e só confirmar muda o saldo.
+
+Em **Usuários**, a lista vem de `fn_list_company_users`, que recusa quem não é
+ADMIN. A busca só acontece ao abrir a tela, não ao montar a janela: um papel
+sem permissão nem chega a gastar a requisição. Três colunas são derivadas, não
+lidas — perfil (`user_role` traduzido), status e último acesso:
+
+| Status | Significa |
+|---|---|
+| `Ativo` | `company_users.active` e já entrou pelo menos uma vez |
+| `Pendente` | acesso liberado, mas `auth.users.last_sign_in_at` é nulo |
+| `Inativo` | `company_users.active = false` |
+
+Um usuário com nome em minúsculo e sem e-mail é uma conta de domínio que ainda
+não foi vinculada ao Supabase Auth — ela aparece de propósito, porque é
+justamente a que precisa de providência.
 
 ## Estrutura
 
@@ -77,6 +166,7 @@ src/stockflow/
 ├── domain/                           regras que não dependem de tela nem de banco
 │   ├── permissions.py                quem pode cadastrar/editar produto e usuário
 │   ├── product_status.py             produto ativo/inativo em operações novas
+│   ├── stock_level.py                espelho de fn_stock_state (US03/US04)
 │   ├── enums/                        papéis de usuário e tipos de operação
 │   └── exceptions/                   recusas nomeadas do domínio
 ├── application/                      casos de uso sobre o domínio
@@ -86,8 +176,16 @@ src/stockflow/
 │   ├── ports/                        contratos que a infraestrutura satisfaz
 │   └── dto/                          dados como a UI os entrega
 ├── infrastructure/                   adaptadores de persistência
+│   ├── auth/supabase_auth.py                 login pelo Supabase Auth -> Session
+│   ├── database/supabase_client.py           cliente preguiçoso, criado sob demanda
+│   ├── repositories/demo_product_repository.py   catálogo em memória
+│   ├── repositories/product_mapper.py        tradução catálogo <-> public.products
+│   ├── repositories/supabase_product_repository.py  catálogo no Supabase
+│   ├── repositories/user_mapper.py           linha de usuário <-> tupla da tela
+│   └── repositories/supabase_user_repository.py     diretório de usuários
 └── presentation/                     camada de interface
     ├── app.py                        run(): cria o QApplication e abre a janela
+    ├── backend.py                    escolhe demonstração ou banco
     ├── windows/main_window.py        MainWindow: janela, menu lateral e páginas
     ├── demo_products.py              produtos demonstrativos compartilhados
     ├── demo_users.py                 usuários demonstrativos e perfis
