@@ -6,6 +6,8 @@ de permissão já passe pelo `ProductService` real — trocar por um repositóri
 de banco depois não muda nada acima desta camada.
 """
 
+import dataclasses
+
 from stockflow.application.dto.product_input import ProductInput
 from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 # Reexportados: a regra de status virou domínio na US04
@@ -16,7 +18,14 @@ from stockflow.domain.stock_level import (  # noqa: F401
     DEFAULT_MINIMUM_STOCK,
     NOT_CONFIGURED,
     derive_stock_status,
+    to_min,
 )
+
+# Sentinela para "o DTO nem tem o campo", distinto de "o campo veio ausente".
+# Desde que `None` virou valor de domínio (mínimo não configurado), usar
+# `None` para os dois faria a ausência DELIBERADA ser sobrescrita pelo padrão
+# do repositório — o produto ganharia um limiar que ninguém pediu.
+_SEM_CAMPO = object()
 
 # Depender da apresentação é uma inversão aceita só enquanto o `Product` da
 # demonstração é o único modelo de leitura existente. O adaptador de banco vai
@@ -80,7 +89,7 @@ class DemoProductRepository:
     def __init__(
         self,
         products: dict,
-        minimum_stock: int = NOT_CONFIGURED,
+        minimum_stock=NOT_CONFIGURED,
         active_categories=None,
         active_units=ACTIVE_DEMO_UNITS,
     ):
@@ -124,6 +133,18 @@ class DemoProductRepository:
         """Código livre para um cadastro novo, derivado do catálogo atual."""
         return next_product_code(self._products)
 
+    def set_active(self, code: str, active: bool) -> None:
+        """Soft-delete no catálogo em memória.
+
+        Idempotente de propósito: a tela de Estoque já altera a própria linha
+        antes de avisar a janela, então este método costuma receber o valor
+        que o dict já tem. Falhar aí seria transformar sincronia em erro.
+        """
+        atual = self._products.get(code)
+        if atual is None:
+            raise LookupError(f"Produto {code} não encontrado.")
+        self._products[code] = dataclasses.replace(atual, active=bool(active))
+
     def create(self, data: ProductInput) -> str:
         self._products[data.code] = self._to_product(data)
         return data.code
@@ -142,8 +163,8 @@ class DemoProductRepository:
         # quando o chamador não declara um — importação, API ou qualquer
         # DTO anterior ao campo existir. Usar sempre o do repositório
         # devolveria o limiar global que a US04 veio substituir.
-        minimo = getattr(data, "minimum_stock", None)
-        if minimo is None:
+        minimo = getattr(data, "minimum_stock", _SEM_CAMPO)
+        if minimo is _SEM_CAMPO:
             minimo = self._minimum_stock
         return Product(
             code=data.code,
@@ -155,5 +176,5 @@ class DemoProductRepository:
             active=data.active,
             stock=str(stock),
             stock_status=derive_stock_status(stock, minimo),
-            minimum_stock=int(minimo),
+            minimum_stock=to_min(minimo),
         )

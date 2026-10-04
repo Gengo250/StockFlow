@@ -20,13 +20,20 @@ nenhuma role de aplicação — só SELECT. Gravar é chamar `fn_create_products
 `fn_update_products`, `fn_set_product_active` e `fn_set_min_stock`.
 """
 
+import dataclasses
+
 from stockflow.application.dto.product_input import ProductInput
 from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
-from stockflow.domain.stock_level import DEFAULT_MINIMUM_STOCK, to_int
+from stockflow.domain.stock_level import (
+    derive_stock_status,
+    to_int,
+    to_min,
+)
 from stockflow.infrastructure.repositories.demo_product_repository import (
     next_product_code,
 )
+from stockflow.presentation.demo_products import Product
 from stockflow.infrastructure.repositories.product_mapper import (
     product_input_to_create_args,
     product_input_to_update_args,
@@ -69,6 +76,16 @@ class SupabaseProductRepository:
         # consulta extra só para traduzir. É preenchido pelas leituras e
         # invalidado pelas escritas que podem mudar o código.
         self._ids = {}
+
+        # A FOTO que as telas leem. `DemoProductRepository` recebe esse dict
+        # pronto e grava DENTRO dele — é essa identidade que faz uma gravação
+        # aparecer na tabela. Aqui o dict nasce na primeira `load_catalog` e
+        # passa a ser mantido pelas escritas, para que os dois adaptadores
+        # tenham o mesmo comportamento observável sem mudar a porta.
+        #
+        # Sem isto, gravar ia ao banco e a tela continuava mostrando o valor
+        # velho até reiniciar a aplicação.
+        self._catalog = None
 
     # ======================================================
     # LEITURA
@@ -140,7 +157,18 @@ class SupabaseProductRepository:
             )
             catalogo[produto.code] = produto
             self._ids[produto.code] = row["id"]
-        return catalogo
+
+        # Preenche NO LUGAR a partir da segunda chamada. Devolver um dict novo
+        # toda vez desligaria as telas da foto: elas guardam a referência que
+        # receberam na montagem, e `list_all` chama este método — sem o
+        # preenchimento in-place, uma simples listagem trocaria a foto por um
+        # dict órfão e a tela congelaria de novo, em silêncio.
+        if self._catalog is None:
+            self._catalog = catalogo
+        else:
+            self._catalog.clear()
+            self._catalog.update(catalogo)
+        return self._catalog
 
     def list_all(self):
         """Catálogo na ordem de cadastro, ativos e inativos."""
@@ -236,6 +264,7 @@ class SupabaseProductRepository:
                 "fn_set_product_active",
                 {"p_product_id": product_id, "p_active": False},
             )
+        self._publicar(data.code, data)
         return data.code
 
     def update(self, code: str, data: ProductInput) -> str:
@@ -258,6 +287,7 @@ class SupabaseProductRepository:
         if data.code != code:
             self._ids.pop(code, None)
             self._ids[data.code] = product_id
+        self._publicar(data.code, data, remover=code)
         return data.code
 
     def set_active(self, code: str, active: bool) -> None:
@@ -275,14 +305,68 @@ class SupabaseProductRepository:
             {"p_product_id": product_id, "p_active": bool(active)},
         )
 
+        # Aqui a foto é corrigida por `replace`, não remontada: o chamador só
+        # informou a situação de cadastro, e reconstruir o produto a partir
+        # disso apagaria nome, preço e saldo.
+        if self._catalog is not None and code in self._catalog:
+            self._catalog[code] = dataclasses.replace(
+                self._catalog[code], active=bool(active)
+            )
+
+    def _publicar(self, code: str, data, remover: str = None) -> None:
+        """Reflete na foto compartilhada o que acabou de ser gravado.
+
+        Write-through OTIMISTA: monta o `Product` a partir do que foi enviado,
+        sem reler do banco. Reconsultar custaria três requisições por gravação
+        (produtos, categorias e mínimos), desfazendo no caminho de escrita o
+        cuidado que `_minimums` tomou contra N+1 no de leitura.
+
+        O risco assumido é a foto refletir "o que eu mandei" em vez de "o que
+        o banco guardou". É pequeno porque `fn_update_products` grava as
+        colunas como vieram; se algum dia passar a derivar valor, este é o
+        ponto que precisa virar releitura.
+
+        Silencioso quando ainda não há foto: há chamadores que gravam sem
+        nunca ter listado o catálogo, e levantar aqui transformaria gravação
+        válida em erro.
+        """
+        if self._catalog is None:
+            return
+        if remover and remover != code:
+            self._catalog.pop(remover, None)
+        self._catalog[code] = self._to_product(data)
+
+    def _to_product(self, data) -> Product:
+        """`ProductInput` -> `Product`, o modelo de leitura das telas.
+
+        Mesma tradução de `DemoProductRepository._to_product`: a situação de
+        estoque é DERIVADA do saldo contra o mínimo, nunca copiada.
+        """
+        estoque = to_int(data.stock)
+        minimo = getattr(data, "minimum_stock", None)
+        return Product(
+            code=data.code,
+            name=data.name,
+            category=data.category,
+            unit=data.unit,
+            sale_price=data.sale_price,
+            cost=data.cost,
+            active=bool(data.active),
+            stock=str(estoque),
+            stock_status=derive_stock_status(estoque, minimo),
+            minimum_stock=to_min(minimo),
+        )
+
     def _aplicar_minimo(self, product_id, data) -> None:
         """Grava o estoque mínimo, que mora em `product_stock`, não em `products`."""
-        minimo = getattr(data, "minimum_stock", None)
-        if minimo is None:
-            minimo = DEFAULT_MINIMUM_STOCK
+        # `None` é propagado como NULL, que é como `fn_set_min_stock` LIMPA
+        # o mínimo. A versão anterior substituía a ausência por 10 e gravava
+        # no banco um limiar que ninguém configurou — o produto passava a
+        # alertar por decisão do adaptador.
         self._rpc(
             "fn_set_min_stock",
-            {"p_product_id": product_id, "p_min": to_int(minimo, DEFAULT_MINIMUM_STOCK)},
+            {"p_product_id": product_id,
+             "p_min": to_min(getattr(data, "minimum_stock", None))},
         )
 
     def _rpc(self, name: str, args: dict):

@@ -53,6 +53,10 @@ class MainWindow(QMainWindow):
         self._usuarios_carregados = False
         self.last_users_error = None
 
+        # Ver `_on_product_status_changed`: desfazer um toggle que falhou
+        # reemite o sinal que o disparou.
+        self._revertendo_situacao = False
+
         self.setWindowTitle("StockFlow")
         self.resize(1920, 1080)
 
@@ -235,6 +239,8 @@ class MainWindow(QMainWindow):
 
         if key == "usuarios":
             self._carregar_usuarios_do_banco()
+        if key == "estoque":
+            self._reconsultar_estoque()
 
         self.pages.setCurrentWidget(
             self.page_widgets[key]
@@ -242,6 +248,37 @@ class MainWindow(QMainWindow):
 
         self.sidebar.set_active(key)
         return True
+
+    def _reconsultar_estoque(self):
+        """Reconsulta o catálogo ao ABRIR a tela de Estoque.
+
+        A US04 pede que os alertas sejam reconsultados depois de uma
+        movimentação confirmada mudar o saldo. As gravações feitas por ESTA
+        janela já atualizam a foto na hora (write-through no repositório),
+        mas uma movimentação confirmada por outra pessoa, ou por um caminho
+        fora da UI, não teria como aparecer — e um alerta desatualizado é
+        justamente o que o critério proíbe.
+
+        Abrir a tela é o gatilho certo: é quando o usuário vai agir sobre a
+        lista. Reconsultar a cada gravação custaria três requisições por
+        salvamento e desfaria o write-through.
+
+        No modo demonstração não há o que reconsultar: a foto É a fonte.
+        """
+        recarregar = getattr(self.product_repository, "load_catalog", None)
+        if recarregar is None:
+            return
+
+        self.estoque_page.begin_loading()
+        try:
+            catalogo = recarregar()
+        except Exception as erro:
+            self.estoque_page.show_load_error(erro)
+            return
+
+        self.estoque_page.reload_products(catalogo)
+        self.products_page.reload_products(catalogo)
+        self.vendas_page.reload_products(catalogo)
 
     def _carregar_usuarios_do_banco(self):
         """Busca o diretório de usuários na PRIMEIRA abertura da tela.
@@ -468,7 +505,13 @@ class MainWindow(QMainWindow):
             self.product_details_page.load_product(produto)
 
     def _on_product_status_changed(self, code):
-        """Propaga para as outras telas um ativar/desativar feito no Estoque.
+        """PERSISTE o ativar/desativar e propaga para as outras telas.
+
+        A gravação acontece aqui, e não na página: a tela de Estoque não
+        conhece repositório nenhum — ela altera a própria linha e avisa. Sem
+        esta chamada, desativar um produto mudava a tabela e não gravava
+        nada; no modo demonstração funcionava por acidente, porque a página
+        escreve no mesmo dict que o repositório usaria.
 
         Não chama `_refresh_product_views`: a tela de Estoque já se
         redesenhou sozinha dentro de `toggle_product_status`, e mandá-la
@@ -476,6 +519,34 @@ class MainWindow(QMainWindow):
         clique que originou a mudança — trocando sob os pés do sinal a lista
         de onde o produto veio.
         """
+        # Guarda de reentrância. O desfazer abaixo chama
+        # `toggle_product_status`, que emite o MESMO sinal que nos trouxe
+        # aqui: sem esta trava, uma falha de gravação entra em recursão
+        # infinita entre desfazer e tentar de novo.
+        if self._revertendo_situacao:
+            return
+
+        produto = self.products.get(code)
+        if produto is not None:
+            try:
+                self.product_repository.set_active(code, bool(produto.active))
+            except Exception as erro:
+                # Desfaz na tela o que não entrou no banco. Deixar a linha
+                # mostrando o estado novo seria pior do que a falha: o
+                # usuário sairia convencido de que desativou.
+                self.last_save_error = erro
+                self._revertendo_situacao = True
+                try:
+                    self.estoque_page.toggle_product_status(
+                        next(p for p in self.estoque_page.produtos if p[0] == code)
+                    )
+                finally:
+                    self._revertendo_situacao = False
+                QMessageBox.critical(
+                    self, "Não foi possível alterar a situação", str(erro)
+                )
+                return
+
         self.products_page.reload_products()
         self.vendas_page.reload_products()
 

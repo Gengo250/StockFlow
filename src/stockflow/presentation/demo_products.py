@@ -24,9 +24,10 @@ class Product:
     # `derive_stock_status(stock, minimum_stock)`, e a tela de Estoque
     # recalcula a cada `apply_filters` em vez de confiar no valor gravado.
     #
-    # Padrão "não configurado", igual ao `COALESCE(ps.min_quantity, 0)` do
-    # banco: produto construído sem mínimo não tem limiar e não alerta.
-    minimum_stock: int = NOT_CONFIGURED
+    # Padrão AUSENTE, espelhando `product_stock.min_quantity` nullable:
+    # produto construído sem mínimo não tem limiar e não alerta. Zero é outra
+    # coisa — é o limiar "me avise quando acabar".
+    minimum_stock: int | None = NOT_CONFIGURED
 
 
 # Catálogo de demonstração, montado para cobrir TODAS as faixas de
@@ -39,7 +40,8 @@ class Product:
 #       6      10  Baixo      (saldo <= mínimo)
 #       2       5  Baixo      (mínimo do PRODUTO, não um limiar global)
 #       0      10  Crítico    (sem unidade em mãos)
-#       3       0  Normal     (SEM mínimo configurado: fora do alerta)
+#       3       —  Normal     (SEM mínimo: fora do alerta)
+#       0       0  Crítico    (mínimo ZERO: avise quando acabar)
 DEMO_PRODUCTS = {
     product.code: product
     for product in (
@@ -71,5 +73,13 @@ DEMO_PRODUCTS = {
         # voltar a ser quebrada sem ninguém perceber.
         Product('PRD-003', 'Cabo HDMI 2m', 'Eletrônicos',
                 'Unidade (UN)', 'R$ 49,90', 'R$ 22,00', True, '3', 'Normal'),
+        # Mínimo ZERO, explícito. O par deste produto com o PRD-003 é o que
+        # prova a distinção da US03: os dois têm saldo baixo, nenhum tem
+        # limiar positivo, e só este alerta — porque alguém configurou "me
+        # avise quando acabar" e o saldo acabou. Enquanto ausente e zero
+        # eram o mesmo valor, este caso não tinha como existir.
+        Product('PRD-002', 'Pen drive 64GB', 'Eletrônicos',
+                'Unidade (UN)', 'R$ 39,90', 'R$ 18,00', True, '0', 'Crítico',
+                minimum_stock=0),
     )
 }

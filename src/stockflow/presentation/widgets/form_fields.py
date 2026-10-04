@@ -149,6 +149,30 @@ def _stock_input():
     return widget
 
 
+# Valor interno que representa "sem mínimo" no QSpinBox. Um spin sempre tem
+# um número; `setSpecialValueText` troca a exibição do EXTREMO do range por um
+# texto. Por isso o range começa em -1: ele é o extremo, nunca um mínimo
+# válido (a coluna tem CHECK >= 0), e descer de 0 pelas setas chega nele.
+SEM_MINIMO = -1
+
+
+def _minimum_stock_input():
+    """Spin de estoque mínimo, capaz de representar AUSÊNCIA.
+
+    Separado de `_stock_input` de propósito: o estoque inicial não tem
+    conceito de "ausente" e -1 ali seria um valor sem sentido esperando para
+    virar bug.
+    """
+    widget = _stock_input()
+    widget.setRange(SEM_MINIMO, 999999)
+    widget.setSpecialValueText("Sem mínimo")
+    widget.setToolTip(
+        "Deixe em \"Sem mínimo\" para não receber alerta deste produto. "
+        "Zero significa avisar quando o estoque acabar."
+    )
+    return widget
+
+
 class FormCard(QFrame):
     def __init__(self, object_name):
         super().__init__()

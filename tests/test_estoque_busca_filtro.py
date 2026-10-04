@@ -11,7 +11,8 @@ demonstração, montado para cobrir uma faixa por produto:
     PRD-007  saldo  2  mínimo  5  Baixo
     PRD-006  saldo  0  mínimo 10  Crítico
     PRD-005  saldo 11  mínimo 10  Atenção
-    PRD-003  saldo  3  SEM mínimo Normal
+    PRD-003  saldo  3  SEM mínimo Normal    <- ausente nunca alerta
+    PRD-002  saldo  0  mínimo  0  Crítico   <- zero alerta ao acabar
 """
 
 from stockflow.presentation.pages.estoque import MINIMUM, STATUS
@@ -44,9 +45,9 @@ def celula(page, codigo, coluna):
 
 def test_estado_inicial_mostra_todos_os_produtos_ativos(estoque_page):
     assert visiveis(estoque_page) == [
-        "PRD-009", "PRD-008", "PRD-007", "PRD-006", "PRD-005", "PRD-003",
+        "PRD-009", "PRD-008", "PRD-007", "PRD-006", "PRD-005", "PRD-003", "PRD-002",
     ]
-    assert estoque_page.subtitle.text() == "6 produtos cadastrados"
+    assert estoque_page.subtitle.text() == "7 produtos cadastrados"
 
 
 def test_a_consulta_traz_saldo_minimo_e_situacao(estoque_page):
@@ -60,8 +61,29 @@ def test_a_consulta_traz_saldo_minimo_e_situacao(estoque_page):
     assert celula(estoque_page, "PRD-007", STATUS) == "Baixo"
 
 
-def test_produto_sem_minimo_mostra_travessao_e_nao_zero(estoque_page):
-    """"0" sugeriria um limiar configurado em zero; não há limiar nenhum."""
+def test_minimo_ausente_e_minimo_zero_sao_distinguiveis_na_celula(estoque_page):
+    """US03: a coluna precisa dizer qual é qual.
+
+    Os dois produtos têm saldo baixo e nenhum limiar positivo. Mostrar o
+    mesmo símbolo nos dois deixaria o usuário sem entender por que um alerta
+    e o outro não.
+    """
+    assert celula(estoque_page, "PRD-003", MINIMUM) == "—"     # ausente
+    assert celula(estoque_page, "PRD-002", MINIMUM) == "0"     # configurado
+
+    assert celula(estoque_page, "PRD-003", STATUS) == "Normal"
+    assert celula(estoque_page, "PRD-002", STATUS) == "Crítico"
+
+
+def test_a_celula_de_minimo_sobrevive_a_varias_leituras(estoque_page):
+    """`apply_filters` reescreve a própria célula e relê na chamada seguinte.
+
+    A tela chama `apply_filters` a cada tecla digitada na busca. Se o
+    travessão não fosse reconhecido como ausência na releitura, o produto
+    mudaria de situação no meio de uma digitação.
+    """
+    for _ in range(3):
+        estoque_page.apply_filters()
     assert celula(estoque_page, "PRD-003", MINIMUM) == "—"
     assert celula(estoque_page, "PRD-003", STATUS) == "Normal"
 
@@ -98,7 +120,7 @@ def test_busca_sem_resultado(estoque_page):
 def test_limpar_busca_restaura_lista(estoque_page):
     estoque_page.search_input.setText("teclado")
     estoque_page.search_input.setText("")
-    assert len(visiveis(estoque_page)) == 6
+    assert len(visiveis(estoque_page)) == 7
 
 
 # ---------------------------------------------------------------- filtros
@@ -118,7 +140,10 @@ def test_filtro_atencao(estoque_page):
 
 def test_filtro_abaixo_do_minimo(estoque_page):
     clicar_filtro(estoque_page, "Abaixo do mínimo")
-    assert sorted(visiveis(estoque_page)) == ["PRD-006", "PRD-007", "PRD-008"]
+    # PRD-002 entra por ter mínimo ZERO configurado e saldo zerado.
+    assert sorted(visiveis(estoque_page)) == [
+        "PRD-002", "PRD-006", "PRD-007", "PRD-008",
+    ]
 
 
 def test_filtros_sao_mutuamente_exclusivos(estoque_page):
@@ -171,7 +196,7 @@ def test_filtro_de_situacao_nao_mostra_inativos(estoque_page):
     produto = estoque_page.produtos[2]          # PRD-007, Baixo
     estoque_page.toggle_product_status(produto)
     clicar_filtro(estoque_page, "Abaixo do mínimo")
-    assert sorted(visiveis(estoque_page)) == ["PRD-006", "PRD-008"]
+    assert sorted(visiveis(estoque_page)) == ["PRD-002", "PRD-006", "PRD-008"]
 
 
 def test_botao_de_acao_alterna_o_status(estoque_page):
