@@ -12,8 +12,31 @@ SET search_path = public AS $$
      WHERE ua.name = lower(btrim(COALESCE(p_login, '')));
 $$;
 
+-- Diretório da tela de Usuários: nome, login, departamento, perfil, status e
+-- último acesso.
+--
+-- O último acesso é DERIVADO de `auth.users.last_sign_in_at`, sem coluna
+-- própria. O Supabase Auth já registra isso a cada login e ninguém precisa
+-- mantê-lo sincronizado; uma coluna nossa exigiria gravar a cada entrada,
+-- erraria para quem tem acesso a duas empresas e ficaria velha em todo login
+-- que não passasse por esta aplicação.
+--
+-- Ler `auth.users` é possível porque a função é SECURITY DEFINER e o dono
+-- alcança aquele schema. A junção pela esquerda com o Auth é obrigatória:
+-- conta ainda não vinculada precisa continuar aparecendo, sem e-mail e sem
+-- último acesso — é exatamente o usuário sobre o qual o administrador
+-- precisa agir.
 CREATE OR REPLACE FUNCTION public.fn_list_company_users(p_company_id uuid)
-RETURNS TABLE (user_id uuid, login text, user_role public.user_role, is_active boolean, created_on timestamptz)
+RETURNS TABLE (
+    user_id      uuid,
+    login        text,
+    display_name text,
+    department   text,
+    user_role    public.user_role,
+    is_active    boolean,
+    last_access  timestamptz,
+    created_on   timestamptz
+)
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = public AS $$
 BEGIN
@@ -23,11 +46,65 @@ BEGIN
     END IF;
 
     RETURN QUERY
-    SELECT ua.id, ua.name, cd.role, cd.active, cd.created_on
+    SELECT
+        ua.id,
+        -- `::text` obrigatório: `auth.users.email` é `character varying(255)`
+        -- e `COALESCE(varchar, text)` NÃO resolve para `text` sozinho. A
+        -- troca de tipo candidato em `select_common_type` só acontece quando
+        -- a conversão implícita vale num sentido só, e entre `varchar` e
+        -- `text` ela vale nos dois — o candidato fica no primeiro argumento,
+        -- `varchar`, e o `RETURN QUERY` morre em "structure of query does not
+        -- match function result type". Só na execução: o corpo de plpgsql não
+        -- é validado na criação.
+        COALESCE(au.email, ua.name)::text,
+        -- Redundante hoje (`->>` já devolve text), mantido porque a expressão
+        -- depende de `auth.users`, schema gerido pelo Supabase: o contrato
+        -- desta coluna não deve mudar junto com a plataforma.
+        COALESCE(
+            NULLIF(btrim(au.raw_user_meta_data->>'name'), ''),
+            NULLIF(btrim(au.raw_user_meta_data->>'full_name'), ''),
+            ua.name
+        )::text,
+        cd.department,
+        cd.role,
+        cd.active,
+        au.last_sign_in_at,
+        cd.created_on
       FROM public.company_users cd
       JOIN public.user_accounts ua ON ua.id = cd.user_account_id
+      LEFT JOIN auth.users au ON au.id = ua.auth_user_id
      WHERE cd.company_id = p_company_id
-     ORDER BY ua.name;
+     ORDER BY 3;
+END;
+$$;
+
+-- Departamento tem função própria, separada de `fn_update_company_user`: é o
+-- único campo do vínculo que não mexe em permissão, e juntá-lo à função de
+-- papel faria uma correção de departamento passar pela mesma porta que
+-- concede ADMIN.
+CREATE OR REPLACE FUNCTION public.fn_set_company_user_department(
+    p_company_id uuid,
+    p_user_id    uuid,
+    p_department text
+) RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+BEGIN
+    IF NOT public.fn_is_admin(public.fn_current_user_id(), p_company_id) THEN
+        RAISE EXCEPTION 'Apenas administradores podem alterar o departamento'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    UPDATE public.company_users
+       SET department = NULLIF(btrim(p_department), ''),
+           updated_on = now()
+     WHERE company_id = p_company_id
+       AND user_account_id = p_user_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Usuário não encontrado nesta empresa'
+            USING ERRCODE = 'no_data_found';
+    END IF;
 END;
 $$;
 

@@ -21,8 +21,10 @@ from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.widgets.stock_table import ACTIONS_COLUMN
 from stockflow.presentation.windows.main_window import MainWindow
 
+ACTIONS_COLUMN = 7   # Código,Produto,Categoria,Estoque,Mínimo,Preço,Status,Ações
 CODE_COLUMN = 0
 STOCK_COLUMN = 3
+STATUS_COLUMN = 6
 
 
 def sessao(papel):
@@ -110,7 +112,9 @@ def test_estoque_mostra_o_produto_recem_cadastrado(janela, sem_dialogos):
     assert estoque.table.rowCount() == linhas_antes + 1
     assert codigo in codigos_na_tabela(estoque)
     assert celulas(estoque, linha_do_codigo(estoque, codigo)) == [
-        codigo, "Webcam 4K", "Eletrônicos", "30", "R$ 499,00", "Normal", "Ativo",
+        # O mínimo vem do formulário, que sugere o padrão do catálogo para um
+        # cadastro novo. 30 contra 10 é Normal.
+        codigo, "Webcam 4K", "Eletrônicos", "30", "10", "R$ 499,00", "Normal",
     ]
 
 
@@ -132,9 +136,9 @@ def test_estoque_mostra_o_novo_valor_depois_da_edicao(janela, sem_dialogos):
     assert window.last_save_error is None
     linha = linha_do_codigo(estoque, "PRD-009")
     assert estoque.table.item(linha, STOCK_COLUMN).text() == "42"
-    # 42 > 10 -> volta a Normal; a linha inteira vem do catálogo, não só a
+    # 42 contra mínimo 10 -> Normal; a linha inteira vem do catálogo, não só a
     # célula que o formulário tocou.
-    assert estoque.table.item(linha, 5).text() == "Normal"
+    assert estoque.table.item(linha, STATUS_COLUMN).text() == "Normal"
 
 
 # ------------------------------------------- permissão sobrevive à recarga
