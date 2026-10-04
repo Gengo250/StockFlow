@@ -14,6 +14,10 @@ from dataclasses import dataclass
 
 from stockflow.domain.entities.session import Session
 from stockflow.domain.enums.user_role import UserRole
+from stockflow.presentation.demo_status import (
+    is_demo_user_active,
+    set_demo_user_active,
+)
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,28 @@ def autenticar(email, senha) -> Session | None:
     account = conta_por_email(email)
     esperada = account.password if account is not None else _SENHA_INEXISTENTE
     confere = hmac.compare_digest((senha or "").encode(), esperada.encode())
-    if account is None or not confere:
+    if (
+        account is None
+        or not confere
+        or not is_demo_user_active(account.user_id)
+    ):
         return None
     return account.session()
+
+
+def alterar_status_demo(user_id, active):
+    """Alterna o status demo e impede bloquear a última conta ADMIN."""
+    account = next(
+        (item for item in DEMO_ACCOUNTS if item.user_id == str(user_id)),
+        None,
+    )
+    if account is not None and account.role is UserRole.ADMIN and not active:
+        admins_ativos = sum(
+            item.role is UserRole.ADMIN and is_demo_user_active(item.user_id)
+            for item in DEMO_ACCOUNTS
+        )
+        if admins_ativos <= 1:
+            raise ValueError(
+                "A demonstração precisa manter ao menos um administrador ativo."
+            )
+    set_demo_user_active(user_id, active)

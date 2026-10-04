@@ -72,6 +72,7 @@ class UserTable(QFrame):
     edit_requested = Signal(object)
 
     venda_requested = Signal(str)
+    status_change_requested = Signal(str, bool)
 
     def __init__(self, users=None, parent=None):
         """Tabela sobre as linhas recebidas; sem elas, cai na demonstração.
@@ -89,6 +90,7 @@ class UserTable(QFrame):
         # tabela por índice de coluna — qualquer mudança de layout quebraria
         # o controle em silêncio. Mesmo papel de `StockTable.edit_buttons`.
         self.edit_buttons = []
+        self.status_buttons = []
         # Última permissão aplicada, guardada no widget e não só em quem
         # chama: um QPushButton nasce habilitado, então qualquer caminho que
         # venha a recriar as linhas precisa reaplicar o estado (foi esse o
@@ -112,7 +114,7 @@ class UserTable(QFrame):
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setMinimumSectionSize(100)
         header.setSectionResizeMode(ACTIONS_COLUMN, QHeaderView.Fixed)
-        self.table.setColumnWidth(ACTIONS_COLUMN, 120)
+        self.table.setColumnWidth(ACTIONS_COLUMN, 220)
         self._popular()
         self.table.cellDoubleClicked.connect(lambda row, column: self._edit(row))
         layout.addWidget(self.table)
@@ -153,13 +155,14 @@ class UserTable(QFrame):
         # A lista descreve botões que acabaram de ser destruídos; mantê-la
         # deixaria `set_actions_enabled` tocando widgets órfãos.
         self.edit_buttons = []
+        self.status_buttons = []
         self.table.setRowCount(len(self.users))
 
         for row, user in enumerate(self.users):
             # A cor vem da própria linha. O mapa perfil -> cor que existia aqui
             # só conhecia três perfis e levantava KeyError em "Gerente" e
             # "Operador", derrubando a janela principal durante a construção.
-            name, login, department, role, status, last_access, color = user
+            name, login, department, role, status, last_access, color = user[:7]
             identity_item = QTableWidgetItem()
             identity_item.setData(Qt.AccessibleTextRole, f"{name}, {login}")
             self.table.setItem(row, 0, identity_item)
@@ -173,17 +176,19 @@ class UserTable(QFrame):
             self.table.setCellWidget(row, 3, self._status_badge(status))
             self.table.setCellWidget(row, 4, self._plain(last_access))
             self.table.setItem(row, ACTIONS_COLUMN, QTableWidgetItem())
-            self.table.setCellWidget(row, ACTIONS_COLUMN, self._actions(row, name, status))
+            self.table.setCellWidget(row, ACTIONS_COLUMN, self._actions(row, user))
 
         # Obrigatório, não cosmético: os botões acima são novos e um
         # QPushButton nasce habilitado. Sem reaplicar, um repovoamento
         # devolveria "Editar" a quem não é ADMIN.
         self.set_actions_enabled(self._actions_enabled)
 
-    def _actions(self, row, name, status):
+    def _actions(self, row, user):
+        name, status = user[0], user[4]
+        user_id = getattr(user, "user_id", None)
         actions = QWidget()
         actions_layout = QHBoxLayout(actions)
-        actions_layout.setContentsMargins(12, 0, 12, 0)
+        actions_layout.setContentsMargins(8, 0, 8, 0)
         actions_layout.setSpacing(4)
         edit = QPushButton()
         edit.setObjectName("iconButton")
@@ -211,6 +216,26 @@ class UserTable(QFrame):
         venda.setAccessibleName(f"Registrar venda para {name}")
         venda.clicked.connect(lambda checked=False, cliente=name: self.venda_requested.emit(cliente))
         actions_layout.addWidget(venda)
+        toggle = QPushButton("Ativar" if status == "Inativo" else "Desativar")
+        toggle.setObjectName("secondaryButton")
+        toggle.setFixedHeight(30)
+        toggle.setEnabled(self._actions_enabled and user_id is not None)
+        toggle.setToolTip(
+            f"{'Ativar' if status == 'Inativo' else 'Desativar'} {name}"
+            if user_id is not None
+            else "Não foi possível identificar este usuário"
+        )
+        toggle.setProperty("hasUserId", user_id is not None)
+        toggle.setAccessibleName(
+            f"{'Ativar' if status == 'Inativo' else 'Desativar'} {name}"
+        )
+        if user_id is not None:
+            toggle.clicked.connect(
+                lambda checked=False, uid=str(user_id), active=status == "Inativo":
+                    self.status_change_requested.emit(uid, active)
+            )
+        self.status_buttons.append(toggle)
+        actions_layout.addWidget(toggle)
         actions_layout.addStretch()
         return actions
 
@@ -224,6 +249,8 @@ class UserTable(QFrame):
         self._actions_enabled = enabled
         for button in self.edit_buttons:
             button.setEnabled(enabled)
+        for button in self.status_buttons:
+            button.setEnabled(enabled and bool(button.property("hasUserId")))
 
     def filter_users(self, text="", role=""):
         """Esconde as linhas que não casam com a busca e com o perfil.
