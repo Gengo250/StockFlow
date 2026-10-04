@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from stockflow.application.dto.product_input import ProductInput
+from stockflow.domain.stock_level import DEFAULT_MINIMUM_STOCK
 from stockflow.presentation.widgets.product_form import (
     BasicInfoCard,
     BeforeRegisterCard,
@@ -306,6 +307,7 @@ class NovoProdutoPage(QWidget):
             cost=formatar_moeda(self.cost_price_input.value()),
             stock=str(self.initial_stock_input.value()),
             active=self.product_status_toggle.isChecked(),
+            minimum_stock=self.minimum_stock_input.value(),
         )
 
     def clear_form(self):
@@ -325,7 +327,10 @@ class NovoProdutoPage(QWidget):
         self.ncm_input.clear()
         self.ean_input.clear()
         self.initial_stock_input.setValue(0)
-        self.minimum_stock_input.setValue(0)
+        # Padrão do catálogo, não zero: mínimo zero significa "nunca alerta",
+        # e um cadastro novo nasceria invisível para o alerta de estoque
+        # baixo da US04 sem ninguém ter escolhido isso.
+        self.minimum_stock_input.setValue(DEFAULT_MINIMUM_STOCK)
         self.location_input.clear()
         self.supplier_input.setCurrentIndex(0)
         self.low_stock_alert.setChecked(True)
@@ -377,10 +382,20 @@ class NovoProdutoPage(QWidget):
         de estoque ("Normal"/"Baixo"/"Crítico"), nunca "Inativo", então ele
         também não diz se o produto está ativo.
         """
-        if isinstance(product, tuple):
-            code, name, category, stock, sale_price, _stock_status = product
+        if isinstance(product, (tuple, list)):
             unit = cost = None
-            active = True
+            if len(product) >= 8:
+                # Linha do modelo da tela de Estoque, que ganhou a coluna de
+                # mínimo entre estoque e preço:
+                # (código, nome, categoria, saldo, mínimo, preço, situação, ativo)
+                (code, name, category, stock, minimum,
+                 sale_price, _stock_status, active) = product[:8]
+            else:
+                # Tupla legada de seis campos, sem mínimo nem situação de
+                # cadastro. Os padrões valem só para ela.
+                code, name, category, stock, sale_price, _stock_status = product[:6]
+                active = True
+                minimum = None
         else:
             code = product.code
             name = product.name
@@ -390,6 +405,7 @@ class NovoProdutoPage(QWidget):
             unit = product.unit
             cost = product.cost
             active = product.active
+            minimum = getattr(product, "minimum_stock", None)
 
         self.code_input.setText(code)
         self.name_input.setText(name)
@@ -398,4 +414,10 @@ class NovoProdutoPage(QWidget):
         self.initial_stock_input.setValue(_para_inteiro(stock))
         self.sale_price_input.setValue(valor_de_moeda(sale_price))
         self.cost_price_input.setValue(valor_de_moeda(cost))
+        # Sem o mínimo na tela, salvar uma edição devolveria o produto ao
+        # padrão do catálogo: quem tivesse configurado 5 perderia o ajuste
+        # ao mexer em qualquer outro campo.
+        self.minimum_stock_input.setValue(
+            DEFAULT_MINIMUM_STOCK if minimum is None else _para_inteiro(minimum)
+        )
         self.product_status_toggle.setChecked(bool(active))
