@@ -119,6 +119,7 @@ def row_to_product(row, category_name=None, minimum_stock=None) -> Product:
         stock=str(estoque),
         stock_status=derive_stock_status(estoque, minimo),
         minimum_stock=minimo,
+        supplier_id=row.get("supplier_id"),
     )
 
 

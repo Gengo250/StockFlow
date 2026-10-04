@@ -97,7 +97,7 @@ def row_to_movement(row, product_code="", product_name="", agora=None) -> tuple:
     )
 
 
-def rows_to_movements(rows, produtos=None, agora=None) -> tuple:
+def rows_to_movements(rows, produtos=None, agora=None, fornecedores=None) -> tuple:
     """Várias linhas, resolvendo o produto por um mapa `id -> (código, nome)`.
 
     Produto não encontrado no mapa vira travessão em vez de erro: a RLS de
@@ -106,10 +106,17 @@ def rows_to_movements(rows, produtos=None, agora=None) -> tuple:
     informação faltando numa célula, não motivo para a tela não abrir.
     """
     produtos = produtos or {}
-    return tuple(
-        row_to_movement(row, *produtos.get(row.get("product_id"), ("", "")), agora=agora)
-        for row in rows or ()
-    )
+    fornecedores = fornecedores or {}
+    resultado = []
+    for row in rows or ():
+        movimento = row_to_movement(
+            row, *produtos.get(row.get("product_id"), ("", "")), agora=agora
+        )
+        supplier_id = row.get("supplier_id")
+        if supplier_id:
+            movimento += (fornecedores.get(supplier_id, "Fornecedor indisponível"),)
+        resultado.append(movimento)
+    return tuple(resultado)
 
 
 def movement_input_to_register_args(data, company_id, product_id) -> dict:
@@ -128,7 +135,7 @@ def movement_input_to_register_args(data, company_id, product_id) -> dict:
     encontrar movimentações sem nota nenhuma.
     """
     nota = str(getattr(data, "note", "") or "").strip()
-    return {
+    args = {
         "p_company_id": company_id,
         "p_product_id": product_id,
         "p_kind": MovementKind.from_value(data.kind).value,
@@ -138,3 +145,6 @@ def movement_input_to_register_args(data, company_id, product_id) -> dict:
         "p_note": nota or None,
         "p_confirm": bool(getattr(data, "confirm", False)),
     }
+    if getattr(data, "supplier_id", None):
+        args["p_supplier_id"] = data.supplier_id
+    return args

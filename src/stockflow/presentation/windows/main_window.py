@@ -12,8 +12,10 @@ from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.domain.permissions import (
     can_manage_products,
+    can_manage_suppliers,
     can_manage_users,
     can_move_stock,
+    ensure_can_manage_suppliers,
     ensure_can_manage_users,
     ensure_can_move_stock,
 )
@@ -21,6 +23,7 @@ from stockflow.presentation.backend import (
     build_catalog,
     build_demo_user_directory,
     build_movement_repository,
+    build_supplier_repository,
     build_user_directory,
     set_user_active as set_directory_user_active,
     using_supabase,
@@ -38,6 +41,8 @@ from stockflow.presentation.pages.users import UsersPage
 from stockflow.presentation.pages.vendas import VendasPage
 from stockflow.presentation.pages.products import ProductsPage
 from stockflow.presentation.pages.product_details import ProductDetailsPage
+from stockflow.application.services.supplier_service import SupplierService
+from stockflow.presentation.pages.suppliers import SuppliersPage
 
 
 class MainWindow(QMainWindow):
@@ -143,7 +148,12 @@ class MainWindow(QMainWindow):
         # porta é a mesma, e o serviço aplica a regra de papel por cima de
         # qualquer um deles.
         self.products, self.product_repository = build_catalog(self.session)
-        self.product_service = ProductService(self.product_repository)
+        self.supplier_repository = build_supplier_repository(self.session)
+        self.supplier_service = SupplierService(self.supplier_repository)
+        self.product_service = ProductService(
+            self.product_repository, self.supplier_repository
+        )
+        self.suppliers_page = SuppliersPage(self.supplier_service, self.session)
 
         self.estoque_page = EstoquePage(self.products)
 
@@ -169,16 +179,23 @@ class MainWindow(QMainWindow):
         # acompanhar desativações feitas no Estoque, pela mesma razão da tela
         # de Vendas (US02).
         self.movement_repository = build_movement_repository(
-            self.session, self.products
+            self.session, self.products, self.supplier_repository
         )
-        self.movement_service = MovementService(self.movement_repository)
+        self.movement_service = MovementService(
+            self.movement_repository, self.supplier_repository
+        )
         self.movimentacoes_page = MovimentacoesPage(self.products)
+        self.movimentacoes_page.set_suppliers(
+            self.supplier_service.list_suppliers(self.session)
+            if can_manage_suppliers(self.session) else ()
+        )
 
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": dashboard_page,
             "estoque": self.estoque_page,
             "movimentacoes": self.movimentacoes_page,
+            "fornecedores": self.suppliers_page,
             "clientes": self.clientes_page,
             "vendas": self.vendas_page,
             "produtos": self.products_page,
@@ -234,6 +251,7 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.register_requested.connect(self._registrar_movimentacao)
         self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
         self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
+        self.suppliers_page.suppliers_changed.connect(self._refresh_supplier_options)
 
         self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
         self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
@@ -257,6 +275,7 @@ class MainWindow(QMainWindow):
         # `fn_register_movement` recusa quem não é ADMIN/STOCK, então nem a
         # consulta do histórico é do vendedor.
         "movimentacoes": ensure_can_move_stock,
+        "fornecedores": ensure_can_manage_suppliers,
     }
 
     def show_page(self, key):
@@ -271,7 +290,14 @@ class MainWindow(QMainWindow):
         guarda = self.RESTRICTED_PAGES.get(key)
         if guarda is not None:
             try:
-                guarda(self.session, action="abrir a administração de usuários")
+                guarda(
+                    self.session,
+                    action=(
+                        "abrir a gestão de fornecedores"
+                        if key == "fornecedores"
+                        else "abrir a administração de usuários"
+                    ),
+                )
             except PermissionDeniedError as erro:
                 # A janela não pode ficar meio-navegada: nem troca a página,
                 # nem marca o item como ativo.
@@ -283,6 +309,9 @@ class MainWindow(QMainWindow):
 
         if key == "usuarios":
             self._carregar_usuarios_do_banco()
+        if key == "fornecedores":
+            self.suppliers_page.session = self.session
+            self.suppliers_page.reload_table()
         if key == "estoque":
             self._reconsultar_estoque()
         if key == "movimentacoes":
@@ -563,6 +592,7 @@ class MainWindow(QMainWindow):
         self.novo_produto_page.set_catalog_options(
             self.product_repository.list_active_categories(),
             self.product_repository.list_active_units(),
+            self._active_suppliers(),
         )
         self.novo_produto_page.set_code(self.product_repository.next_code())
 
@@ -589,9 +619,19 @@ class MainWindow(QMainWindow):
         # o widget mostra.
         self._editing_code = code
 
+        suppliers = list(self._active_suppliers())
+        product_atual = self.products.get(code)
+        current_supplier_id = getattr(product_atual, "supplier_id", None)
+        if current_supplier_id and all(
+            supplier.supplier_id != current_supplier_id for supplier in suppliers
+        ):
+            current_supplier = self.supplier_repository.get(current_supplier_id)
+            if current_supplier is not None:
+                suppliers.append(current_supplier)
         self.editar_produto_page.set_catalog_options(
             self.product_repository.list_active_categories(),
             self.product_repository.list_active_units(),
+            suppliers,
         )
         self.editar_produto_page.load_product(self.products.get(code, product))
 
@@ -639,8 +679,15 @@ class MainWindow(QMainWindow):
         pode_movimentar = can_move_stock(self.session)
         self.movimentacoes_page.apply_permission(pode_movimentar)
         self.sidebar.set_item_visible("movimentacoes", pode_movimentar)
+        pode_gerenciar_fornecedores = can_manage_suppliers(self.session)
+        self.sidebar.set_item_visible("fornecedores", pode_gerenciar_fornecedores)
 
         if not pode_movimentar and self.pages.currentWidget() is self.movimentacoes_page:
+            self.show_page(DEFAULT_KEY)
+        if (
+            not pode_gerenciar_fornecedores
+            and self.pages.currentWidget() is self.suppliers_page
+        ):
             self.show_page(DEFAULT_KEY)
 
         # Relogin: a janela sobrevive ao logout, então o ADMIN pode ter
@@ -676,6 +723,46 @@ class MainWindow(QMainWindow):
         self.last_save_error = None
         self._refresh_product_views(code)
         self.show_page(self._new_product_origin)
+
+    def _active_suppliers(self):
+        return tuple(
+            supplier for supplier in self.supplier_service.list_suppliers(self.session)
+            if supplier.active
+        )
+
+    def _refresh_supplier_options(self):
+        """Atualiza seletores sem perder vínculos de registros históricos."""
+        try:
+            suppliers = self.supplier_service.list_suppliers(self.session)
+        except Exception as error:
+            self.last_save_error = error
+            QMessageBox.warning(
+                self, "Não foi possível atualizar fornecedores", str(error)
+            )
+            return
+        active = tuple(s for s in suppliers if s.active)
+        self.movimentacoes_page.set_suppliers(active)
+        for page in (self.novo_produto_page, self.editar_produto_page):
+            selected = page.supplier_input.currentData()
+            options = list(active)
+            current = next(
+                (supplier for supplier in suppliers
+                 if supplier.supplier_id == selected),
+                None,
+            )
+            if current is not None and not current.active:
+                options.append(current)
+            page.set_catalog_options(
+                self.product_repository.list_active_categories(),
+                self.product_repository.list_active_units(),
+                options,
+            )
+            if selected is not None:
+                index = page.supplier_input.findData(selected)
+                if index < 0:
+                    page.supplier_input.addItem("Fornecedor inativo", selected)
+                    index = page.supplier_input.findData(selected)
+                page.supplier_input.setCurrentIndex(index)
 
     def _save_edited_product(self):
         data = self.editar_produto_page.collect_input()

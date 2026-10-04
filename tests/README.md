@@ -31,6 +31,9 @@ A plataforma `offscreen` deixa os testes de UI rodarem sem servidor gráfico
 | `test_persistencia_reflete_na_tela.py` | gravar aparece na tela; mexer na tela grava (os dois adaptadores) |
 | `test_movimentacoes_na_tela.py` | registrar, confirmar e cancelar; propagação do saldo para o Estoque |
 | `unit/test_movement_repositories.py` | adaptadores de movimentação, demo e Supabase |
+| `test_fornecedores_us08.py` | US08 CRUD, validação, busca, status e integração com produto/entrada |
+| `test_fornecedores_database_contract.py` | contrato SQL, RLS, unicidade e vínculo histórico |
+| `unit/test_supabase_supplier_repository.py` | adaptador Supabase de fornecedores contra cliente falso |
 | `unit/test_workers.py` | trabalho lento sai da thread da interface e volta por sinal |
 | `test_consulta_de_alerta.py` | a regra do alerta pertence à consulta, não à tela |
 | `unit/test_supabase_product_repository.py` | adaptador de catálogo no Supabase, contra cliente falso |

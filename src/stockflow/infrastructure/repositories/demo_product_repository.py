@@ -198,4 +198,5 @@ class DemoProductRepository:
             stock=str(stock),
             stock_status=derive_stock_status(stock, minimo),
             minimum_stock=to_min(minimo),
+            supplier_id=getattr(data, "supplier_id", None),
         )
