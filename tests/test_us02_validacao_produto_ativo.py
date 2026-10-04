@@ -21,6 +21,12 @@ from PySide6.QtWidgets import QMessageBox
 from stockflow.domain.enums.user_role import UserRole
 from stockflow.presentation.demo_accounts import conta_por_papel
 from stockflow.presentation.demo_products import DEMO_PRODUCTS, Product
+# Por nome, nunca por número: a coluna de Mínimo entrou entre Estoque e
+# Preço e deslocaria qualquer índice escrito à mão.
+from stockflow.presentation.widgets.stock_table import (
+    ACTIVE_COLUMN,
+    STATUS_COLUMN,
+)
 from stockflow.presentation.pages.vendas import VendasPage
 from stockflow.presentation.windows.main_window import MainWindow
 
@@ -53,6 +59,7 @@ def itens_do_combo(combo):
 
 
 def linha_do_produto(page, code):
+    """Linha do produto na tabela de Estoque, pelo código."""
     for row in range(page.table.rowCount()):
         if page.table.item(row, 0).text() == code:
             return row
@@ -288,8 +295,10 @@ def test_reativar_pela_edicao_preserva_historico_e_retorna_a_selecao(
     assert window.last_save_error is None
     assert window.products["PRD-009"].active is False
     linha = linha_do_produto(window.estoque_page, "PRD-009")
-    assert window.estoque_page.table.item(linha, 5).text() == "Normal"
-    assert window.estoque_page.table.item(linha, 6).text() == "Inativo"
+    # A situação de estoque NÃO é apagada por desativar: são colunas
+    # independentes, e é essa separação que a tela existe para mostrar.
+    assert window.estoque_page.table.item(linha, STATUS_COLUMN).text() == "Normal"
+    assert window.estoque_page.table.item(linha, ACTIVE_COLUMN).text() == "Inativo"
     assert not any("PRD-009" in t for t in itens_do_combo(vendas.produto_combo))
     assert vendas.historico_vendas == historico_antes
     window._show_product_details("PRD-009")
@@ -305,8 +314,8 @@ def test_reativar_pela_edicao_preserva_historico_e_retorna_a_selecao(
     assert window.last_save_error is None
     assert window.products["PRD-009"].active is True
     linha = linha_do_produto(window.estoque_page, "PRD-009")
-    assert window.estoque_page.table.item(linha, 5).text() == "Normal"
-    assert window.estoque_page.table.item(linha, 6).text() == "Ativo"
+    assert window.estoque_page.table.item(linha, STATUS_COLUMN).text() == "Normal"
+    assert window.estoque_page.table.item(linha, ACTIVE_COLUMN).text() == "Ativo"
     assert any("PRD-009" in t for t in itens_do_combo(vendas.produto_combo))
     assert vendas.historico_vendas == historico_antes
     window._show_product_details("PRD-009")
