@@ -40,6 +40,15 @@ class ProductRepository(Protocol):
         """
         ...
 
+    def set_active(self, code: str, active: bool) -> None:
+        """Ativa ou desativa o produto. Soft-delete, nunca remoção.
+
+        Estava só no adaptador de banco e, por não estar aqui, ninguém o
+        chamava: desativar pela tabela de Estoque mudava a tela e não
+        persistia nada. Declarar na porta é o que torna a omissão visível.
+        """
+        ...
+
     def create(self, data: ProductInput) -> str:
         """Retorna o code gravado."""
         ...

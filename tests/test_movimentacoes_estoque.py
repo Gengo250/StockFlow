@@ -181,8 +181,11 @@ def test_a_view_de_alerta_implementa_os_criterios_da_us04():
 
     # saldo MENOR OU IGUAL ao mínimo: o `=` é o critério "inclui saldo igual".
     assert re.search(r"current_balance\s*<=\s*s?\.?min_quantity", corpo, re.I)
-    # mínimo configurado: exclui quem não tem.
-    assert re.search(r"min_quantity\s*>\s*0", corpo, re.I)
+    # mínimo CONFIGURADO: exclui quem não tem. O filtro é por presença, não
+    # por valor — mínimo zero é uma configuração explícita ("avise quando
+    # acabar") e precisa alertar; só o NULL, que significa "ninguém
+    # configurou", fica de fora.
+    assert re.search(r"min_quantity\s+IS\s+NOT\s+NULL", corpo, re.I)
     # inativos já saem de vw_stock_situation, que filtra por p.active.
     assert "vw_stock_situation" in corpo
     assert re.search(r"WHERE\s+p\.active", sql("views", "01_stock_situation.sql"), re.I)

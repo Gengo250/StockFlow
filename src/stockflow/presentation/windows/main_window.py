@@ -7,25 +7,31 @@ from PySide6.QtWidgets import (
     QStackedWidget,
 )
 
+from stockflow.application.services.movement_service import MovementService
 from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.domain.permissions import (
     can_manage_products,
     can_manage_users,
+    can_move_stock,
     ensure_can_manage_users,
+    ensure_can_move_stock,
 )
 from stockflow.presentation.backend import (
     build_catalog,
     build_demo_user_directory,
+    build_movement_repository,
     build_user_directory,
     set_user_active as set_directory_user_active,
     using_supabase,
 )
+from stockflow.presentation.workers import executar_em_segundo_plano
 from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
 from stockflow.presentation.pages.coming_soon import ComingSoonPage
 from stockflow.presentation.pages.estoque import EstoquePage
+from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.users import UsersPage
 from stockflow.presentation.pages.vendas import VendasPage
@@ -59,6 +65,15 @@ class MainWindow(QMainWindow):
         self._usuarios_carregados = False
         self.last_users_error = None
         self.last_user_status_error = None
+
+        # Ver `_on_product_status_changed`: desfazer um toggle que falhou
+        # reemite o sinal que o disparou.
+        self._revertendo_situacao = False
+
+        # Como o trabalho lento é executado. Atributo, e não import direto,
+        # para que o teste possa substituir pela versão síncrona sem precisar
+        # de um laço de eventos girando.
+        self.executar_em_segundo_plano = executar_em_segundo_plano
 
         self.setWindowTitle("StockFlow")
         self.resize(1920, 1080)
@@ -148,11 +163,21 @@ class MainWindow(QMainWindow):
         self.vendas_page = VendasPage(self.products)
         self.users_page = UsersPage()
 
+        # Movimentações recebe o MESMO catálogo: a oferta de produtos tem que
+        # acompanhar desativações feitas no Estoque, pela mesma razão da tela
+        # de Vendas (US02).
+        self.movement_repository = build_movement_repository(
+            self.session, self.products
+        )
+        self.movement_service = MovementService(self.movement_repository)
+        self.movimentacoes_page = MovimentacoesPage(self.products)
+
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": dashboard_page,
             "estoque": self.estoque_page,
             "vendas": self.vendas_page,
+            "movimentacoes": self.movimentacoes_page,
             "produtos": self.products_page,
             "relatorios": ComingSoonPage("Relatórios"),
             "usuarios": self.users_page,
@@ -203,6 +228,10 @@ class MainWindow(QMainWindow):
             self._on_product_status_changed
         )
 
+        self.movimentacoes_page.register_requested.connect(self._registrar_movimentacao)
+        self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
+        self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
+
         self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
         self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
 
@@ -219,7 +248,13 @@ class MainWindow(QMainWindow):
     # Telas que exigem permissão para serem ABERTAS, não só para gravar.
     # Usuários entra aqui porque `fn_list_company_users` recusa o não-admin:
     # pelo banco, nem a listagem é dele.
-    RESTRICTED_PAGES = {"usuarios": ensure_can_manage_users}
+    RESTRICTED_PAGES = {
+        "usuarios": ensure_can_manage_users,
+        # Movimentar altera saldo, e saldo decide reposição e venda.
+        # `fn_register_movement` recusa quem não é ADMIN/STOCK, então nem a
+        # consulta do histórico é do vendedor.
+        "movimentacoes": ensure_can_move_stock,
+    }
 
     def show_page(self, key):
         """Navega para uma página. Devolve `False` quando a recusa acontece.
@@ -245,6 +280,10 @@ class MainWindow(QMainWindow):
 
         if key == "usuarios":
             self._carregar_usuarios_do_banco()
+        if key == "estoque":
+            self._reconsultar_estoque()
+        if key == "movimentacoes":
+            self._recarregar_movimentacoes()
 
         self.pages.setCurrentWidget(
             self.page_widgets[key]
@@ -252,6 +291,136 @@ class MainWindow(QMainWindow):
 
         self.sidebar.set_active(key)
         return True
+
+    # ======================================================
+    # MOVIMENTAÇÕES
+    # ======================================================
+
+    def _recarregar_movimentacoes(self):
+        """Recarrega o histórico. A permissão já foi checada na navegação."""
+        try:
+            self.movimentacoes_page.set_movements(
+                self.movement_service.list_movements(self.session)
+            )
+        except Exception as erro:
+            self.movimentacoes_page.show_load_error(erro)
+
+    def _registrar_movimentacao(self, dados):
+        """Registra e, se foi pedido, já confirma.
+
+        Confirmar muda o saldo, então a tela de Estoque precisa ser
+        reconsultada — é literalmente o critério da US04 sobre não manter
+        alerta desatualizado. Quando a movimentação nasce pendente, o saldo
+        não mudou e reconsultar seria requisição à toa.
+        """
+        try:
+            self.movement_service.register(self.session, dados)
+        except PermissionDeniedError as erro:
+            self.movimentacoes_page.mostrar_recusa(erro)
+            return
+        except ValueError as erro:
+            self.movimentacoes_page.mostrar_recusa(erro)
+            return
+        except Exception as erro:
+            self.last_save_error = erro
+            QMessageBox.critical(self, "Não foi possível registrar", str(erro))
+            return
+
+        self.movimentacoes_page.limpar_formulario()
+        self._recarregar_movimentacoes()
+        if dados.confirm:
+            self._saldo_mudou()
+
+    def _confirmar_movimentacao(self, movement_id):
+        if not self._executar_movimentacao(
+            self.movement_service.confirm, movement_id, "confirmar"
+        ):
+            return
+        self._saldo_mudou()
+
+    def _cancelar_movimentacao(self, movement_id):
+        """Cancelar uma CONFIRMADA devolve o saldo, então também reconsulta."""
+        if not self._executar_movimentacao(
+            self.movement_service.cancel, movement_id, "cancelar"
+        ):
+            return
+        self._saldo_mudou()
+
+    def _executar_movimentacao(self, operacao, movement_id, nome) -> bool:
+        try:
+            operacao(self.session, movement_id)
+        except PermissionDeniedError as erro:
+            self.movimentacoes_page.mostrar_recusa(erro)
+            return False
+        except Exception as erro:
+            self.last_save_error = erro
+            QMessageBox.critical(self, f"Não foi possível {nome}", str(erro))
+            return False
+
+        self._recarregar_movimentacoes()
+        return True
+
+    def _saldo_mudou(self):
+        """Uma movimentação confirmada alterou o saldo. Propaga para as telas.
+
+        Dois caminhos, porque as duas fontes se comportam de forma diferente:
+
+        - COM banco, o saldo foi recalculado pelo trigger e a foto local não
+          sabe disso. Só reconsultando.
+        - SEM banco, o repositório de movimentação já escreveu no catálogo
+          compartilhado; o que falta é redesenhar. Reconsultar sairia cedo
+          (não há `load_catalog`) e a tela ficaria com o saldo antigo — foi
+          exatamente o que aconteceu: o catálogo marcava 13 e a tabela de
+          Estoque seguia mostrando 18.
+        """
+        if getattr(self.product_repository, "load_catalog", None) is not None:
+            self._reconsultar_estoque()
+            return
+
+        self.estoque_page.reload_products()
+        self.products_page.reload_products()
+        self.vendas_page.reload_products()
+
+    def _reconsultar_estoque(self):
+        """Reconsulta o catálogo ao ABRIR a tela de Estoque.
+
+        A US04 pede que os alertas sejam reconsultados depois de uma
+        movimentação confirmada mudar o saldo. As gravações feitas por ESTA
+        janela já atualizam a foto na hora (write-through no repositório),
+        mas uma movimentação confirmada por outra pessoa, ou por um caminho
+        fora da UI, não teria como aparecer — e um alerta desatualizado é
+        justamente o que o critério proíbe.
+
+        Abrir a tela é o gatilho certo: é quando o usuário vai agir sobre a
+        lista. Reconsultar a cada gravação custaria três requisições por
+        salvamento e desfaria o write-through.
+
+        No modo demonstração não há o que reconsultar: a foto É a fonte.
+        """
+        recarregar = getattr(self.product_repository, "load_catalog", None)
+        if recarregar is None:
+            return
+
+        # FORA da thread da interface. A consulta são três requisições; feita
+        # aqui, ela congelaria a janela entre `begin_loading` e o resultado —
+        # e o aviso de "carregando" nunca chegaria a ser repintado, que foi
+        # exatamente o motivo de ele existir e não aparecer.
+        #
+        # `executar` é atributo para o teste poder trocá-lo pela versão
+        # síncrona: um teste de UI não tem laço de eventos girando, então uma
+        # tarefa em segundo plano nunca entregaria resultado.
+        self.estoque_page.begin_loading()
+        self.executar_em_segundo_plano(
+            recarregar,
+            self._estoque_recarregado,
+            self.estoque_page.show_load_error,
+        )
+
+    def _estoque_recarregado(self, catalogo):
+        """Chegada da consulta, já de volta na thread da interface."""
+        self.estoque_page.reload_products(catalogo)
+        self.products_page.reload_products(catalogo)
+        self.vendas_page.reload_products(catalogo)
 
     def _carregar_usuarios_do_banco(self):
         """Busca o diretório de usuários na PRIMEIRA abertura da tela.
@@ -412,6 +581,13 @@ class MainWindow(QMainWindow):
         self.users_page.apply_permission(pode_gerenciar_usuarios)
         self.sidebar.set_item_visible("usuarios", pode_gerenciar_usuarios)
 
+        pode_movimentar = can_move_stock(self.session)
+        self.movimentacoes_page.apply_permission(pode_movimentar)
+        self.sidebar.set_item_visible("movimentacoes", pode_movimentar)
+
+        if not pode_movimentar and self.pages.currentWidget() is self.movimentacoes_page:
+            self.show_page(DEFAULT_KEY)
+
         # Relogin: a janela sobrevive ao logout, então o ADMIN pode ter
         # deixado a tela de usuários na frente. Sem isto, o próximo usuário
         # entraria já olhando para ela.
@@ -501,7 +677,13 @@ class MainWindow(QMainWindow):
             self.product_details_page.load_product(produto)
 
     def _on_product_status_changed(self, code):
-        """Propaga para as outras telas um ativar/desativar feito no Estoque.
+        """PERSISTE o ativar/desativar e propaga para as outras telas.
+
+        A gravação acontece aqui, e não na página: a tela de Estoque não
+        conhece repositório nenhum — ela altera a própria linha e avisa. Sem
+        esta chamada, desativar um produto mudava a tabela e não gravava
+        nada; no modo demonstração funcionava por acidente, porque a página
+        escreve no mesmo dict que o repositório usaria.
 
         Não chama `_refresh_product_views`: a tela de Estoque já se
         redesenhou sozinha dentro de `toggle_product_status`, e mandá-la
@@ -509,6 +691,34 @@ class MainWindow(QMainWindow):
         clique que originou a mudança — trocando sob os pés do sinal a lista
         de onde o produto veio.
         """
+        # Guarda de reentrância. O desfazer abaixo chama
+        # `toggle_product_status`, que emite o MESMO sinal que nos trouxe
+        # aqui: sem esta trava, uma falha de gravação entra em recursão
+        # infinita entre desfazer e tentar de novo.
+        if self._revertendo_situacao:
+            return
+
+        produto = self.products.get(code)
+        if produto is not None:
+            try:
+                self.product_repository.set_active(code, bool(produto.active))
+            except Exception as erro:
+                # Desfaz na tela o que não entrou no banco. Deixar a linha
+                # mostrando o estado novo seria pior do que a falha: o
+                # usuário sairia convencido de que desativou.
+                self.last_save_error = erro
+                self._revertendo_situacao = True
+                try:
+                    self.estoque_page.toggle_product_status(
+                        next(p for p in self.estoque_page.produtos if p[0] == code)
+                    )
+                finally:
+                    self._revertendo_situacao = False
+                QMessageBox.critical(
+                    self, "Não foi possível alterar a situação", str(erro)
+                )
+                return
+
         self.products_page.reload_products()
         self.vendas_page.reload_products()
 

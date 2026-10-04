@@ -27,6 +27,11 @@ A plataforma `offscreen` deixa os testes de UI rodarem sem servidor gráfico
 | `test_estoque_busca_filtro.py` | US03 consulta de saldo/mínimo/situação, busca e ativar/desativar |
 | `test_estoque_alerta_baixo.py` | US04 um teste por critério de conclusão do cartão |
 | `test_movimentacoes_estoque.py` | US03 saldo derivado das movimentações confirmadas (estático) |
+| `test_estoque_estados_da_lista.py` | SCRUM lista preenchida, vazia, carregando e falha de consulta |
+| `test_persistencia_reflete_na_tela.py` | gravar aparece na tela; mexer na tela grava (os dois adaptadores) |
+| `test_movimentacoes_na_tela.py` | registrar, confirmar e cancelar; propagação do saldo para o Estoque |
+| `unit/test_movement_repositories.py` | adaptadores de movimentação, demo e Supabase |
+| `unit/test_workers.py` | trabalho lento sai da thread da interface e volta por sinal |
 | `unit/test_supabase_product_repository.py` | adaptador de catálogo no Supabase, contra cliente falso |
 | `unit/test_supabase_auth.py` | login pelo Supabase Auth e montagem da sessão |
 | `unit/test_backend_selection.py` | escolha entre demonstração e banco por `STOCKFLOW_BACKEND` |
