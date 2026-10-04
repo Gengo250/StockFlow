@@ -29,6 +29,7 @@ from stockflow.presentation.workers import executar_em_segundo_plano
 from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
+from stockflow.presentation.pages.clientes import ClientesPage
 from stockflow.presentation.pages.coming_soon import ComingSoonPage
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
@@ -161,6 +162,7 @@ class MainWindow(QMainWindow):
         # numa venda nova (US02). Uma cópia aqui ofereceria para sempre o
         # catálogo como ele estava quando a janela abriu.
         self.vendas_page = VendasPage(self.products)
+        self.clientes_page = ClientesPage(sales_page=self.vendas_page)
         self.users_page = UsersPage()
 
         # Movimentações recebe o MESMO catálogo: a oferta de produtos tem que
@@ -176,8 +178,9 @@ class MainWindow(QMainWindow):
         self.page_widgets = {
             "dashboard": dashboard_page,
             "estoque": self.estoque_page,
-            "vendas": self.vendas_page,
             "movimentacoes": self.movimentacoes_page,
+            "clientes": self.clientes_page,
+            "vendas": self.vendas_page,
             "produtos": self.products_page,
             "relatorios": ComingSoonPage("Relatórios"),
             "usuarios": self.users_page,

@@ -22,6 +22,7 @@ MENU_ITEMS = [
     # Logo abaixo de Estoque: é o saldo daquela tela que estas entradas e
     # saídas compõem, e quem abre uma costuma querer a outra.
     ("movimentacoes", "Movimentações", "fa5s.exchange-alt"),
+    ("clientes", "Clientes", "fa5s.user-friends"),
     ("vendas", "Vendas", "fa5s.chart-bar"),
     ("produtos", "Produtos", "fa5s.box"),
     ("relatorios", "Relatórios", "fa5s.file-alt"),

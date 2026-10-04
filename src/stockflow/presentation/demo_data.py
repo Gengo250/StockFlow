@@ -14,6 +14,22 @@ from collections import namedtuple
 from stockflow.presentation.demo_status import is_demo_user_active
 from stockflow.presentation.user_directory_row import UserDirectoryRow
 
+_CLIENT_ACTIVE_BY_ID = {}
+
+
+def is_demo_client_active(client_id, default=True):
+    return _CLIENT_ACTIVE_BY_ID.get(str(client_id), default)
+
+
+def set_demo_client_active(client_id, active):
+    if not client_id:
+        raise ValueError("O cliente demonstrativo precisa de um identificador.")
+    _CLIENT_ACTIVE_BY_ID[str(client_id)] = bool(active)
+
+
+def reset_demo_client_statuses():
+    _CLIENT_ACTIVE_BY_ID.clear()
+
 DemoPerson = namedtuple(
     "DemoPerson",
     "cliente_id user_id name login department role status last_access color",
@@ -54,9 +70,34 @@ def linhas_de_usuarios():
     return tuple(linhas)
 
 
+def _status_do_cliente(person):
+    active = is_demo_client_active(
+        person.cliente_id,
+        default=is_demo_user_active(person.user_id, default=person.status != "Inativo"),
+    )
+    if person.status == "Pendente":
+        return "Pendente"
+    return "Ativo" if active else "Inativo"
+
+
 def base_de_clientes():
     """Clientes da tela de Vendas, um por pessoa cadastrada em Usuários."""
     return [
-        {"id": p.cliente_id, "nome": p.name, "status": p.status}
+        {"id": p.cliente_id, "nome": p.name, "status": _status_do_cliente(p)}
+        for p in DEMO_PEOPLE
+    ]
+
+
+def linhas_de_clientes():
+    """Lista de clientes em formato de linha de manutenção da tela."""
+    return [
+        {
+            "id": p.cliente_id,
+            "nome": p.name,
+            "email": p.login,
+            "telefone": "",
+            "documento": "",
+            "status": _status_do_cliente(p),
+        }
         for p in DEMO_PEOPLE
     ]
