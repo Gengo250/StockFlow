@@ -354,6 +354,17 @@ class EstoquePage(QWidget):
         }
         self.apply_filters()
 
+    def clear_alerts(self):
+        """Desliga a consulta e devolve a decisão ao cálculo local.
+
+        Chamado quando a consulta de alerta falha. O cálculo local é o
+        espelho declarado de `fn_stock_state`, com teste de grade comparando
+        os dois caso a caso — uma lista de alerta pelo espelho é muito melhor
+        do que nenhuma lista.
+        """
+        self._alertas = None
+        self.apply_filters()
+
     def _codigos_em_alerta(self):
         """Conjunto de códigos em alerta, ou `None` se não há consulta ligada.
 

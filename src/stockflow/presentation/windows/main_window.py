@@ -414,21 +414,47 @@ class MainWindow(QMainWindow):
         # `executar` é atributo para o teste poder trocá-lo pela versão
         # síncrona: um teste de UI não tem laço de eventos girando, então uma
         # tarefa em segundo plano nunca entregaria resultado.
-        # As DUAS consultas na mesma viagem. Separá-las faria a tela
-        # desenhar o catálogo novo com o alerta velho por um instante, e
-        # cobraria uma ida à rede a mais por abertura.
+        # As DUAS consultas na mesma viagem. Separá-las faria a tela desenhar
+        # o catálogo novo com o alerta velho por um instante, e cobraria uma
+        # ida à rede a mais por abertura.
         self.estoque_page.begin_loading()
         self.executar_em_segundo_plano(
-            lambda: (recarregar(), self.product_repository.list_alerts()),
+            self._buscar_estoque,
             self._estoque_recarregado,
             self.estoque_page.show_load_error,
         )
 
+    def _buscar_estoque(self):
+        """Catálogo e alertas, com a falha do segundo ISOLADA do primeiro.
+
+        As duas consultas vão juntas, mas não têm o mesmo peso: sem catálogo
+        não há lista nenhuma, enquanto sem a consulta de alerta ainda há o
+        cálculo local — o espelho declarado da mesma regra.
+
+        Até aqui uma exceção em `list_alerts` subia pelo mesmo caminho do
+        catálogo e derrubava a tela inteira. Foi o que aconteceu quando o
+        código passou a pedir `product_code` da view antes de a migration que
+        cria a coluna ter sido aplicada: o catálogo carregava normalmente e o
+        usuário via uma tela de erro.
+        """
+        catalogo = self.product_repository.load_catalog()
+        try:
+            return catalogo, self.product_repository.list_alerts(), None
+        except Exception as erro:
+            return catalogo, None, erro
+
     def _estoque_recarregado(self, resultado):
         """Chegada das consultas, já de volta na thread da interface."""
-        catalogo, alertas = resultado
+        catalogo, alertas, erro_do_alerta = resultado
         self.estoque_page.reload_products(catalogo)
-        self.estoque_page.set_alerts(alertas)
+
+        if alertas is None:
+            # A lista aparece; só a decisão de quem alerta volta a ser local.
+            self.estoque_page.clear_alerts()
+            self.last_load_error = erro_do_alerta
+        else:
+            self.estoque_page.set_alerts(alertas)
+
         self.products_page.reload_products(catalogo)
         self.vendas_page.reload_products(catalogo)
 
@@ -443,6 +469,9 @@ class MainWindow(QMainWindow):
         try:
             self.estoque_page.set_alerts(self.product_repository.list_alerts())
         except Exception as erro:
+            # Volta ao cálculo local em vez de ficar com um resultado velho:
+            # alerta desatualizado é pior do que alerta aproximado.
+            self.estoque_page.clear_alerts()
             self.last_load_error = erro
 
     def _carregar_usuarios_do_banco(self):
