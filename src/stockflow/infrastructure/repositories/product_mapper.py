@@ -9,7 +9,7 @@ As duas pontas falam formatos diferentes, e a diferença não é cosmética:
 | `"Unidade (UN)"`     | `unit public.unit_enum` = `'UN'`     |
 | `category` por nome  | `item_category uuid` (FK composta)   |
 | `stock` `"18"`       | `stock integer`                      |
-| `minimum_stock` int  | `product_stock.min_quantity integer` |
+| `minimum_stock` int? | `product_stock.min_quantity` (nullable) |
 
 O `code` vira `barcode` porque é a única coluna com unicidade por empresa que
 carrega um identificador de negócio: `products.id` é um uuid gerado pelo banco
@@ -23,9 +23,9 @@ from decimal import Decimal, InvalidOperation
 
 from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 from stockflow.domain.stock_level import (
-    NOT_CONFIGURED,
     derive_stock_status,
     to_int,
+    to_min,
 )
 from stockflow.presentation.demo_products import Product
 
@@ -102,10 +102,11 @@ def row_to_product(row, category_name=None, minimum_stock=None) -> Product:
     (a view `vw_stock_situation` também o calcula), e inventar um campo
     persistido criaria uma segunda verdade sobre a mesma coisa.
     """
-    # Ausente vira zero, exatamente como `COALESCE(ps.min_quantity, 0)` na
-    # `vw_stock_situation`: produto sem linha em `product_stock` não tem
-    # mínimo configurado e não entra no alerta.
-    minimo = NOT_CONFIGURED if minimum_stock is None else to_int(minimum_stock)
+    # Ausente PERMANECE ausente. `product_stock.min_quantity` é nullable, e
+    # produto sem linha também chega como `None` — os dois casos significam
+    # "sem limiar" e não podem virar zero, que agora é uma configuração que
+    # alerta ao zerar o saldo.
+    minimo = to_min(minimum_stock)
     estoque = to_int(row.get("stock"))
     return Product(
         code=row.get("barcode") or "",

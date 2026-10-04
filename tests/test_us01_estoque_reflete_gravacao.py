@@ -111,9 +111,9 @@ def test_estoque_mostra_o_produto_recem_cadastrado(janela, sem_dialogos):
     assert estoque.table.rowCount() == linhas_antes + 1
     assert codigo in codigos_na_tabela(estoque)
     assert celulas(estoque, linha_do_codigo(estoque, codigo)) == [
-        # O mínimo vem do formulário, que sugere o padrão do catálogo para um
-        # cadastro novo. 30 contra 10 é Normal.
-        codigo, "Webcam 4K", "Eletrônicos", "30", "10", "R$ 499,00",
+        # Cadastro novo nasce SEM mínimo: a US03 o tornou opcional, e o
+        # formulário parou de sugerir 10. Sem limiar, a situação é Normal.
+        codigo, "Webcam 4K", "Eletrônicos", "30", "—", "R$ 499,00",
         "Normal", "Ativo",
     ]
 
