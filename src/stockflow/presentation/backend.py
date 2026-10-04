@@ -15,6 +15,9 @@ inclusive falhando o login em máquina sem acesso à rede.
 
 import os
 
+from stockflow.infrastructure.repositories.demo_client_repository import (
+    DemoClientRepository,
+)
 from stockflow.infrastructure.repositories.demo_product_repository import (
     DemoProductRepository,
 )
@@ -22,6 +25,7 @@ from stockflow.presentation.demo_accounts import (
     alterar_status_demo,
     autenticar as autenticar_demo,
 )
+from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
 BACKEND_VAR = "STOCKFLOW_BACKEND"
@@ -163,6 +167,27 @@ def build_demo_user_directory():
     from stockflow.presentation.demo_data import linhas_de_usuarios
 
     return linhas_de_usuarios()
+
+
+def build_client_directory(session=None):
+    """Lista de clientes em modo demonstração. O backend de banco ainda não
+    tem uma implementação de clientes, então a porta segue o padrão do
+    restante do projeto: a tela recebe dados em memória e a regra de negócio
+    continua no serviço e no repositório da demo.
+    """
+    if using_supabase():
+        raise NotImplementedError("Clientes em backend Supabase ainda não implementados.")
+    return DemoClientRepository().list_all()
+
+
+def set_client_active(session, client_id: str, active: bool) -> None:
+    """Ativa ou inativa um cliente em demonstração."""
+    if using_supabase():
+        raise NotImplementedError("Clientes em backend Supabase ainda não implementados.")
+    if not client_id:
+        raise ValueError("Não foi possível identificar o cliente selecionado.")
+    repo = DemoClientRepository()
+    repo.set_active(client_id, active)
 
 
 def set_user_active(session, user_id: str, active: bool) -> None:
