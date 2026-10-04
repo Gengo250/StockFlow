@@ -371,6 +371,7 @@ class MainWindow(QMainWindow):
             return
 
         self.estoque_page.reload_products()
+        self._publicar_alertas()
         self.products_page.reload_products()
         self.vendas_page.reload_products()
 
@@ -392,6 +393,10 @@ class MainWindow(QMainWindow):
         """
         recarregar = getattr(self.product_repository, "load_catalog", None)
         if recarregar is None:
+            # Sem banco não há catálogo a reconsultar, mas a consulta de
+            # alerta existe nos DOIS adaptadores — e é dela que a tela tira
+            # quem alerta. Pular isto deixaria a tela decidindo sozinha.
+            self._publicar_alertas()
             return
 
         # FORA da thread da interface. A consulta são três requisições; feita
@@ -402,18 +407,36 @@ class MainWindow(QMainWindow):
         # `executar` é atributo para o teste poder trocá-lo pela versão
         # síncrona: um teste de UI não tem laço de eventos girando, então uma
         # tarefa em segundo plano nunca entregaria resultado.
+        # As DUAS consultas na mesma viagem. Separá-las faria a tela
+        # desenhar o catálogo novo com o alerta velho por um instante, e
+        # cobraria uma ida à rede a mais por abertura.
         self.estoque_page.begin_loading()
         self.executar_em_segundo_plano(
-            recarregar,
+            lambda: (recarregar(), self.product_repository.list_alerts()),
             self._estoque_recarregado,
             self.estoque_page.show_load_error,
         )
 
-    def _estoque_recarregado(self, catalogo):
-        """Chegada da consulta, já de volta na thread da interface."""
+    def _estoque_recarregado(self, resultado):
+        """Chegada das consultas, já de volta na thread da interface."""
+        catalogo, alertas = resultado
         self.estoque_page.reload_products(catalogo)
+        self.estoque_page.set_alerts(alertas)
         self.products_page.reload_products(catalogo)
         self.vendas_page.reload_products(catalogo)
+
+    def _publicar_alertas(self):
+        """Entrega à tela o resultado da consulta de alerta.
+
+        Falha aqui não derruba a tela: sem o resultado, `EstoquePage` cai na
+        situação já calculada na linha, que é o espelho declarado da mesma
+        regra. Uma lista de alerta aproximada é melhor do que uma tela de
+        estoque que não abre.
+        """
+        try:
+            self.estoque_page.set_alerts(self.product_repository.list_alerts())
+        except Exception as erro:
+            self.last_load_error = erro
 
     def _carregar_usuarios_do_banco(self):
         """Busca o diretório de usuários na PRIMEIRA abertura da tela.
@@ -689,6 +712,8 @@ class MainWindow(QMainWindow):
                 )
                 return
 
+        # Ativar/desativar muda quem alerta: a consulta só considera ativos.
+        self._publicar_alertas()
         self.products_page.reload_products()
         self.vendas_page.reload_products()
 

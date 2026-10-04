@@ -18,6 +18,7 @@ from stockflow.domain.stock_level import (  # noqa: F401
     DEFAULT_MINIMUM_STOCK,
     NOT_CONFIGURED,
     derive_stock_status,
+    is_below_minimum,
     to_min,
 )
 
@@ -132,6 +133,26 @@ class DemoProductRepository:
     def next_code(self) -> str:
         """Código livre para um cadastro novo, derivado do catálogo atual."""
         return next_product_code(self._products)
+
+    def list_alerts(self) -> tuple:
+        """Mesma regra de `vw_stock_alerts`, aplicada ao catálogo em memória.
+
+        Sem banco não há view, então o critério vive aqui — mas vive em UM
+        lugar, e não espalhado pela tela. `derive_stock_status` é o espelho
+        declarado de `fn_stock_state`, com teste de grade comparando os dois
+        caso a caso.
+        """
+        alertas = []
+        for produto in self._products.values():
+            if not produto.active:
+                continue
+            minimo = to_min(getattr(produto, "minimum_stock", None))
+            if minimo is None:
+                continue
+            situacao = derive_stock_status(produto.stock, minimo)
+            if is_below_minimum(situacao):
+                alertas.append((produto.code, produto.stock, minimo, situacao))
+        return tuple(alertas)
 
     def set_active(self, code: str, active: bool) -> None:
         """Soft-delete no catálogo em memória.
