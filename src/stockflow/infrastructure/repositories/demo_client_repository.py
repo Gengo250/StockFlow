@@ -4,6 +4,7 @@ import dataclasses
 
 from stockflow.application.dto.client_input import ClientInput
 from stockflow.domain.entities.client import Client
+from stockflow.domain.validators.client import normalize_document
 from stockflow.presentation.demo_data import DEMO_PEOPLE, is_demo_client_active, set_demo_client_active
 
 
@@ -13,7 +14,7 @@ def _to_client(data: ClientInput) -> Client:
         name=(data.name or "").strip(),
         email=(data.email or "").strip(),
         phone=(data.phone or "").strip(),
-        document=(data.document or "").strip(),
+        document=normalize_document(data.document),
         active=bool(data.active),
         notes=(data.notes or "").strip(),
     )
@@ -36,6 +37,33 @@ class DemoClientRepository:
 
     def list_all(self):
         return tuple(self._clients.values())
+
+    def search(self, query: str):
+        term = (query or "").strip().casefold()
+        if not term:
+            return self.list_all()
+        digits = normalize_document(term)
+        return tuple(
+            client for client in self._clients.values()
+            if term in client.name.casefold()
+            or term in client.email.casefold()
+            or (digits and (
+                digits in normalize_document(client.phone)
+                or digits in normalize_document(client.document)
+            ))
+        )
+
+    def find_by_document(self, document: str):
+        normalized = normalize_document(document)
+        if not normalized:
+            return None
+        return next(
+            (
+                client for client in self._clients.values()
+                if normalize_document(client.document) == normalized
+            ),
+            None,
+        )
 
     def get(self, client_id: str):
         return self._clients.get(client_id)
@@ -71,7 +99,9 @@ class DemoClientRepository:
             name=(data.name or existente.name).strip(),
             email=(data.email if data.email is not None else existente.email).strip(),
             phone=(data.phone if data.phone is not None else existente.phone).strip(),
-            document=(data.document if data.document is not None else existente.document).strip(),
+            document=normalize_document(
+                data.document if data.document is not None else existente.document
+            ),
             active=bool(data.active if data.active is not None else existente.active),
             notes=(data.notes if data.notes is not None else existente.notes).strip(),
         )

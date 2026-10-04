@@ -26,6 +26,10 @@ from stockflow.domain.entities.client import Client
 from stockflow.infrastructure.repositories.demo_client_repository import DemoClientRepository
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.styles.clients import CLIENTS_QSS
+from stockflow.presentation.widgets.client_inputs import (
+    ClientDocumentInput,
+    ClientPhoneInput,
+)
 
 
 class ClientesPage(QWidget):
@@ -163,9 +167,9 @@ class ClientesPage(QWidget):
 
         fields = {
             "name": QLineEdit(client.name if client else ""),
-            "document": QLineEdit(client.document if client else ""),
+            "document": ClientDocumentInput(client.document if client else ""),
             "email": QLineEdit(client.email if client else ""),
-            "phone": QLineEdit(client.phone if client else ""),
+            "phone": ClientPhoneInput(client.phone if client else ""),
             "notes": QLineEdit(client.notes if client else ""),
         }
         if client is not None:
