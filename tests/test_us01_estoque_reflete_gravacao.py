@@ -18,6 +18,7 @@ from stockflow.domain.enums.user_role import UserRole
 from stockflow.presentation.demo_accounts import conta_por_papel
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.presentation.pages.estoque import EstoquePage
+from stockflow.presentation.widgets.stock_table import ACTIONS_COLUMN
 from stockflow.presentation.windows.main_window import MainWindow
 
 ACTIONS_COLUMN = 7   # Código,Produto,Categoria,Estoque,Mínimo,Preço,Status,Ações
