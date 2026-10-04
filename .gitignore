@@ -13,3 +13,6 @@ dist/
 # chaves ambiente
 .env*
 !.env.example 
+
+# Worktrees temporários de agentes; nunca versionados.
+.claude/

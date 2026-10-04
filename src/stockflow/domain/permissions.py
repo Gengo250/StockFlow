@@ -8,6 +8,9 @@ pior, esconder da aplicação uma regra que só o banco conhece.
   `fn_has_role(company_id, ARRAY['ADMIN','STOCK'])` para criar/editar.
 - Usuário: `database/code/procedures/03_users.sql`, que exige
   `fn_is_admin(...)` em criar, editar, ativar/desativar e LISTAR.
+- Movimentação: `database/code/procedures/04a_movements.sql`, que exige
+  `fn_has_role(company_id, ARRAY['ADMIN','STOCK'])` em registrar, confirmar
+  e cancelar.
 
 As duas regras NÃO são a mesma: o estoquista escreve no catálogo, mas não
 gerencia usuários. Reaproveitar uma lista no lugar da outra é o erro que os
@@ -22,6 +25,12 @@ PRODUCT_WRITE_ROLES: frozenset[UserRole] = frozenset({UserRole.ADMIN, UserRole.S
 # `fn_is_admin` não tem lista: ou o papel na empresa é ADMIN, ou a função
 # levanta `insufficient_privilege`. Esta é a tradução literal disso.
 USER_MANAGEMENT_ROLES: frozenset[UserRole] = frozenset({UserRole.ADMIN})
+
+# Mesma lista de produto, e intencionalmente uma constante SEPARADA. As duas
+# coincidem hoje porque movimentar estoque e editar catálogo são a mesma
+# alçada; se um dia o vendedor puder lançar saída de venda, só esta muda.
+# Reaproveitar `PRODUCT_WRITE_ROLES` faria essa mudança vazar para o catálogo.
+MOVEMENT_ROLES: frozenset[UserRole] = frozenset({UserRole.ADMIN, UserRole.STOCK})
 
 
 def _papel_de(role_or_session) -> UserRole | None:
@@ -75,4 +84,23 @@ def ensure_can_manage_users(session, action: str = "gerenciar usuários") -> Non
     Mesma regra de falha fechada do caminho de produto: sem sessão, nega.
     """
     if not can_manage_users(session):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
+
+
+def can_move_stock(role_or_session) -> bool:
+    """Quem pode registrar, confirmar ou cancelar movimentação.
+
+    Espelha o `fn_has_role(p_company_id, ARRAY['ADMIN','STOCK'])` que as três
+    funções de movimentação checam antes de qualquer gravação.
+    """
+    return _papel_de(role_or_session) in MOVEMENT_ROLES
+
+
+def ensure_can_move_stock(session, action: str = "movimentar o estoque") -> None:
+    """Levanta `PermissionDeniedError` se a sessão não puder movimentar.
+
+    Mesma falha fechada dos demais caminhos: sem sessão, nega. Movimentação
+    altera saldo, e saldo é o número que decide reposição e venda.
+    """
+    if not can_move_stock(session):
         raise PermissionDeniedError(action, getattr(session, "role", None))
