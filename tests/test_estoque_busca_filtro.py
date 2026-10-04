@@ -1,4 +1,20 @@
-"""Commit 4fab981 - feat(stock): product search, filtering and status toggle."""
+"""US03 — consultar saldo, mínimo e situação, e localizar um produto.
+
+Busca, filtros e ativar/desativar na tela de Estoque.
+
+A regra de situação vive em `domain/stock_level.py` e é tradução literal de
+`public.fn_stock_state`. Os números deste arquivo saem do catálogo de
+demonstração, montado para cobrir uma faixa por produto:
+
+    PRD-009  saldo 18  mínimo 10  Normal
+    PRD-008  saldo  6  mínimo 10  Baixo
+    PRD-007  saldo  2  mínimo  5  Baixo
+    PRD-006  saldo  0  mínimo 10  Crítico
+    PRD-005  saldo 11  mínimo 10  Atenção
+    PRD-003  saldo  3  SEM mínimo Normal
+"""
+
+from stockflow.presentation.pages.estoque import MINIMUM, STATUS
 
 
 def visiveis(page):
@@ -17,11 +33,39 @@ def clicar_filtro(page, texto):
     raise AssertionError(f"filtro '{texto}' não existe")
 
 
-# ---------------------------------------------------------------- busca
+def celula(page, codigo, coluna):
+    linha = visiveis(page).index(codigo)
+    return page.table.item(linha, coluna).text()
+
+
+# ---------------------------------------------------------------- consulta
+
 
 def test_estado_inicial_mostra_todos_os_produtos_ativos(estoque_page):
-    assert visiveis(estoque_page) == ["PRD-009", "PRD-008", "PRD-007", "PRD-006"]
-    assert estoque_page.subtitle.text() == "4 produtos cadastrados"
+    assert visiveis(estoque_page) == [
+        "PRD-009", "PRD-008", "PRD-007", "PRD-006", "PRD-005", "PRD-003",
+    ]
+    assert estoque_page.subtitle.text() == "6 produtos cadastrados"
+
+
+def test_a_consulta_traz_saldo_minimo_e_situacao(estoque_page):
+    """US03: a tela precisa mostrar os três, não só o saldo.
+
+    Sem a coluna de mínimo, "Baixo" é um rótulo sem referência — o usuário
+    não tem como saber baixo em relação a quê, nem decidir quanto repor.
+    """
+    assert celula(estoque_page, "PRD-007", 3) == "2"        # saldo
+    assert celula(estoque_page, "PRD-007", MINIMUM) == "5"  # mínimo
+    assert celula(estoque_page, "PRD-007", STATUS) == "Baixo"
+
+
+def test_produto_sem_minimo_mostra_travessao_e_nao_zero(estoque_page):
+    """"0" sugeriria um limiar configurado em zero; não há limiar nenhum."""
+    assert celula(estoque_page, "PRD-003", MINIMUM) == "—"
+    assert celula(estoque_page, "PRD-003", STATUS) == "Normal"
+
+
+# ------------------------------------------------------------------ busca
 
 
 def test_busca_por_nome(estoque_page):
@@ -53,40 +97,44 @@ def test_busca_sem_resultado(estoque_page):
 def test_limpar_busca_restaura_lista(estoque_page):
     estoque_page.search_input.setText("teclado")
     estoque_page.search_input.setText("")
-    assert len(visiveis(estoque_page)) == 4
+    assert len(visiveis(estoque_page)) == 6
 
 
-# -------------------------------------------------------------- filtros
+# ---------------------------------------------------------------- filtros
+
 
 def test_filtro_normal(estoque_page):
     clicar_filtro(estoque_page, "Normal")
-    assert visiveis(estoque_page) == ["PRD-009"]
+    # PRD-003 entra por não ter mínimo configurado: sem limiar, não alerta.
+    assert visiveis(estoque_page) == ["PRD-009", "PRD-003"]
 
 
-def test_filtro_baixo(estoque_page):
-    clicar_filtro(estoque_page, "Baixo")
-    assert visiveis(estoque_page) == ["PRD-008"]
+def test_filtro_atencao(estoque_page):
+    """Faixa de aproximação: acima do mínimo, a menos de 20% dele."""
+    clicar_filtro(estoque_page, "Atenção")
+    assert visiveis(estoque_page) == ["PRD-005"]
 
 
-def test_filtro_critico(estoque_page):
-    clicar_filtro(estoque_page, "Crítico")
-    assert sorted(visiveis(estoque_page)) == ["PRD-006", "PRD-007"]
+def test_filtro_abaixo_do_minimo(estoque_page):
+    clicar_filtro(estoque_page, "Abaixo do mínimo")
+    assert sorted(visiveis(estoque_page)) == ["PRD-006", "PRD-007", "PRD-008"]
 
 
 def test_filtros_sao_mutuamente_exclusivos(estoque_page):
-    clicar_filtro(estoque_page, "Baixo")
-    clicar_filtro(estoque_page, "Crítico")
+    clicar_filtro(estoque_page, "Normal")
+    clicar_filtro(estoque_page, "Abaixo do mínimo")
     marcados = [b.text() for b in estoque_page.filter_buttons if b.isChecked()]
-    assert marcados == ["Crítico"]
+    assert marcados == ["Abaixo do mínimo"]
 
 
 def test_busca_e_filtro_combinam(estoque_page):
-    clicar_filtro(estoque_page, "Crítico")
+    clicar_filtro(estoque_page, "Abaixo do mínimo")
     estoque_page.search_input.setText("mouse")
     assert visiveis(estoque_page) == ["PRD-007"]
 
 
-# ----------------------------------------------- ativar / desativar (US)
+# ----------------------------------------------- ativar / desativar (US02)
+
 
 def test_desativar_remove_de_todos_e_joga_em_inativos(estoque_page):
     produto = estoque_page.produtos[1]          # PRD-008
@@ -96,7 +144,7 @@ def test_desativar_remove_de_todos_e_joga_em_inativos(estoque_page):
 
     clicar_filtro(estoque_page, "Inativos")
     assert visiveis(estoque_page) == ["PRD-008"]
-    assert estoque_page.table.item(0, 5).text() == "Inativo"
+    assert estoque_page.table.item(0, STATUS).text() == "Inativo"
 
 
 def test_reativar_devolve_produto_para_a_lista(estoque_page):
@@ -106,17 +154,18 @@ def test_reativar_devolve_produto_para_a_lista(estoque_page):
     assert "PRD-008" in visiveis(estoque_page)
 
 
-def test_filtro_de_status_nao_mostra_inativos(estoque_page):
-    produto = estoque_page.produtos[2]          # PRD-007, Crítico
+def test_filtro_de_situacao_nao_mostra_inativos(estoque_page):
+    produto = estoque_page.produtos[2]          # PRD-007, Baixo
     estoque_page.toggle_product_status(produto)
-    clicar_filtro(estoque_page, "Crítico")
-    assert visiveis(estoque_page) == ["PRD-006"]
+    clicar_filtro(estoque_page, "Abaixo do mínimo")
+    assert sorted(visiveis(estoque_page)) == ["PRD-006", "PRD-008"]
 
 
 def test_botao_de_acao_alterna_o_status(estoque_page):
     """Clica no botão real da célula de ações da primeira linha."""
-    actions = estoque_page.table.cellWidget(0, 6)
+    acoes = estoque_page.table.columnCount() - 1
+    actions = estoque_page.table.cellWidget(0, acoes)
     toggle = actions.layout().itemAt(1).widget()
     assert toggle.toolTip() == "Desativar produto"
     toggle.click()
-    assert estoque_page.produtos[0][6] is False
+    assert estoque_page.produtos[0][-1] is False

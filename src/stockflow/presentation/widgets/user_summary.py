@@ -11,7 +11,11 @@ ROLE_INDEX = 3
 # Ícone e cor por perfil. Perfil fora do mapa cai no visual neutro, em vez de
 # derrubar a tela — a base de demonstração ganha perfis novos com frequência.
 ROLE_STYLE = {
+    # Papéis reais do banco (`public.user_role`, traduzidos por roles.py).
     "Administrador": ("fa5s.shield-alt", "#8129FF"),
+    "Estoque": ("fa5s.boxes", "#00A77A"),
+    "Vendedor": ("fa5s.shopping-cart", "#195BFF"),
+    # Perfis que só existem na base de demonstração.
     "Gerente": ("fa5s.user-tie", "#195BFF"),
     "Operador": ("fa5s.boxes", "#00A77A"),
     "Financeiro": ("fa5s.wallet", "#FF9500"),
@@ -20,6 +24,8 @@ DEFAULT_STYLE = ("fa5s.user", "#60799E")
 
 PLURALS = {
     "Administrador": "Administradores",
+    "Estoque": "Estoque",
+    "Vendedor": "Vendedores",
     "Gerente": "Gerentes",
     "Operador": "Operadores",
     "Financeiro": "Financeiro",
@@ -27,12 +33,38 @@ PLURALS = {
 
 
 class UserSummary(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, users=None, parent=None):
+        """Um cartão por perfil PRESENTE nas linhas recebidas.
+
+        Os perfis saem dos próprios dados, não de uma lista fixa: o banco tem
+        três papéis e a demonstração tem outros quatro, e um conjunto fixo
+        mostraria cartão zerado para perfil que não existe naquela empresa.
+        """
         super().__init__(parent)
-        layout = QGridLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
-        for column, role in enumerate(USER_ROLES):
+        self._layout = QGridLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(14)
+        self.set_users(DEMO_USERS if users is None else users)
+
+    def set_users(self, users):
+        """Refaz os cartões para as linhas recebidas.
+
+        Os cartões são recriados, e não atualizados: o conjunto de PERFIS
+        muda junto com os dados (o banco tem três papéis, a demonstração tem
+        quatro), então não há correspondência um-a-um entre o que está na
+        tela e o que chega.
+        """
+        self.users = tuple(users)
+        layout = self._layout
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+
+        perfis = tuple(dict.fromkeys(user[ROLE_INDEX] for user in self.users)) or USER_ROLES
+        for column, role in enumerate(perfis):
             icon, color = ROLE_STYLE.get(role, DEFAULT_STYLE)
             card = QFrame()
             card.setObjectName("summaryCard")
@@ -45,7 +77,7 @@ class UserSummary(QWidget):
             badge.setAlignment(Qt.AlignCenter)
             badge.setStyleSheet(f"background: {color}; border-radius: 11px;")
             badge.setPixmap(qta.icon(icon, color="white").pixmap(18, 18))
-            number = QLabel(str(sum(user[ROLE_INDEX] == role for user in DEMO_USERS)))
+            number = QLabel(str(sum(user[ROLE_INDEX] == role for user in self.users)))
             number.setStyleSheet(f"color: {color}; font-size: 27px; font-weight: 600;")
             caption = QLabel(PLURALS.get(role, role))
             caption.setObjectName("muted")

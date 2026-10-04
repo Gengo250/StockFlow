@@ -120,8 +120,10 @@ def test_papel_autorizado_edita_produto_existente(janela, sem_dialogos, papel):
     atualizado = window.products["PRD-009"]
     assert atualizado.name == "Monitor LG UltraWide 34 (2026)"
     assert atualizado.stock == "4"
-    # 4 <= metade de 10 -> Crítico, pela mesma regra da US04.
-    assert atualizado.stock_status == "Crítico"
+    # 4 <= 10 -> Baixo, pela mesma regra de `fn_stock_state`. Só saldo ZERO é
+    # Crítico; a regra antiga da UI, que chamava de crítico tudo abaixo da
+    # metade do mínimo, divergia do banco e foi descartada.
+    assert atualizado.stock_status == "Baixo"
 
 
 # ------------------------------------------------- papel sem permissão
@@ -248,10 +250,28 @@ def test_relogar_com_outra_conta_troca_as_permissoes_da_janela(qapp, tmp_path):
 # ------------------------------------------------- status do estoque
 
 
-def test_status_do_estoque_nos_tres_limites():
-    minimo = DEFAULT_MINIMUM_STOCK
-    assert derive_stock_status(0, minimo) == "Crítico"
-    assert derive_stock_status(minimo // 2, minimo) == "Crítico"
-    assert derive_stock_status(minimo // 2 + 1, minimo) == "Baixo"
-    assert derive_stock_status(minimo, minimo) == "Baixo"
-    assert derive_stock_status(minimo + 1, minimo) == "Normal"
+def test_status_do_estoque_nas_quatro_faixas():
+    """Tradução literal de `public.fn_stock_state`.
+
+    Se este teste e aquela função discordarem, a tela mostra uma situação e
+    um relatório SQL mostra outra — foi exatamente o que aconteceu enquanto a
+    UI tinha regra própria.
+    """
+    minimo = DEFAULT_MINIMUM_STOCK                      # 10
+    assert derive_stock_status(0, minimo) == "Crítico"   # sem unidade em mãos
+    assert derive_stock_status(1, minimo) == "Baixo"     # só o zero é crítico
+    assert derive_stock_status(minimo, minimo) == "Baixo"      # IGUAL entra
+    assert derive_stock_status(minimo + 1, minimo) == "Atenção"  # 11 < 12
+    assert derive_stock_status(12, minimo) == "Normal"         # 12 >= 10×1,2
+
+
+def test_produto_sem_minimo_configurado_nao_alerta():
+    """Critério da US04: excluir produtos sem mínimo definido.
+
+    Zero e ausente significam a mesma coisa, como o
+    `COALESCE(ps.min_quantity, 0)` da `vw_stock_situation`.
+    """
+    assert derive_stock_status(1, 0) == "Normal"
+    assert derive_stock_status(1, None) == "Normal"
+    # Nem mesmo saldo zerado alerta sem limiar configurado.
+    assert derive_stock_status(0, 0) == "Normal"

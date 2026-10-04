@@ -9,14 +9,12 @@ from PySide6.QtWidgets import (
 
 from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
-from stockflow.infrastructure.repositories.demo_product_repository import (
-    DemoProductRepository,
-)
 from stockflow.domain.permissions import (
     can_manage_products,
     can_manage_users,
     ensure_can_manage_users,
 )
+from stockflow.presentation.backend import build_catalog, build_user_directory
 from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
@@ -25,7 +23,6 @@ from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.users import UsersPage
 from stockflow.presentation.pages.vendas import VendasPage
-from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.presentation.pages.products import ProductsPage
 from stockflow.presentation.pages.product_details import ProductDetailsPage
 
@@ -50,6 +47,11 @@ class MainWindow(QMainWindow):
         # contrato do de gravação: diagnóstico e teste, NUNCA decisão de
         # permissão — isso é da política.
         self.last_navigation_error = None
+
+        # Diretório de usuários: buscado na primeira abertura da tela, não na
+        # construção da janela. Ver `_carregar_usuarios_do_banco`.
+        self._usuarios_carregados = False
+        self.last_users_error = None
 
         self.setWindowTitle("StockFlow")
         self.resize(1920, 1080)
@@ -112,10 +114,12 @@ class MainWindow(QMainWindow):
         # MESMO dict em que o repositório grava, e é essa identidade que faz
         # uma recarga mostrar o que acabou de ser salvo. Uma cópia por tela
         # compilaria igual e congelaria a lista na primeira montagem.
-        self.products = dict(DEMO_PRODUCTS)
-        # O serviço é quem aplica a regra de papel; o repositório só escreve
-        # no catálogo em memória que as telas já compartilham.
-        self.product_repository = DemoProductRepository(self.products)
+        #
+        # Quem decide entre demonstração e banco é `backend.build_catalog`,
+        # por `STOCKFLOW_BACKEND`. A janela não sabe qual dos dois veio: a
+        # porta é a mesma, e o serviço aplica a regra de papel por cima de
+        # qualquer um deles.
+        self.products, self.product_repository = build_catalog(self.session)
         self.product_service = ProductService(self.product_repository)
 
         self.estoque_page = EstoquePage(self.products)
@@ -185,6 +189,9 @@ class MainWindow(QMainWindow):
         self.estoque_page.product_edit_requested.connect(
             self._show_edit_product
         )
+        self.estoque_page.product_status_changed.connect(
+            self._on_product_status_changed
+        )
 
         self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
         self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
@@ -226,12 +233,52 @@ class MainWindow(QMainWindow):
 
         self.last_navigation_error = None
 
+        if key == "usuarios":
+            self._carregar_usuarios_do_banco()
+
         self.pages.setCurrentWidget(
             self.page_widgets[key]
         )
 
         self.sidebar.set_active(key)
         return True
+
+    def _carregar_usuarios_do_banco(self):
+        """Busca o diretório de usuários na PRIMEIRA abertura da tela.
+
+        Sob demanda, e não na construção da janela, por dois motivos:
+
+        1. `fn_list_company_users` recusa quem não é ADMIN. Buscar durante o
+           `__init__` faria a janela de um SELLER morrer montando uma tela
+           que ele nem pode abrir.
+        2. É uma ida à rede que a maioria das sessões nunca precisa — quem
+           entra para registrar venda não abre a administração de usuários.
+
+        A navegação só chega aqui depois da guarda de permissão, então o
+        papel já foi verificado. Uma recusa do BANCO neste ponto significa
+        divergência entre a política da aplicação e a do banco, e por isso
+        aparece como aviso em vez de passar batida.
+        """
+        if self._usuarios_carregados:
+            return
+        try:
+            linhas = build_user_directory(self.session)
+        except Exception as erro:
+            self.last_users_error = erro
+            QMessageBox.warning(
+                self,
+                "Não foi possível carregar os usuários",
+                f"{erro}\n\nA tela segue mostrando os dados anteriores.",
+            )
+            return
+
+        self.last_users_error = None
+        # `None` significa "sem banco configurado": a tela mantém a
+        # demonstração com que nasceu. Lista vazia é resposta do banco e
+        # precisa aparecer como vazia.
+        if linhas is not None:
+            self.users_page.load_users(linhas)
+        self._usuarios_carregados = True
 
     def _show_product_details(self, code):
         """Abre a ficha do produto escolhido no catálogo.
@@ -275,7 +322,11 @@ class MainWindow(QMainWindow):
         desfazendo a primeira. Por isso aqui só o código é aproveitado: o
         produto que vai para o formulário vem sempre do catálogo vivo.
         """
-        code = product[0] if isinstance(product, tuple) else product.code
+        # Lista desde a US04 (o status é reescrito no lugar), tupla no
+        # formato antigo de seis campos, ou o próprio `Product`. Checar só
+        # `tuple` deixava a linha nova cair no ramo do objeto e morrer em
+        # `AttributeError: 'list' object has no attribute 'code'`.
+        code = product[0] if isinstance(product, (tuple, list)) else product.code
 
         # Guardar qual produto está aberto deixa a edição independente do que
         # o widget mostra.
@@ -303,6 +354,11 @@ class MainWindow(QMainWindow):
         controles liberados para o anterior.
         """
         if session is not None:
+            # Relogin: o diretório pertence ao usuário ANTERIOR. Sem invalidar,
+            # o próximo ADMIN veria a lista da outra sessão — e, se as
+            # empresas forem diferentes, usuários de outra empresa.
+            if session is not self.session:
+                self._usuarios_carregados = False
             self.session = session
 
         # `can_manage_products` já nega sessão ausente, então não há caminho
@@ -405,6 +461,22 @@ class MainWindow(QMainWindow):
         """
         self.products_page.reload_products()
         self.estoque_page.reload_products()
+        self.vendas_page.reload_products()
+
+        produto = self.products.get(code)
+        if produto is not None and self.pages.currentWidget() is self.product_details_page:
+            self.product_details_page.load_product(produto)
+
+    def _on_product_status_changed(self, code):
+        """Propaga para as outras telas um ativar/desativar feito no Estoque.
+
+        Não chama `_refresh_product_views`: a tela de Estoque já se
+        redesenhou sozinha dentro de `toggle_product_status`, e mandá-la
+        recarregar de novo aqui refaria as linhas no meio do tratamento do
+        clique que originou a mudança — trocando sob os pés do sinal a lista
+        de onde o produto veio.
+        """
+        self.products_page.reload_products()
         self.vendas_page.reload_products()
 
         produto = self.products.get(code)

@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from stockflow.domain.stock_level import NOT_CONFIGURED
+
 
 @dataclass(frozen=True)
 class ProductInput:
@@ -20,3 +22,12 @@ class ProductInput:
     cost: str
     stock: str
     active: bool = True
+    # Mínimo por produto (US03/US04). Inteiro, e não texto como `stock`,
+    # porque não vem de campo livre: a tela o entrega por `QSpinBox` e o banco
+    # o guarda em `product_stock.min_quantity`.
+    #
+    # O padrão é "não configurado" (zero), NUNCA um valor plausível: um
+    # chamador que não informa mínimo não está pedindo alerta com limiar 10,
+    # está dizendo que não há limiar. `fn_stock_state` trata zero como NORMAL,
+    # e é assim que a US04 exclui do alerta quem não tem configuração.
+    minimum_stock: int = NOT_CONFIGURED

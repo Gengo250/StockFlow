@@ -1,18 +1,20 @@
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QHeaderView, QLabel, QHBoxLayout, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QSizePolicy, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from stockflow.presentation.demo_data import linhas_de_usuarios
 
 
-# Dados demonstrativos exclusivos da apresentação.
-# A tela de Vendas lê a mesma base em demo_data, para que todo usuário
-# ativo aqui tenha um cliente associável lá.
+# Fonte PADRÃO, usada quando ninguém passa linhas. A tela de Vendas lê a mesma
+# base em demo_data, para que todo usuário ativo aqui tenha um cliente
+# associável lá.
 #
-# Contrato de cada linha:
+# Contrato de cada linha — o mesmo vindo do banco, por
+# `infrastructure/repositories/user_mapper.py`:
 # (nome, login, departamento, perfil, status, último acesso, cor)
 DEMO_USERS = linhas_de_usuarios()
 
@@ -29,13 +31,58 @@ STATUS_COLORS = {
 }
 
 
+class _RotuloElidido(QLabel):
+    """Rótulo que corta o próprio texto com reticências quando falta espaço.
+
+    Um `QLabel` comum simplesmente CLIPA: "teste.stockflow@gmail.com" vira
+    "teste.stockflow@gmail.co", sem nenhum sinal de que falta coisa — parece
+    dado corrompido, não texto cortado. Enquanto a base era de demonstração o
+    problema não aparecia, porque os e-mails fictícios cabiam; e-mail real é
+    mais longo.
+
+    O texto íntegro vai para o tooltip, para continuar alcançável, e a elisão
+    é refeita a cada `resizeEvent` porque a coluna estica com a janela.
+    """
+
+    def __init__(self, texto, parent=None):
+        super().__init__(parent)
+        self._texto = texto or ""
+        self.setToolTip(self._texto)
+        # Sem isto o rótulo exige a largura do texto inteiro e empurra a
+        # coluna, em vez de encolher e elidir.
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._aplicar()
+
+    def _aplicar(self):
+        metrica = QFontMetrics(self.font())
+        super().setText(metrica.elidedText(self._texto, Qt.ElideRight, max(0, self.width())))
+
+    def setText(self, texto):
+        self._texto = texto or ""
+        self.setToolTip(self._texto)
+        self._aplicar()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._aplicar()
+
+
 class UserTable(QFrame):
     edit_requested = Signal(object)
 
     venda_requested = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, users=None, parent=None):
+        """Tabela sobre as linhas recebidas; sem elas, cai na demonstração.
+
+        As linhas viram atributo em vez de serem lidas do módulo a cada uso:
+        com `DEMO_USERS` global, filtrar e editar sempre consultariam a
+        demonstração mesmo quando a tabela tivesse sido montada com os
+        usuários do banco — a tela mostraria uns e editaria outros.
+        """
         super().__init__(parent)
+        self.users = tuple(DEMO_USERS if users is None else users)
         self.setObjectName("userTableCard")
         # Botões de editar de cada linha. Eles só existem dentro de
         # cellWidget, e sem esta lista aplicar a permissão exigiria varrer a
@@ -52,7 +99,7 @@ class UserTable(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
-        self.table = QTableWidget(len(DEMO_USERS), len(COLUMNS))
+        self.table = QTableWidget(len(self.users), len(COLUMNS))
         self.table.setHorizontalHeaderLabels(COLUMNS)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -66,7 +113,49 @@ class UserTable(QFrame):
         header.setMinimumSectionSize(100)
         header.setSectionResizeMode(ACTIONS_COLUMN, QHeaderView.Fixed)
         self.table.setColumnWidth(ACTIONS_COLUMN, 120)
-        for row, user in enumerate(DEMO_USERS):
+        self._popular()
+        self.table.cellDoubleClicked.connect(lambda row, column: self._edit(row))
+        layout.addWidget(self.table)
+        footer = QHBoxLayout()
+        footer.setContentsMargins(18, 12, 18, 12)
+        self.count_label = QLabel()
+        self.count_label.setObjectName("muted")
+        footer.addWidget(self.count_label)
+        footer.addStretch()
+        for text in ("Anterior", "1", "Próximo"):
+            button = QPushButton(text)
+            button.setObjectName("primaryButton" if text == "1" else "secondaryButton")
+            button.setEnabled(False)
+            footer.addWidget(button)
+        layout.addLayout(footer)
+        self._update_count()
+
+    def set_users(self, users):
+        """Troca as linhas da tabela MANTENDO o widget.
+
+        Recriar a `UserTable` seria mais simples, mas `MainWindow` e os testes
+        guardam `page.user_table` e conectam sinais nele — o widget novo
+        nasceria desconectado e o botão de carrinho pararia de abrir Vendas.
+        Mesmo motivo pelo qual `StockTable.set_products` reaproveita a tabela.
+        """
+        self.users = tuple(users)
+        self._popular()
+        self._update_count()
+
+    def _popular(self):
+        """(Re)desenha as linhas a partir de `self.users`."""
+        # `clearContents` apaga itens, mas não cellWidget: sem remover antes,
+        # os widgets da lista anterior sobreviveriam por cima da nova.
+        for row in range(self.table.rowCount()):
+            for column in range(len(COLUMNS)):
+                self.table.removeCellWidget(row, column)
+        self.table.clearContents()
+        # A lista descreve botões que acabaram de ser destruídos; mantê-la
+        # deixaria `set_actions_enabled` tocando widgets órfãos.
+        self.edit_buttons = []
+        self.table.setRowCount(len(self.users))
+
+        for row, user in enumerate(self.users):
             # A cor vem da própria linha. O mapa perfil -> cor que existia aqui
             # só conhecia três perfis e levantava KeyError em "Gerente" e
             # "Operador", derrubando a janela principal durante a construção.
@@ -85,21 +174,11 @@ class UserTable(QFrame):
             self.table.setCellWidget(row, 4, self._plain(last_access))
             self.table.setItem(row, ACTIONS_COLUMN, QTableWidgetItem())
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._actions(row, name, status))
-        self.table.cellDoubleClicked.connect(lambda row, column: self._edit(row))
-        layout.addWidget(self.table)
-        footer = QHBoxLayout()
-        footer.setContentsMargins(18, 12, 18, 12)
-        self.count_label = QLabel()
-        self.count_label.setObjectName("muted")
-        footer.addWidget(self.count_label)
-        footer.addStretch()
-        for text in ("Anterior", "1", "Próximo"):
-            button = QPushButton(text)
-            button.setObjectName("primaryButton" if text == "1" else "secondaryButton")
-            button.setEnabled(False)
-            footer.addWidget(button)
-        layout.addLayout(footer)
-        self._update_count()
+
+        # Obrigatório, não cosmético: os botões acima são novos e um
+        # QPushButton nasce habilitado. Sem reaplicar, um repovoamento
+        # devolveria "Editar" a quem não é ADMIN.
+        self.set_actions_enabled(self._actions_enabled)
 
     def _actions(self, row, name, status):
         actions = QWidget()
@@ -156,7 +235,7 @@ class UserTable(QFrame):
         wanted = (role or "").strip()
         if wanted == ALL_ROLES:
             wanted = ""
-        for row, user in enumerate(DEMO_USERS):
+        for row, user in enumerate(self.users):
             name, login, department, user_role = user[0], user[1], user[2], user[3]
             haystack = f"{name} {login} {department}".casefold()
             matches = (not query or query in haystack) and (not wanted or user_role == wanted)
@@ -164,8 +243,8 @@ class UserTable(QFrame):
         self._update_count()
 
     def _update_count(self):
-        shown = sum(not self.table.isRowHidden(row) for row in range(len(DEMO_USERS)))
-        self.count_label.setText(f"{shown} de {len(DEMO_USERS)} usuários exibidos")
+        shown = sum(not self.table.isRowHidden(row) for row in range(len(self.users)))
+        self.count_label.setText(f"{shown} de {len(self.users)} usuários exibidos")
 
     def _edit(self, row):
         """Pede a edição da linha. Silencioso quando o papel não pode editar.
@@ -177,7 +256,7 @@ class UserTable(QFrame):
         if not self._actions_enabled:
             return
         self.table.selectRow(row)
-        self.edit_requested.emit(DEMO_USERS[row])
+        self.edit_requested.emit(self.users[row])
 
     @staticmethod
     def _plain(text):
@@ -205,9 +284,9 @@ class UserTable(QFrame):
         layout.addWidget(avatar)
         texts = QVBoxLayout()
         texts.setSpacing(3)
-        name_label = QLabel(name)
+        name_label = _RotuloElidido(name)
         name_label.setStyleSheet("color: #1E293B; font-size: 12px; font-weight: 600;")
-        email_label = QLabel(email)
+        email_label = _RotuloElidido(email)
         email_label.setStyleSheet("color: #849ABE; font-size: 11px;")
         texts.addWidget(name_label)
         texts.addWidget(email_label)

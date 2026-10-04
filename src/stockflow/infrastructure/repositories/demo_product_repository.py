@@ -7,29 +7,24 @@ de banco depois não muda nada acima desta camada.
 """
 
 from stockflow.application.dto.product_input import ProductInput
+from stockflow.domain.enums.product_unit import PRODUCT_UNITS
+# Reexportados: a regra de status virou domínio na US04
+# (`stockflow.domain.stock_level`), mas ela nasceu aqui e os consumidores
+# existentes importam deste módulo. Reexportar mantém o caminho antigo
+# válido sem deixar duas implementações da mesma regra no repositório.
+from stockflow.domain.stock_level import (  # noqa: F401
+    DEFAULT_MINIMUM_STOCK,
+    NOT_CONFIGURED,
+    derive_stock_status,
+)
 
 # Depender da apresentação é uma inversão aceita só enquanto o `Product` da
 # demonstração é o único modelo de leitura existente. O adaptador de banco vai
 # nascer com o seu próprio, e este arquivo sai junto com o dict em memória.
 from stockflow.presentation.demo_products import Product
 
-# Estoque mínimo provisório. A US04 é quem expõe o campo por produto; até ela
-# voltar (o merge levou `apply_filters`/`search_input` da EstoquePage junto),
-# usar um valor fixo é melhor do que inventar uma segunda regra de status.
-DEFAULT_MINIMUM_STOCK = 10
-
-
-def derive_stock_status(stock: int, minimum: int = DEFAULT_MINIMUM_STOCK) -> str:
-    """Status de estoque pela regra da US04.
-
-    Zero é sempre crítico, inclusive quando o mínimo também é zero: sem
-    unidade em mãos não existe situação "normal".
-    """
-    if stock <= 0 or stock * 2 <= minimum:
-        return "Crítico"
-    if stock <= minimum:
-        return "Baixo"
-    return "Normal"
+ACTIVE_DEMO_CATEGORIES = frozenset({"Eletrônicos", "Periféricos"})
+ACTIVE_DEMO_UNITS = frozenset(PRODUCT_UNITS)
 
 
 # Formato de código do catálogo: "PRD-" + três dígitos. Mudar aqui muda o
@@ -82,13 +77,36 @@ def _para_inteiro(valor) -> int:
 
 
 class DemoProductRepository:
-    def __init__(self, products: dict, minimum_stock: int = DEFAULT_MINIMUM_STOCK):
+    def __init__(
+        self,
+        products: dict,
+        minimum_stock: int = NOT_CONFIGURED,
+        active_categories=None,
+        active_units=ACTIVE_DEMO_UNITS,
+    ):
         self._products = products
         self._minimum_stock = minimum_stock
+        self._active_categories = (
+            set(ACTIVE_DEMO_CATEGORIES)
+            if active_categories is None
+            else set(active_categories)
+        )
+        self._active_units = set(active_units)
 
     def exists(self, code: str) -> bool:
         return code in self._products
 
+    def is_category_active(self, category: str) -> bool:
+        return category in self._active_categories
+
+    def is_unit_active(self, unit: str) -> bool:
+        return unit in self._active_units
+
+    def list_active_categories(self) -> tuple[str, ...]:
+        return tuple(sorted(self._active_categories))
+
+    def list_active_units(self) -> tuple[str, ...]:
+        return tuple(unit for unit in PRODUCT_UNITS if unit in self._active_units)
     def get(self, code: str):
         """Leitura por código, sem filtrar por situação.
 
@@ -120,6 +138,13 @@ class DemoProductRepository:
 
     def _to_product(self, data: ProductInput) -> Product:
         stock = _para_inteiro(data.stock)
+        # O mínimo vem do PRODUTO (US04); `self._minimum_stock` só entra
+        # quando o chamador não declara um — importação, API ou qualquer
+        # DTO anterior ao campo existir. Usar sempre o do repositório
+        # devolveria o limiar global que a US04 veio substituir.
+        minimo = getattr(data, "minimum_stock", None)
+        if minimo is None:
+            minimo = self._minimum_stock
         return Product(
             code=data.code,
             name=data.name,
@@ -129,5 +154,6 @@ class DemoProductRepository:
             cost=data.cost,
             active=data.active,
             stock=str(stock),
-            stock_status=derive_stock_status(stock, self._minimum_stock),
+            stock_status=derive_stock_status(stock, minimo),
+            minimum_stock=int(minimo),
         )
