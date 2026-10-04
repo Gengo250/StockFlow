@@ -97,6 +97,37 @@ def build_catalog(session):
     return repositorio.load_catalog(), repositorio
 
 
+def build_movement_repository(session, catalogo):
+    """Repositório de movimentações, no mesmo par demonstração/banco.
+
+    Recebe o catálogo porque o adaptador de demonstração precisa dele: sem
+    banco não há trigger, então confirmar uma movimentação tem que recalcular
+    o saldo do produto no dict que as telas leem. O adaptador de banco ignora
+    o argumento — lá quem recalcula é o trigger.
+    """
+    if not using_supabase():
+        from stockflow.infrastructure.repositories.demo_movement_repository import (
+            DemoMovementRepository,
+        )
+
+        return DemoMovementRepository(catalogo)
+
+    from stockflow.infrastructure.repositories.supabase_movement_repository import (
+        SupabaseMovementRepository,
+    )
+
+    company_id = getattr(session, "company_id", None)
+    if not company_id:
+        raise RuntimeError(
+            "A sessão não tem empresa. `fn_register_movement` precisa do "
+            "company_id para registrar a movimentação."
+        )
+
+    return SupabaseMovementRepository(
+        _client(), company_id, role=getattr(session, "role", None)
+    )
+
+
 def build_user_directory(session):
     """Linhas da tela de Usuários, ou `None` para manter a demonstração.
 
