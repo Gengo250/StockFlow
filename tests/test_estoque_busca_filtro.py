@@ -15,6 +15,7 @@ demonstração, montado para cobrir uma faixa por produto:
 """
 
 from stockflow.presentation.pages.estoque import MINIMUM, STATUS
+from stockflow.presentation.widgets.stock_table import ACTIVE_COLUMN as ACTIVE
 
 
 def visiveis(page):
@@ -136,15 +137,27 @@ def test_busca_e_filtro_combinam(estoque_page):
 # ----------------------------------------------- ativar / desativar (US02)
 
 
-def test_desativar_remove_de_todos_e_joga_em_inativos(estoque_page):
-    produto = estoque_page.produtos[1]          # PRD-008
+def test_desativar_mantem_na_lista_e_marca_o_status(estoque_page):
+    """Desativar não é excluir — e a lista precisa dizer a diferença.
+
+    O produto continua em "Todos", com a situação de ESTOQUE preservada e a
+    situação de CADASTRO numa coluna própria. Sumir da lista fazia "desativar"
+    parecer "excluir" e escondia o saldo de quem decidiria reativá-lo.
+    """
+    produto = estoque_page.produtos[1]          # PRD-008, Baixo
     estoque_page.toggle_product_status(produto)
 
-    assert "PRD-008" not in visiveis(estoque_page)
+    assert "PRD-008" in visiveis(estoque_page)
+    linha = visiveis(estoque_page).index("PRD-008")
+    assert estoque_page.table.item(linha, STATUS).text() == "Baixo"
+    assert estoque_page.table.item(linha, ACTIVE).text() == "Inativo"
+
+
+def test_filtro_inativos_isola_os_desativados(estoque_page):
+    estoque_page.toggle_product_status(estoque_page.produtos[1])   # PRD-008
 
     clicar_filtro(estoque_page, "Inativos")
     assert visiveis(estoque_page) == ["PRD-008"]
-    assert estoque_page.table.item(0, STATUS).text() == "Inativo"
 
 
 def test_reativar_devolve_produto_para_a_lista(estoque_page):

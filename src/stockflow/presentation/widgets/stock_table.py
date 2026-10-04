@@ -10,20 +10,29 @@ from stockflow.presentation.styles import inventory
 # "Mínimo" vem logo depois de "Estoque": a US03 pede consultar saldo E mínimo,
 # e a US04 pede que o alerta devolva os dois. Sem a coluna, o usuário vê
 # "Baixo" sem saber baixo em relação a quê.
-COLUMNS = ("Código", "Produto", "Categoria", "Estoque", "Mínimo",
-           "Preço", "Status", "Ações")
+#
+# SITUAÇÃO e STATUS são colunas DIFERENTES, de propósito. Uma única coluna
+# obrigava o inativo a sobrescrever a situação de estoque, e o produto
+# desativado aparecia sem informação nenhuma sobre saldo — some justamente o
+# dado que diz se ele precisa de reposição antes de ser reativado. "Status do
+# produto" é o mesmo rótulo que a ficha do produto já usa para `active`.
+COLUMNS = ("Código", "Produto", "Categoria", "Estoque", "Mínimo", "Preço",
+           "Situação do estoque", "Status do produto", "Ações")
 
 # Derivados de COLUMNS, nunca escritos à mão: a tabela nasceu com sete colunas
 # fixas no construtor e oito rótulos, e o rótulo que sobrava era silenciosamente
 # descartado — a coluna de Ações sumia e as linhas ficavam sem botão.
 ACTIONS_COLUMN = len(COLUMNS) - 1
-TEXT_COLUMNS = ACTIONS_COLUMN
-STATUS_COLUMN = COLUMNS.index("Status")
+STATUS_COLUMN = COLUMNS.index("Situação do estoque")
+ACTIVE_COLUMN = COLUMNS.index("Status do produto")
 
-# A linha do modelo tem UM campo a mais que as colunas de texto (`active`, que
-# decide o rótulo da coluna de situação sem ser coluna própria). Enumerar a
-# linha inteira jogaria um booleano dentro da célula de Ações.
-ACTIVE_FIELD = TEXT_COLUMNS
+# Colunas preenchidas direto da linha do modelo. A de "Status do produto" fica
+# de fora porque o modelo carrega um BOOLEANO — os filtros precisam dele como
+# booleano — e quem traduz para "Ativo"/"Inativo" é a tabela.
+TEXT_COLUMNS = ACTIVE_COLUMN
+ACTIVE_FIELD = ACTIVE_COLUMN
+
+ACTIVE_LABEL = "Ativo"
 
 
 class StockTable(QFrame):
@@ -96,17 +105,16 @@ class StockTable(QFrame):
         for row, product in enumerate(products):
             ativo = self._esta_ativo(product)
             for column in range(min(TEXT_COLUMNS, len(product))):
-                value = product[column]
-                # Situação de cadastro ganha da situação de estoque na
-                # coluna: um produto inativo não é "Crítico", ele está fora
-                # de operação. Mostrar "Crítico" aqui mandaria o estoquista
-                # repor um item que ninguém pode vender.
-                if column == STATUS_COLUMN and not ativo:
-                    value = INACTIVE
-                item = QTableWidgetItem(str(value))
+                item = QTableWidgetItem(str(product[column]))
                 if column == 0:
                     item.setForeground(Qt.blue)
                 self.table.setItem(row, column, item)
+            # A situação de estoque NÃO é mais sobrescrita por "Inativo": as
+            # duas informações são independentes e cabem em colunas próprias.
+            self.table.setItem(
+                row, ACTIVE_COLUMN,
+                QTableWidgetItem(ACTIVE_LABEL if ativo else INACTIVE),
+            )
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._create_actions(product))
         # Reaplicar é obrigatório, não cosmético: os botões acima são novos e
         # vieram habilitados.

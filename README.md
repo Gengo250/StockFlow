@@ -61,11 +61,18 @@ valor gravado: vem de `domain/stock_level.py`, que é **tradução literal de
 | `Atenção` | acima do mínimo, mas a menos de 20% dele |
 | `Normal` | o resto |
 
+`Situação do estoque` e `Status do produto` são colunas **separadas**: um
+produto desativado mantém visível o saldo e a situação dele, porque é
+justamente isso que decide se vale reativá-lo. O filtro `Todos` mostra todos,
+inativos inclusive — sumir da lista fazia "desativar" parecer "excluir". Quem
+isola os desativados é o filtro `Inativos`.
+
 O filtro **`Abaixo do mínimo`** é a consulta da US04 em um clique: produtos
 ativos, com mínimo configurado, cujo saldo é menor ou igual a esse mínimo —
-ordenados do mais urgente para o menos. Quem não tem mínimo definido fica de
-fora, por isso a coluna mostra `—` em vez de `0`. No banco a mesma consulta é
-a view `vw_stock_alerts`.
+ordenados do mais urgente para o menos. Inativos ficam de fora porque situação
+de estoque é sobre repor, e repor não se aplica a produto fora de operação.
+Quem não tem mínimo definido também fica de fora, por isso a coluna mostra `—`
+em vez de `0`. No banco a mesma consulta é a view `vw_stock_alerts`.
 
 A regra tem um dono só, e é o banco: enquanto a UI teve regra própria, ela
 divergia de `fn_stock_state` em 5 de 11 casos — a tela dizia `Crítico` onde um
