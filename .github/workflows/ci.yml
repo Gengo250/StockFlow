@@ -82,8 +82,12 @@ jobs:
             libdbus-1-3 \
             libfontconfig1
 
+      # Versão EXATA, não major móvel: `astral-sh/setup-uv` parou de publicar
+      # a tag `vN` depois da v7, então `@v10` simplesmente não existe e o job
+      # falha em 2s com "unable to resolve action". `actions/checkout` ainda
+      # publica a major móvel, por isso ele continua em `@v7`.
       - name: Instalar o uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.2.0
         with:
           # Sem cache, cada execução rebaixa o PySide6 inteiro (~200 MB) do PyPI.
           # A chave vem do `uv.lock`, então ela só é invalidada quando alguma
