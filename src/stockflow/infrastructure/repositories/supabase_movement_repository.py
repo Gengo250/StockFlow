@@ -43,7 +43,7 @@ from stockflow.infrastructure.repositories.supabase_product_repository import (
 
 # Colunas que a tela consome. Lista explícita em vez de `*` para que uma
 # coluna nova na tabela não comece a trafegar sozinha.
-MOVEMENT_COLUMNS = "id,product_id,kind,quantity,status,note,created_on,confirmed_on"
+MOVEMENT_COLUMNS = "id,product_id,supplier_id,kind,quantity,status,note,created_on,confirmed_on"
 
 # Nome da função -> ação em português. Os rótulos são os MESMOS que
 # `MovementService` passa para `ensure_can_move_stock`: quando o banco recusa
@@ -51,6 +51,7 @@ MOVEMENT_COLUMNS = "id,product_id,kind,quantity,status,note,created_on,confirmed
 # divergência entre as camadas fica visível em vez de parecer outro erro.
 ACTION_BY_RPC = {
     "fn_register_movement": "registrar movimentações",
+    "fn_register_supplier_movement": "registrar compras",
     "fn_confirm_movement": "confirmar movimentações",
     "fn_cancel_movement": "cancelar movimentações",
 }
@@ -111,7 +112,23 @@ class SupabaseMovementRepository:
         # passo sobre o que de qualquer modo será percorrido na montagem.
         linhas = list(self._rows(consulta.order("created_on").execute()))
         linhas.reverse()
-        return rows_to_movements(linhas, self._produtos_das_linhas(linhas), self._agora)
+        return rows_to_movements(
+            linhas, self._produtos_das_linhas(linhas), self._agora,
+            self._fornecedores_das_linhas(linhas),
+        )
+
+    def _fornecedores_das_linhas(self, linhas) -> dict:
+        ids = {row.get("supplier_id") for row in linhas if row.get("supplier_id")}
+        if not ids:
+            return {}
+        response = (
+            self._client.table("suppliers")
+            .select("id,name")
+            .eq("company_id", self._company_id)
+            .in_("id", list(ids))
+            .execute()
+        )
+        return {row["id"]: row.get("name") or "" for row in self._rows(response)}
 
     def _produtos_das_linhas(self, linhas) -> dict:
         """`product_id -> (código, nome)`, em UMA consulta.
@@ -173,10 +190,12 @@ class SupabaseMovementRepository:
             # responderia 'Produto não encontrado nesta empresa' falando de um
             # uuid que a tela nunca mostrou.
             raise LookupError(f"Produto {data.product_code} não encontrado.")
-        return self._rpc(
-            "fn_register_movement",
-            movement_input_to_register_args(data, self._company_id, product_id),
+        function = (
+            "fn_register_supplier_movement" if data.supplier_id
+            else "fn_register_movement"
         )
+        args = movement_input_to_register_args(data, self._company_id, product_id)
+        return self._rpc(function, args)
 
     def confirm(self, movement_id: str) -> None:
         """Confirma uma pendente. É esta transição que altera o saldo.

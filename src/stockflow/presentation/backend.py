@@ -104,7 +104,7 @@ def build_catalog(session):
     return repositorio.load_catalog(), repositorio
 
 
-def build_movement_repository(session, catalogo):
+def build_movement_repository(session, catalogo, supplier_repository=None):
     """Repositório de movimentações, no mesmo par demonstração/banco.
 
     Recebe o catálogo porque o adaptador de demonstração precisa dele: sem
@@ -117,7 +117,7 @@ def build_movement_repository(session, catalogo):
             DemoMovementRepository,
         )
 
-        return DemoMovementRepository(catalogo)
+        return DemoMovementRepository(catalogo, suppliers=supplier_repository)
 
     from stockflow.infrastructure.repositories.supabase_movement_repository import (
         SupabaseMovementRepository,
@@ -160,6 +160,29 @@ def build_user_directory(session):
     return SupabaseUserRepository(
         _client(), company_id, role=getattr(session, "role", None)
     ).list_users()
+
+
+def build_supplier_repository(session=None):
+    """Fornecedor em demonstração ou no banco, compartilhado pela janela."""
+    if not using_supabase():
+        from stockflow.infrastructure.repositories.demo_supplier_repository import (
+            DemoSupplierRepository,
+        )
+
+        return DemoSupplierRepository()
+
+    from stockflow.infrastructure.repositories.supabase_supplier_repository import (
+        SupabaseSupplierRepository,
+    )
+
+    company_id = getattr(session, "company_id", None)
+    if not company_id:
+        raise RuntimeError(
+            "A sessão não tem empresa. As funções de fornecedor exigem company_id."
+        )
+    return SupabaseSupplierRepository(
+        _client(), company_id, role=getattr(session, "role", None)
+    )
 
 
 def build_demo_user_directory():

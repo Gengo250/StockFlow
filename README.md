@@ -178,6 +178,12 @@ a empresa e o papel vêm de `fn_my_companies`, e toda gravação vai por funçã
 `fn_set_product_active`, `fn_set_min_stock`) — as tabelas não têm `GRANT` de
 INSERT/UPDATE para nenhuma role de aplicação.
 
+Fornecedores usam `fn_list_company_suppliers`, `fn_create_supplier`,
+`fn_update_supplier` e `fn_set_supplier_active`. `fn_set_product_supplier`
+persiste o fornecedor principal. Entradas com fornecedor usam a função
+atômica `fn_register_supplier_movement`; ela exige fornecedor ativo da empresa
+e preserva a regra de que só a confirmação compõe o saldo.
+
 **Gravar aparece na tela e mexer na tela grava.** Os dois adaptadores de
 catálogo satisfazem a mesma porta: o de demonstração escreve no dict que as
 telas leem, e o de banco mantém essa mesma foto atualizada após cada
@@ -201,6 +207,21 @@ aconteceu — há o atalho "Registrar e confirmar".
 | `Pendente` | nenhum |
 | `Confirmada` | soma (entrada) ou subtrai (saída) |
 | `Cancelada` | nenhum; cancelar uma confirmada **devolve** o saldo |
+
+Em **Fornecedores** (US08), ADMIN e STOCK podem cadastrar, editar, pesquisar e
+inativar fornecedores. CPF/CNPJ é opcional, validado quando preenchido e único
+por empresa mesmo depois da inativação; a pesquisa cobre nome, documento,
+telefone, e-mail e endereço. A inativação é lógica: produtos e entradas
+históricas mantêm a referência ao cadastro, mas fornecedores inativos saem
+das opções de novas operações.
+
+Uma **entrada** em Movimentações representa uma compra para este escopo: exige
+um fornecedor ativo e grava a referência junto ao histórico. A entrada continua
+pendente até confirmação; somente confirmar altera o saldo. Saídas e registros
+anteriores sem fornecedor continuam válidos. Não há entidade separada de
+pedido, nota fiscal ou pagamento nesta história. O campo opcional
+**Fornecedor principal** no cadastro/edição de produto também persiste uma
+referência independente.
 
 A tela é restrita a ADMIN e STOCK, porque `fn_register_movement` e as irmãs
 recusam qualquer outro papel — nem o histórico é do vendedor. Confirmar ou
@@ -247,8 +268,10 @@ src/stockflow/
 │   ├── auth/supabase_auth.py                 login pelo Supabase Auth -> Session
 │   ├── database/supabase_client.py           cliente preguiçoso, criado sob demanda
 │   ├── repositories/demo_product_repository.py   catálogo em memória
+│   ├── repositories/demo_supplier_repository.py  fornecedores em memória
 │   ├── repositories/product_mapper.py        tradução catálogo <-> public.products
 │   ├── repositories/supabase_product_repository.py  catálogo no Supabase
+│   ├── repositories/supabase_supplier_repository.py  fornecedores no Supabase
 │   ├── repositories/user_mapper.py           linha de usuário <-> tupla da tela
 │   └── repositories/supabase_user_repository.py     diretório de usuários
 └── presentation/                     camada de interface
@@ -266,6 +289,7 @@ src/stockflow/
     │   └── ...                       sidebar, barra superior e usuários
     ├── styles/                       QSS da janela, estoque, produtos e usuários
     └── pages/                        composição das telas
+        ├── suppliers.py              gestão de fornecedores
 ```
 
 As pastas `shared`, `migrations` e `assets` seguem reservadas para as próximas etapas — cada uma tem seu próprio README com a descrição e a equipe responsável.

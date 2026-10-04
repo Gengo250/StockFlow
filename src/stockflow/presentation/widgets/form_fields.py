@@ -1,5 +1,5 @@
 import qtawesome as qta
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLocale, Qt
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QSpinBox, QVBoxLayout, QWidget,
@@ -123,7 +123,9 @@ def _combo(items):
 
 def _money_input():
     widget = QDoubleSpinBox()
-    widget.setRange(0, 99999999)
+    widget.setLocale(QLocale("pt_BR"))
+    widget.setGroupSeparatorShown(True)
+    widget.setRange(0, 99999999.99)
     widget.setDecimals(2)
     widget.setSingleStep(1)
     widget.setPrefix("R$ ")
