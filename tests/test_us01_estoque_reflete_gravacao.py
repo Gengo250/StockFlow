@@ -20,7 +20,6 @@ from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.windows.main_window import MainWindow
 
-ACTIONS_COLUMN = 7   # Código,Produto,Categoria,Estoque,Mínimo,Preço,Status,Ações
 CODE_COLUMN = 0
 STOCK_COLUMN = 3
 STATUS_COLUMN = 6
@@ -113,7 +112,8 @@ def test_estoque_mostra_o_produto_recem_cadastrado(janela, sem_dialogos):
     assert celulas(estoque, linha_do_codigo(estoque, codigo)) == [
         # O mínimo vem do formulário, que sugere o padrão do catálogo para um
         # cadastro novo. 30 contra 10 é Normal.
-        codigo, "Webcam 4K", "Eletrônicos", "30", "10", "R$ 499,00", "Normal",
+        codigo, "Webcam 4K", "Eletrônicos", "30", "10", "R$ 499,00",
+        "Normal", "Ativo",
     ]
 
 

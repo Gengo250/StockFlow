@@ -171,20 +171,26 @@ class EstoquePage(QWidget):
 
     @staticmethod
     def _combina_com_filtro(row, filtro: str) -> bool:
-        """Situação de cadastro primeiro, situação de estoque depois.
+        """Qual recorte cada filtro mostra.
 
-        Inativo não aparece em nenhuma faixa de estoque: ele não está em
-        operação, então "repor" não se aplica a ele. A única forma de
-        alcançá-lo pela tela é o filtro `Inativos`, que existe justamente
-        para que desativar não seja o mesmo que sumir.
+        `Todos` significa TODOS, inativos inclusive. Esconder o desativado da
+        lista completa fazia "desativar" parecer "excluir", e deixava sem
+        resposta a pergunta mais comum depois de desativar: "cadê o produto
+        que eu acabei de mexer?". Quem distingue um do outro é a coluna
+        "Status do produto", não a ausência da linha.
+
+        Os filtros de SITUAÇÃO DE ESTOQUE, por outro lado, só consideram
+        ativos: situação de estoque é sobre repor, e repor não se aplica a
+        produto fora de operação. É isso que faz `Abaixo do mínimo` atender
+        ao critério da US04 de excluir inativos.
         """
         ativo = bool(row[ACTIVE])
         if filtro == INACTIVE_FILTER:
             return not ativo
-        if not ativo:
-            return False
         if filtro == ALL:
             return True
+        if not ativo:
+            return False
         if filtro == BELOW_MINIMUM_FILTER:
             return is_below_minimum(row[STATUS])
         return row[STATUS] == filtro
