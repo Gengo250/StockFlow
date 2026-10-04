@@ -23,6 +23,7 @@ PERMISSION_HINTS = (
 ACTION_BY_RPC = {
     "fn_list_company_users": "abrir a administração de usuários",
     "fn_set_company_user_department": "alterar o departamento de um usuário",
+    "fn_toggle_company_user": "alterar o status de um usuário",
 }
 
 
@@ -45,6 +46,16 @@ class SupabaseUserRepository:
                 "p_company_id": self._company_id,
                 "p_user_id": user_id,
                 "p_department": department,
+            },
+        )
+
+    def set_active(self, user_id: str, active: bool) -> None:
+        self._rpc(
+            "fn_toggle_company_user",
+            {
+                "p_company_id": self._company_id,
+                "p_user_id": user_id,
+                "p_active": active,
             },
         )
 

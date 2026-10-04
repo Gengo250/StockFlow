@@ -150,7 +150,8 @@ def test_cor_e_a_mesma_em_OUTRO_PROCESSO():
 
 
 def test_linha_do_banco_vira_a_tupla_que_a_tabela_desenha():
-    nome, login, depto, perfil, status, acesso, cor = row_to_user(linha(), agora=AGORA)
+    usuario = row_to_user(linha(), agora=AGORA)
+    nome, login, depto, perfil, status, acesso, cor = usuario
 
     assert nome == "Miguel"
     assert login == "teste.stockflow@gmail.com"
@@ -159,6 +160,10 @@ def test_linha_do_banco_vira_a_tupla_que_a_tabela_desenha():
     assert status == "Ativo"
     assert acesso == "Hoje, 13:00"
     assert cor.startswith("#")
+    assert usuario.user_id == USER_ID
+    assert usuario == (
+        nome, login, depto, perfil, status, acesso, cor,
+    )
 
 
 def test_departamento_vazio_nao_vira_celula_em_branco():
@@ -251,4 +256,30 @@ def test_departamento_e_gravado_por_funcao_propria():
     assert cliente.chamadas == [(
         "fn_set_company_user_department",
         {"p_company_id": COMPANY, "p_user_id": USER_ID, "p_department": "Compras"},
+    )]
+
+
+def test_status_e_alterado_no_vinculo_da_empresa_atual():
+    cliente = ClienteFalso([])
+    SupabaseUserRepository(cliente, COMPANY).set_active(USER_ID, False)
+
+    assert cliente.chamadas == [(
+        "fn_toggle_company_user",
+        {"p_company_id": COMPANY, "p_user_id": USER_ID, "p_active": False},
+    )]
+
+
+def test_recusa_ao_alterar_status_vira_erro_de_dominio():
+    erro = ErroDoPostgrest(
+        "Apenas administradores podem ativar/desativar usuários",
+        code="42501",
+    )
+    repo = SupabaseUserRepository(cliente := ClienteFalso(erro=erro), COMPANY)
+
+    with pytest.raises(PermissionDeniedError, match="alterar o status"):
+        repo.set_active(USER_ID, True)
+
+    assert cliente.chamadas == [(
+        "fn_toggle_company_user",
+        {"p_company_id": COMPANY, "p_user_id": USER_ID, "p_active": True},
     )]

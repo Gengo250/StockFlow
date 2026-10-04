@@ -341,3 +341,30 @@ def test_fn_update_products_e_security_definer_com_search_path_fixo():
     assert re.search(r"SET\s+search_path\s*=\s*public", corpo, re.I), (
         "SECURITY DEFINER sem search_path fixo é vetor de hijack de schema"
     )
+
+
+def test_fn_toggle_company_user_atualiza_vinculo_sem_excluir_identidade():
+    """US06 desativa o vínculo correto sem apagar a conta nem o histórico."""
+    corpo = sem_comentarios(corpo_da_rotina_no_code("fn_toggle_company_user"))
+    guard = re.search(r"fn_is_admin\s*\(", corpo, re.I)
+    atualizacao = re.search(
+        r"UPDATE\s+public\.company_users\s+SET\s+active\s*=\s*p_active"
+        r"\s+WHERE\s+company_id\s*=\s*p_company_id"
+        r"\s+AND\s+user_account_id\s*=\s*p_user_id",
+        corpo,
+        re.I,
+    )
+
+    assert guard and atualizacao
+    assert guard.start() < atualizacao.start()
+    assert not re.search(r"\bDELETE\b", corpo, re.I)
+
+
+def test_login_e_empresa_atual_exigem_vinculo_ativo():
+    credenciais = sem_comentarios(
+        corpo_da_rotina_no_code("fn_get_login_credentials")
+    )
+    empresas = sem_comentarios(corpo_da_rotina_no_code("fn_my_companies"))
+
+    assert re.search(r"cd\.active\s+AND\s+c\.active", credenciais, re.I)
+    assert re.search(r"cd\.active\s+AND\s+c\.active", empresas, re.I)

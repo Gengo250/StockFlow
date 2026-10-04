@@ -20,6 +20,7 @@ Três campos não existem como coluna e são derivados aqui:
 from datetime import datetime, timezone
 
 from stockflow.presentation.roles import rotulo_de_papel
+from stockflow.presentation.user_directory_row import UserDirectoryRow
 
 ATIVO = "Ativo"
 INATIVO = "Inativo"
@@ -111,14 +112,17 @@ def formatar_ultimo_acesso(valor, agora=None) -> str:
 def row_to_user(row, agora=None) -> tuple:
     """Linha de `fn_list_company_users` na tupla que a tabela desenha."""
     last_access = row.get("last_access")
-    return (
-        row.get("display_name") or row.get("login") or "",
-        row.get("login") or "",
-        row.get("department") or "—",
-        rotulo_de_papel(row.get("user_role")),
-        derivar_status(row.get("is_active", False), last_access),
-        formatar_ultimo_acesso(last_access, agora),
-        cor_do_usuario(row.get("user_id")),
+    return UserDirectoryRow(
+        (
+            row.get("display_name") or row.get("login") or "",
+            row.get("login") or "",
+            row.get("department") or "—",
+            rotulo_de_papel(row.get("user_role")),
+            derivar_status(row.get("is_active", False), last_access),
+            formatar_ultimo_acesso(last_access, agora),
+            cor_do_usuario(row.get("user_id")),
+        ),
+        user_id=row.get("user_id"),
     )
 
 
