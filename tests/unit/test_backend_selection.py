@@ -16,12 +16,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from stockflow.domain.enums.user_role import UserRole
 from stockflow.presentation import backend
-from stockflow.presentation.demo_accounts import conta_admin
+from stockflow.presentation.demo_accounts import (
+    DEMO_ACCOUNTS,
+    conta_admin,
+)
+from stockflow.presentation.demo_status import reset_demo_user_statuses
 
 
 @pytest.fixture(autouse=True)
 def ambiente_limpo(monkeypatch):
     monkeypatch.delenv(backend.BACKEND_VAR, raising=False)
+    reset_demo_user_statuses()
+    yield
+    reset_demo_user_statuses()
 
 
 def test_o_padrao_e_a_demonstracao():
@@ -46,6 +53,45 @@ def test_demonstracao_autentica_pelas_contas_locais():
     sessao = backend.authenticate(conta.email, conta.password)
     assert sessao is not None and sessao.role is UserRole.ADMIN
     assert backend.authenticate(conta.email, "errada") is None
+
+
+def test_desativar_e_reativar_conta_demo_bloqueia_e_libera_login():
+    admin = conta_admin()
+    alvo = next(account for account in DEMO_ACCOUNTS if account.role is UserRole.STOCK)
+
+    backend.set_user_active(admin.session(), alvo.user_id, False)
+    assert backend.authenticate(alvo.email, alvo.password) is None
+    assert "Inativo" in next(
+        row[4] for row in backend.build_demo_user_directory()
+        if row.user_id == alvo.user_id
+    )
+
+    backend.set_user_active(admin.session(), alvo.user_id, True)
+    assert backend.authenticate(alvo.email, alvo.password).user_id == alvo.user_id
+    assert "Ativo" in next(
+        row[4] for row in backend.build_demo_user_directory()
+        if row.user_id == alvo.user_id
+    )
+
+
+def test_demo_impede_desativar_o_unico_admin():
+    admin = conta_admin()
+
+    with pytest.raises(ValueError, match="ao menos um administrador"):
+        backend.set_user_active(admin.session(), admin.user_id, False)
+
+    assert backend.authenticate(admin.email, admin.password) is not None
+
+
+def test_status_demo_volta_ao_padrao_quando_a_memoria_e_reiniciada():
+    admin = conta_admin()
+    alvo = next(account for account in DEMO_ACCOUNTS if account.role is UserRole.STOCK)
+    backend.set_user_active(admin.session(), alvo.user_id, False)
+    assert backend.authenticate(alvo.email, alvo.password) is None
+
+    reset_demo_user_statuses()
+
+    assert backend.authenticate(alvo.email, alvo.password) is not None
 
 
 def test_demonstracao_entrega_catalogo_e_repositorio_ligados():

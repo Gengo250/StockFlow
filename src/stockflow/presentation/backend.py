@@ -18,7 +18,10 @@ import os
 from stockflow.infrastructure.repositories.demo_product_repository import (
     DemoProductRepository,
 )
-from stockflow.presentation.demo_accounts import autenticar as autenticar_demo
+from stockflow.presentation.demo_accounts import (
+    alterar_status_demo,
+    autenticar as autenticar_demo,
+)
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
 BACKEND_VAR = "STOCKFLOW_BACKEND"
@@ -122,3 +125,38 @@ def build_user_directory(session):
     return SupabaseUserRepository(
         _client(), company_id, role=getattr(session, "role", None)
     ).list_users()
+
+
+def build_demo_user_directory():
+    """Linhas demo atualizadas durante esta execução do aplicativo."""
+    from stockflow.presentation.demo_data import linhas_de_usuarios
+
+    return linhas_de_usuarios()
+
+
+def set_user_active(session, user_id: str, active: bool) -> None:
+    """Ativa/desativa o vínculo da empresa atual ou a conta demo em memória."""
+    from stockflow.domain.permissions import ensure_can_manage_users
+
+    ensure_can_manage_users(session, action="alterar o status de usuários")
+    if not user_id:
+        raise ValueError("Não foi possível identificar o usuário selecionado.")
+
+    if not using_supabase():
+        alterar_status_demo(user_id, active)
+        return
+
+    company_id = getattr(session, "company_id", None)
+    if not company_id:
+        raise RuntimeError(
+            "A sessão não tem empresa. `fn_toggle_company_user` precisa do "
+            "company_id para alterar o status."
+        )
+
+    from stockflow.infrastructure.repositories.supabase_user_repository import (
+        SupabaseUserRepository,
+    )
+
+    SupabaseUserRepository(
+        _client(), company_id, role=getattr(session, "role", None)
+    ).set_active(user_id, active)

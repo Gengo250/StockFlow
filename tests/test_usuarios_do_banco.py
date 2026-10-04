@@ -22,6 +22,7 @@ from stockflow.domain.enums.user_role import UserRole
 from stockflow.presentation import backend
 from stockflow.presentation.demo_accounts import conta_por_papel
 from stockflow.presentation.pages.users import UsersPage
+from stockflow.presentation.user_directory_row import UserDirectoryRow
 from stockflow.presentation.windows.main_window import MainWindow
 
 DO_BANCO = (
@@ -140,6 +141,71 @@ def test_repovoar_mantem_o_widget_da_tabela(qapp):
         assert recebidos == ["Miguel"]
     finally:
         page.close()
+
+
+def test_acao_de_status_emite_uuid_e_permite_reativacao(qapp):
+    ativo = UserDirectoryRow(
+        ("Miguel", "miguel@example.com", "TI", "Administrador",
+         "Ativo", "Hoje, 09:14", "#8129FF"),
+        user_id="user-1",
+    )
+    inativo = UserDirectoryRow(
+        ("Miguel", "miguel@example.com", "TI", "Administrador",
+         "Inativo", "Hoje, 09:14", "#8129FF"),
+        user_id="user-1",
+    )
+    page = UsersPage()
+    try:
+        solicitacoes = []
+        page.user_table.status_change_requested.connect(
+            lambda user_id, active: solicitacoes.append((user_id, active))
+        )
+        page.apply_permission(True)
+        page.load_users((ativo,))
+        page.user_table.status_buttons[0].click()
+        page.load_users((inativo,))
+        assert page.user_table.status_buttons[0].text() == "Ativar"
+        page.user_table.status_buttons[0].click()
+
+        assert solicitacoes == [("user-1", False), ("user-1", True)]
+    finally:
+        page.close()
+
+
+def test_tela_atualiza_a_tabela_apos_alterar_status_demo(
+    janela, monkeypatch, qapp
+):
+    monkeypatch.delenv(backend.BACKEND_VAR, raising=False)
+    admin = sessao()
+    user_id = "user-demo-1"
+    ativo = UserDirectoryRow(
+        ("Miguel", "miguel@example.com", "TI", "Administrador",
+         "Ativo", "Hoje, 09:14", "#8129FF"),
+        user_id=user_id,
+    )
+    inativo = UserDirectoryRow(
+        ("Miguel", "miguel@example.com", "TI", "Administrador",
+         "Inativo", "Hoje, 09:14", "#8129FF"),
+        user_id=user_id,
+    )
+    window = janela(admin)
+    chamadas = []
+    monkeypatch.setattr(
+        "stockflow.presentation.windows.main_window.set_directory_user_active",
+        lambda session, target, active: chamadas.append((session, target, active)),
+    )
+    monkeypatch.setattr(
+        "stockflow.presentation.windows.main_window.build_demo_user_directory",
+        lambda: (inativo,),
+    )
+    window.users_page.load_users((ativo,), from_database=False)
+    window.users_page.apply_permission(True)
+
+    window.users_page.user_table.status_buttons[0].click()
+
+    assert chamadas == [(admin, user_id, False)]
+    assert window.users_page.user_table.users == (inativo,)
+    assert "Dados demonstrativos" in window.users_page.subtitle.text()
 
 
 # ----------------------------------------------------- carga sob demanda

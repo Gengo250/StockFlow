@@ -14,7 +14,13 @@ from stockflow.domain.permissions import (
     can_manage_users,
     ensure_can_manage_users,
 )
-from stockflow.presentation.backend import build_catalog, build_user_directory
+from stockflow.presentation.backend import (
+    build_catalog,
+    build_demo_user_directory,
+    build_user_directory,
+    set_user_active as set_directory_user_active,
+    using_supabase,
+)
 from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
@@ -52,6 +58,7 @@ class MainWindow(QMainWindow):
         # construção da janela. Ver `_carregar_usuarios_do_banco`.
         self._usuarios_carregados = False
         self.last_users_error = None
+        self.last_user_status_error = None
 
         self.setWindowTitle("StockFlow")
         self.resize(1920, 1080)
@@ -177,6 +184,9 @@ class MainWindow(QMainWindow):
         self.users_page.user_table.venda_requested.connect(
             self._associar_cliente_e_abrir_vendas
         )
+        self.users_page.user_table.status_change_requested.connect(
+            self._on_user_status_changed
+        )
 
         self._new_product_origin = "estoque"
         self.estoque_page.new_product_button.clicked.connect(
@@ -279,6 +289,29 @@ class MainWindow(QMainWindow):
         if linhas is not None:
             self.users_page.load_users(linhas)
         self._usuarios_carregados = True
+
+    def _on_user_status_changed(self, user_id, active):
+        """Grava o status e repovoa a mesma tela com a origem atual."""
+        try:
+            set_directory_user_active(self.session, user_id, active)
+            linhas = (
+                build_user_directory(self.session)
+                if using_supabase()
+                else build_demo_user_directory()
+            )
+        except Exception as erro:
+            self.last_user_status_error = erro
+            QMessageBox.warning(
+                self,
+                "Não foi possível alterar o status",
+                f"{erro}\n\nO status exibido não foi atualizado.",
+            )
+            if using_supabase():
+                self._usuarios_carregados = False
+            return
+
+        self.last_user_status_error = None
+        self.users_page.load_users(linhas, from_database=using_supabase())
 
     def _show_product_details(self, code):
         """Abre a ficha do produto escolhido no catálogo.

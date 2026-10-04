@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (
 
 from stockflow.presentation.widgets.user_form import UserForm
 from stockflow.presentation.widgets.user_summary import UserSummary
-from stockflow.presentation.demo_users import DEMO_USERS, USER_ROLES
+from stockflow.presentation.demo_data import linhas_de_usuarios
+from stockflow.presentation.demo_users import USER_ROLES
 from stockflow.presentation.widgets.user_table import ALL_ROLES, UserTable
 
 
@@ -26,7 +27,7 @@ class UsersPage(QWidget):
     def __init__(self, users=None):
         """Tela sobre as linhas recebidas; sem elas, cai na demonstração."""
         super().__init__()
-        self.users = tuple(DEMO_USERS if users is None else users)
+        self.users = tuple(linhas_de_usuarios() if users is None else users)
         self.setObjectName("usersPage")
         self.setStyleSheet(USERS_QSS)
         layout = QVBoxLayout(self)
@@ -66,20 +67,21 @@ class UsersPage(QWidget):
         # ficar aberta quando esse alguém não for chamado.
         self.apply_permission(False)
 
-    def load_users(self, users):
+    def load_users(self, users, from_database=True):
         """Troca a lista exibida pelas linhas recebidas (vindas do banco).
 
         Existe porque a listagem é restrita ao ADMIN: `fn_list_company_users`
         recusa qualquer outro papel. Buscar no banco durante a construção da
         `MainWindow` faria a janela de um SELLER morrer montando uma tela que
         ele nem pode abrir — por isso a página nasce com a demonstração e só
-        troca quando alguém com permissão navega até aqui.
+        troca quando alguém com permissão navega até aqui. `from_database`
+        mantém correto o rótulo de origem após uma atualização da demonstração.
         """
         self.users = tuple(users)
         self.user_table.set_users(self.users)
         self.summary.set_users(self.users)
         self._atualizar_perfis_do_filtro()
-        self._atualizar_subtitulo(True)
+        self._atualizar_subtitulo(from_database)
 
     def _atualizar_perfis_do_filtro(self):
         atual = self.role_filter.currentText()
