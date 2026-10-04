@@ -129,6 +129,18 @@ TABLE_QSS = """
 """
 
 
+# Estados da lista de estoque: vazio, carregando e falha de consulta.
+#
+# Nenhum deles existia aqui, e a ausência tinha custo: tabela com zero linhas
+# significava três coisas diferentes — nada corresponde ao filtro, ainda está
+# carregando, ou a consulta falhou — e nenhuma delas era dita ao usuário.
+#
+# Cores copiadas do que o projeto já usa, não inventadas: `#64748B` é o mesmo
+# neutro de SUBTITLE_QSS acima e de `QLabel#muted` em styles/products.py, e a
+# caixa âmbar repete `QLabel#loadError` do mesmo arquivo. Copiar os valores em
+# vez de importar PRODUCTS_QSS é deliberado: aquele QSS traz junto regras de
+# QPushButton, QLineEdit e QScrollArea que conflitariam com SEARCH_QSS,
+# FILTER_QSS e NEW_BUTTON_QSS desta tela.
 LIST_STATE_QSS = """
     color: #64748B;
     font-size: 14px;

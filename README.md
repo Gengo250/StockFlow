@@ -55,11 +55,20 @@ valor gravado: vem de `domain/stock_level.py`, que é **tradução literal de
 
 | Situação | Regra |
 |---|---|
-| — | mínimo ausente ou zero: sem limiar configurado, não alerta |
-| `Crítico` | saldo zerado |
+| — | mínimo **ausente**: sem limiar configurado, nunca alerta |
+| `Crítico` | saldo zerado (inclusive com mínimo **zero**) |
 | `Baixo` | saldo **menor ou igual** ao mínimo |
 | `Atenção` | acima do mínimo, mas a menos de 20% dele |
 | `Normal` | o resto |
+
+**Mínimo ausente e mínimo zero são coisas diferentes** (US03). Ausente é a
+falta de limiar e nunca alerta; zero é a configuração "me avise quando
+acabar" e alerta com o saldo zerado. A coluna `Mínimo` mostra `—` para o
+primeiro e `0` para o segundo. No banco, `product_stock.min_quantity` é
+nullable justamente para isso.
+
+O mínimo é **opcional**: produto novo nasce sem nenhum, e o campo do
+formulário mostra "Sem mínimo" até alguém configurar.
 
 `Situação do estoque` e `Status do produto` são colunas **separadas**: um
 produto desativado mantém visível o saldo e a situação dele, porque é
@@ -73,6 +82,21 @@ ordenados do mais urgente para o menos. Inativos ficam de fora porque situação
 de estoque é sobre repor, e repor não se aplica a produto fora de operação.
 Quem não tem mínimo definido também fica de fora, por isso a coluna mostra `—`
 em vez de `0`. No banco a mesma consulta é a view `vw_stock_alerts`.
+
+A lista tem três apresentações, e a tabela sozinha não as distingue — zero
+linhas significaria as três ao mesmo tempo:
+
+| Estado | O que aparece |
+|---|---|
+| preenchida | a tabela |
+| vazia | mensagem que diz **por quê**: busca sem resultado, nenhum alerta, ou nenhum inativo |
+| carregando | aviso e controles trancados, porque busca e filtro recalculam sobre a lista anterior |
+| falha | caixa de erro **na área da lista**, não um diálogo — diálogo some e deixa a tabela vazia indistinguível de "não há alertas" |
+
+Abrir a tela **reconsulta o catálogo** quando há banco: as gravações desta
+janela já atualizam a lista na hora, mas uma movimentação confirmada por
+outro caminho não teria como aparecer, e alerta desatualizado é o que a US04
+proíbe.
 
 A regra tem um dono só, e é o banco: enquanto a UI teve regra própria, ela
 divergia de `fn_stock_state` em 5 de 11 casos — a tela dizia `Crítico` onde um
@@ -123,9 +147,10 @@ faria a aplicação exigir rede numa máquina onde isso não foi pedido.
 
 Antes do primeiro login com o banco, três passos — nesta ordem:
 
-1. **Aplique as migrations** `20261003180000_auth_jwt_identity.sql` (identidade
-   por JWT e permissões) e `20261004090000_user_directory.sql` (departamento e
-   último acesso na tela de Usuários). Sem a primeira, `fn_current_user_id()`
+1. **Aplique as migrations** em ordem de timestamp. `20261004150000_minimum_stock_optional.sql`
+   é **destrutiva por desenho**: ela converte todo `min_quantity = 0` em
+   `NULL`, porque esses zeros foram gravados quando zero significava "não
+   configurado". Sem backup não há volta. Sem a primeira, `fn_current_user_id()`
    só lê a variável de sessão `app.user_id`, que um cliente REST não tem como
    definir, e `anon`/`authenticated` não têm privilégio nenhum — toda chamada
    responde `permission denied`.
@@ -141,6 +166,13 @@ a empresa e o papel vêm de `fn_my_companies`, e toda gravação vai por funçã
 `SECURITY DEFINER` (`fn_create_products`, `fn_update_products`,
 `fn_set_product_active`, `fn_set_min_stock`) — as tabelas não têm `GRANT` de
 INSERT/UPDATE para nenhuma role de aplicação.
+
+**Gravar aparece na tela e mexer na tela grava.** Os dois adaptadores de
+catálogo satisfazem a mesma porta: o de demonstração escreve no dict que as
+telas leem, e o de banco mantém essa mesma foto atualizada após cada
+gravação (write-through), em vez de reconsultar e pagar três requisições por
+salvamento. Desativar pela tabela passa por `fn_set_product_active`; se a
+gravação falhar, a linha volta ao estado real em vez de mentir.
 
 O **saldo** não é um número digitado: é a soma das **movimentações
 confirmadas** (`stock_movements`). `fn_create_products` e `fn_update_products`

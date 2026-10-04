@@ -265,13 +265,21 @@ def test_status_do_estoque_nas_quatro_faixas():
     assert derive_stock_status(12, minimo) == "Normal"         # 12 >= 10×1,2
 
 
-def test_produto_sem_minimo_configurado_nao_alerta():
+def test_minimo_ausente_nao_alerta_nunca():
     """Critério da US04: excluir produtos sem mínimo definido.
 
-    Zero e ausente significam a mesma coisa, como o
-    `COALESCE(ps.min_quantity, 0)` da `vw_stock_situation`.
+    Ausente é a falta de limiar — não há o que comparar, nem com saldo zero.
     """
-    assert derive_stock_status(1, 0) == "Normal"
     assert derive_stock_status(1, None) == "Normal"
-    # Nem mesmo saldo zerado alerta sem limiar configurado.
-    assert derive_stock_status(0, 0) == "Normal"
+    assert derive_stock_status(0, None) == "Normal"
+
+
+def test_minimo_zero_e_configuracao_e_alerta_ao_acabar():
+    """Critério da US03: zero é distinguível de ausente.
+
+    Zero significa "me avise quando acabar". Enquanto ele era sinônimo de
+    ausente, quem configurava zero nunca era avisado.
+    """
+    assert derive_stock_status(5, 0) == "Normal"    # ainda tem estoque
+    assert derive_stock_status(1, 0) == "Normal"
+    assert derive_stock_status(0, 0) == "Crítico"   # acabou: alerta

@@ -4,7 +4,8 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from stockflow.application.dto.product_input import ProductInput
-from stockflow.domain.stock_level import DEFAULT_MINIMUM_STOCK
+from stockflow.domain.stock_level import to_min
+from stockflow.presentation.widgets.form_fields import SEM_MINIMO
 from stockflow.presentation.widgets.product_form import (
     BasicInfoCard,
     BeforeRegisterCard,
@@ -307,8 +308,18 @@ class NovoProdutoPage(QWidget):
             cost=formatar_moeda(self.cost_price_input.value()),
             stock=str(self.initial_stock_input.value()),
             active=self.product_status_toggle.isChecked(),
-            minimum_stock=self.minimum_stock_input.value(),
+            minimum_stock=self._minimo_do_formulario(),
         )
+
+    def _minimo_do_formulario(self):
+        """Valor do spin de mínimo, com o extremo traduzido para ausência.
+
+        O spin devolve sempre um número; `SEM_MINIMO` é o extremo do range
+        exibido como "Sem mínimo". Mandar -1 adiante violaria o CHECK da
+        coluna, e mandar 0 inventaria o limiar "avise quando acabar".
+        """
+        valor = self.minimum_stock_input.value()
+        return None if valor <= SEM_MINIMO else valor
 
     def clear_form(self):
         """Devolve o formulário ao estado de cadastro em branco.
@@ -327,10 +338,10 @@ class NovoProdutoPage(QWidget):
         self.ncm_input.clear()
         self.ean_input.clear()
         self.initial_stock_input.setValue(0)
-        # Padrão do catálogo, não zero: mínimo zero significa "nunca alerta",
-        # e um cadastro novo nasceria invisível para o alerta de estoque
-        # baixo da US04 sem ninguém ter escolhido isso.
-        self.minimum_stock_input.setValue(DEFAULT_MINIMUM_STOCK)
+        # Nasce SEM mínimo: a US03 diz que ele é opcional, e sugerir 10 fazia
+        # todo produto cadastrado pela tela ganhar um limiar que ninguém
+        # escolheu — na prática, nenhum produto ficava sem mínimo.
+        self.minimum_stock_input.setValue(SEM_MINIMO)
         self.location_input.clear()
         self.supplier_input.setCurrentIndex(0)
         self.low_stock_alert.setChecked(True)
@@ -415,9 +426,10 @@ class NovoProdutoPage(QWidget):
         self.sale_price_input.setValue(valor_de_moeda(sale_price))
         self.cost_price_input.setValue(valor_de_moeda(cost))
         # Sem o mínimo na tela, salvar uma edição devolveria o produto ao
-        # padrão do catálogo: quem tivesse configurado 5 perderia o ajuste
-        # ao mexer em qualquer outro campo.
+        # padrão: quem tivesse configurado 5 perderia o ajuste ao mexer em
+        # qualquer outro campo. Ausente carrega como "Sem mínimo", não como
+        # um número — senão a edição inventaria um limiar.
         self.minimum_stock_input.setValue(
-            DEFAULT_MINIMUM_STOCK if minimum is None else _para_inteiro(minimum)
+            SEM_MINIMO if to_min(minimum) is None else _para_inteiro(minimum)
         )
         self.product_status_toggle.setChecked(bool(active))

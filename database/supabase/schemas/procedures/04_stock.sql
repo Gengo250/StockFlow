@@ -1,17 +1,30 @@
 -- Estoque mínimo e painel. fn_stock_state precisa existir antes da view
 -- vw_stock_situation, que a chama.
 
+-- A ORDEM das cláusulas é a regra, não um detalhe de escrita.
+--
+-- Mínimo ausente e mínimo zero deixaram de ser a mesma coisa: ausente
+-- significa "ninguém configurou" e nunca alerta, nem com saldo negativo;
+-- zero é uma decisão explícita de só alertar quando acabar. Por isso o
+-- teste de NULL vem antes do teste de saldo, e o de saldo antes do de
+-- mínimo zero.
+--
+-- A terceira cláusula não é redundante com o ELSE: `p_min = 0` torna
+-- `p_min * 1.2` igual a zero, então saldo 5 com mínimo 0 não é `<= 0`,
+-- não é `<= p_min` e não é `< 0` — cairia no ELSE por acidente, e um dia
+-- alguém mexeria no ELSE sem perceber que ele carregava esse caso.
 CREATE OR REPLACE FUNCTION public.fn_stock_state(
     p_stock integer,
     p_min   integer
 ) RETURNS public.stock_state
 LANGUAGE sql IMMUTABLE AS $$
     SELECT CASE
-        WHEN p_min IS NULL OR p_min = 0 THEN 'NORMAL'::public.stock_state
-        WHEN COALESCE(p_stock, 0) <= 0   THEN 'CRITICO'::public.stock_state
-        WHEN p_stock <= p_min            THEN 'BAIXO'::public.stock_state
-        WHEN p_stock <  p_min * 1.2      THEN 'ATENCAO'::public.stock_state
-        ELSE                                  'NORMAL'::public.stock_state
+        WHEN p_min IS NULL             THEN 'NORMAL'::public.stock_state
+        WHEN COALESCE(p_stock, 0) <= 0 THEN 'CRITICO'::public.stock_state
+        WHEN p_min = 0                 THEN 'NORMAL'::public.stock_state
+        WHEN p_stock <= p_min          THEN 'BAIXO'::public.stock_state
+        WHEN p_stock <  p_min * 1.2    THEN 'ATENCAO'::public.stock_state
+        ELSE                                'NORMAL'::public.stock_state
     END;
 $$;
 
@@ -24,9 +37,10 @@ SET search_path = public AS $$
 DECLARE
     v_company uuid;
 BEGIN
-    IF p_min IS NULL THEN
-        RAISE EXCEPTION 'Estoque mínimo é obrigatório' USING ERRCODE = 'not_null_violation';
-    END IF;
+    -- p_min NULL é o modo legítimo de LIMPAR o mínimo: sem ele não haveria
+    -- como desfazer uma configuração, só zerá-la — e zero agora alerta.
+    -- A checagem abaixo continua segura com NULL: `NULL < 0` é NULL, o IF
+    -- não dispara, e a linha é gravada com o mínimo apagado.
     IF p_min < 0 THEN
         RAISE EXCEPTION 'Estoque mínimo não pode ser negativo (recebido: %)', p_min
             USING ERRCODE = 'check_violation';

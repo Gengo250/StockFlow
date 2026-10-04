@@ -5,6 +5,11 @@ CREATE TYPE public.company_stock_state AS ENUM ('CRITICO', 'ALERTA', 'ATENCAO', 
 
 CREATE TABLE public.product_stock (
     product_id    uuid PRIMARY KEY REFERENCES public.products(id) ON DELETE CASCADE,
-    min_quantity  integer NOT NULL DEFAULT 0 CHECK (min_quantity >= 0),
+    -- Sem NOT NULL e sem DEFAULT de propósito: NULL é "mínimo não
+    -- configurado" e zero é um mínimo configurado como zero, que alerta
+    -- quando o saldo zera. Com DEFAULT 0 todo produto novo nasceria com
+    -- mínimo zero explícito e entraria no alerta sem ninguém ter pedido.
+    -- O CHECK continua valendo: NULL >= 0 é unknown, e CHECK só reprova false.
+    min_quantity  integer CHECK (min_quantity >= 0),
     updated_on    timestamptz NOT NULL DEFAULT now()
 );

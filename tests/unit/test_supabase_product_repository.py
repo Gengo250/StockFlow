@@ -186,16 +186,16 @@ def test_status_e_derivado_do_minimo_do_produto():
 def test_produto_sem_linha_de_minimo_fica_sem_configuracao():
     """Sem linha em `product_stock`, não há mínimo — e sem mínimo não há alerta.
 
-    Espelha o `COALESCE(ps.min_quantity, 0)` da `vw_stock_situation`. Supor um
-    limiar plausível aqui faria o produto alertar por uma regra que ninguém
-    configurou, violando o critério de exclusão da US04.
+    `product_stock.min_quantity` é nullable e produto sem linha também chega
+    como `None`: os dois casos são "sem limiar". Convertê-los para zero faria
+    o produto alertar ao zerar o saldo — zero é configuração, não ausência.
     """
     tabelas = catalogo_falso()
     tabelas["products"][0]["stock"] = 1
     tabelas["product_stock"] = []
     produto = repositorio(ClienteFalso(tabelas)).load_catalog()["PRD-009"]
 
-    assert produto.minimum_stock == 0
+    assert produto.minimum_stock is None
     assert produto.stock_status == "Normal"
 
 

@@ -11,6 +11,7 @@ from stockflow.domain.stock_level import (
     derive_stock_status,
     is_below_minimum,
     to_int,
+    to_min,
 )
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.presentation.styles import inventory
@@ -39,6 +40,12 @@ FILTERS = (ALL, BELOW_MINIMUM_FILTER, ATTENTION, NORMAL, INACTIVE_FILTER)
 # abre o alerta quer repor o pior primeiro.
 SORTED_BY_CRITICALITY = frozenset({BELOW_MINIMUM_FILTER, ATTENTION})
 
+# Estados da lista. "Pronto" não significa "tem linhas": significa que o que
+# está na tela corresponde ao que a consulta devolveu.
+READY = "ready"
+LOADING = "loading"
+ERROR = "error"
+
 
 class EstoquePage(QWidget):
     product_edit_requested = Signal(object)
@@ -65,6 +72,12 @@ class EstoquePage(QWidget):
         # processo inteiro — inclusive para as telas que nascerem depois.
         # O caminho compartilhado continua recebendo o MESMO dict da janela,
         # que é o que faz Estoque, Produtos e Vendas enxergarem a mudança.
+        # Estado da lista. Sem ele, "zero linhas" seria ambíguo entre vazio,
+        # carregando e falha — e qualquer heurística baseada em `rowCount`
+        # mentiria em dois dos três casos.
+        self._list_state = READY
+        self.last_load_error = None
+
         self.products = dict(DEMO_PRODUCTS) if products is None else products
         self.produtos = self._build_rows()
         layout = QVBoxLayout(self)
@@ -83,7 +96,118 @@ class EstoquePage(QWidget):
         )
         self.table = self.stock_table.table
         layout.addWidget(self.stock_table)
+
+        # Os três estados que a tabela sozinha não consegue comunicar. Tabela
+        # com zero linhas significa três coisas diferentes — nada corresponde
+        # ao filtro, ainda está carregando, ou a consulta falhou — e sem
+        # estes rótulos o usuário não distingue nenhuma delas.
+        #
+        # Ficam ABAIXO da tabela, no padrão de `ProductsPage.empty_message`,
+        # e nunca a substituem no caminho normal: a tabela precisa continuar
+        # existindo e sendo o mesmo widget, porque a janela e os testes
+        # guardam a referência dela.
+        self.list_state_label = QLabel()
+        self.list_state_label.setObjectName("listState")
+        self.list_state_label.setWordWrap(True)
+        self.list_state_label.setStyleSheet(inventory.LIST_STATE_QSS)
+        self.list_state_label.setVisible(False)
+        layout.addWidget(self.list_state_label)
+
+        self.load_error_label = QLabel()
+        self.load_error_label.setObjectName("loadError")
+        self.load_error_label.setWordWrap(True)
+        self.load_error_label.setAccessibleName("Erro ao carregar o estoque")
+        self.load_error_label.setStyleSheet(inventory.LOAD_ERROR_QSS)
+        self.load_error_label.setVisible(False)
+        layout.addWidget(self.load_error_label)
+
         self.apply_filters()
+
+    # ======================================================
+    # ESTADOS DA LISTA (SCRUM: preenchida, vazia, carregando, falha)
+    # ======================================================
+
+    def begin_loading(self):
+        """Entra em "carregando" e tranca os controles.
+
+        Busca e filtros são desabilitados de propósito: os dois chamam
+        `apply_filters`, que recalcula sobre `self.produtos` — e durante a
+        carga essa lista ainda é a ANTERIOR. Deixá-los ativos permitiria
+        filtrar dados que estão prestes a ser substituídos.
+        """
+        self._list_state = LOADING
+        self.last_load_error = None
+        self._trancar_controles(True)
+        self._render_list_state()
+
+    def show_load_error(self, erro):
+        """Falha de consulta, dita NA ÁREA DA LISTA e não num diálogo.
+
+        Diálogo some quando fechado e deixa uma tabela vazia indistinguível
+        de "não há produtos em alerta" — exatamente a confusão que o cartão
+        manda eliminar. O estado precisa persistir enquanto a lista estiver
+        sem dados confiáveis.
+        """
+        self._list_state = ERROR
+        self.last_load_error = erro
+        self._trancar_controles(False)
+        self.load_error_label.setText(
+            "Não foi possível carregar o estoque.\n\n"
+            f"{erro}\n\nTente novamente em instantes."
+        )
+        self._render_list_state()
+
+    def _trancar_controles(self, trancado: bool):
+        self.search_input.setEnabled(not trancado)
+        for button in self.filter_buttons:
+            button.setEnabled(not trancado)
+
+    def _render_list_state(self, visiveis=None):
+        """Mostra o rótulo certo para o estado atual.
+
+        A tabela só é escondida nos estados em que o conteúdo dela não vale
+        nada (carregando e falha). No estado normal ela permanece visível
+        mesmo vazia, como em `ProductsPage`: a grade com cabeçalho diz ao
+        usuário o que ele está deixando de ver.
+        """
+        carregando = self._list_state == LOADING
+        com_erro = self._list_state == ERROR
+
+        self.load_error_label.setVisible(com_erro)
+        self.stock_table.setVisible(not carregando and not com_erro)
+
+        if carregando:
+            self.list_state_label.setText("Carregando produtos...")
+            self.list_state_label.setVisible(True)
+            return
+        if com_erro:
+            self.list_state_label.setVisible(False)
+            return
+
+        vazio = not visiveis
+        if vazio:
+            self.list_state_label.setText(self._texto_de_lista_vazia())
+        self.list_state_label.setVisible(bool(vazio))
+
+    def _texto_de_lista_vazia(self) -> str:
+        """Vazio por busca e vazio por não haver alerta são coisas diferentes.
+
+        Dizer "nenhum produto em alerta" para quem digitou um termo que não
+        casa com nada seria mentira — e esconderia que basta limpar a busca.
+        """
+        if self.search_input.text().strip():
+            return "Nenhum produto corresponde à busca."
+        filtro = self.current_filter()
+        if filtro == BELOW_MINIMUM_FILTER:
+            return (
+                "Nenhum produto em alerta de estoque. "
+                "Produtos sem mínimo configurado não entram nesta lista."
+            )
+        if filtro == INACTIVE_FILTER:
+            return "Nenhum produto desativado."
+        if filtro == ALL:
+            return "Nenhum produto cadastrado."
+        return f"Nenhum produto na situação \"{filtro}\"."
 
     def _build_rows(self):
         """Converte o catálogo nas linhas que a tela manipula.
@@ -129,10 +253,11 @@ class EstoquePage(QWidget):
         """
         for row in self.produtos:
             row[STATUS] = derive_stock_status(row[STOCK], row[MINIMUM])
-            # Mínimo zero/ausente significa "não configurado"; mostrar "0"
-            # sugeriria um limiar que ninguém definiu, e é justamente o
-            # produto que a US04 exclui do alerta.
-            if not to_int(row[MINIMUM]):
+            # Só a AUSÊNCIA vira travessão. Mínimo zero é configuração real
+            # e aparece como "0" — é essa diferença na própria célula que o
+            # critério da US03 cobra, e escondê-la atrás do mesmo símbolo
+            # deixaria o usuário sem saber por que um alerta e o outro não.
+            if to_min(row[MINIMUM]) is None:
                 row[MINIMUM] = "—"
 
         filtro = self.current_filter()
@@ -152,6 +277,7 @@ class EstoquePage(QWidget):
                                            to_int(row[STOCK])))
 
         self.stock_table.set_products(visiveis)
+        self._render_list_state(visiveis)
         # A contagem acompanha o que está na tela, não o catálogo: dizer
         # "4 produtos cadastrados" sobre uma busca que devolveu um faria a
         # tela contradizer a si mesma.
@@ -242,6 +368,12 @@ class EstoquePage(QWidget):
         """
         if products is not None:
             self.products = products
+        # Carga concluída: sai de "carregando"/"falha" e destranca os
+        # controles. É este método que a janela chama quando a consulta
+        # volta, então ele é o ponto natural para encerrar os dois estados.
+        self._list_state = READY
+        self.last_load_error = None
+        self._trancar_controles(False)
         self.produtos = self._build_rows()
         self.apply_filters()
 

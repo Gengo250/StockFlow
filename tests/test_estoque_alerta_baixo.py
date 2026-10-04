@@ -39,6 +39,7 @@ def test_situacao_sai_do_minimo_do_produto(estoque_page):
     assert situacao(estoque_page, "PRD-007") == "Baixo"     #  2 contra  5
     assert situacao(estoque_page, "PRD-006") == "Crítico"   #  0 contra 10
     assert situacao(estoque_page, "PRD-003") == "Normal"    #  3 sem mínimo
+    assert situacao(estoque_page, "PRD-002") == "Crítico"   #  0 com mínimo 0
 
 
 def test_situacao_acompanha_mudanca_de_saldo(estoque_page):
@@ -116,7 +117,10 @@ def test_nao_retorna_produtos_acima_do_minimo(estoque_page):
 
     assert "PRD-009" not in mostrados    # 18 contra 10, Normal
     assert "PRD-005" not in mostrados    # 11 contra 10, Atenção
-    assert sorted(mostrados) == ["PRD-006", "PRD-007", "PRD-008"]
+    assert "PRD-003" not in mostrados    # saldo 3, mas SEM mínimo
+    assert sorted(mostrados) == [
+        "PRD-002", "PRD-006", "PRD-007", "PRD-008",
+    ]
 
 
 def test_retorna_produto_saldo_minimo_e_situacao(estoque_page):
@@ -139,18 +143,22 @@ def test_alerta_ordena_do_mais_urgente_para_o_menos(estoque_page):
     dizer qual é mais urgente.
     """
     clicar_filtro(estoque_page, ALERTA)
-    assert visiveis(estoque_page) == ["PRD-006", "PRD-007", "PRD-008"]
+    # Críticos primeiro (PRD-006 e PRD-002, ambos zerados, em ordem de
+    # cadastro), depois os baixos do menor saldo para o maior.
+    assert visiveis(estoque_page) == [
+        "PRD-006", "PRD-002", "PRD-007", "PRD-008",
+    ]
 
     saldos = [
         int(estoque_page.table.item(row, STOCK).text())
         for row in range(estoque_page.table.rowCount())
     ]
-    assert saldos == [0, 2, 6]
+    assert saldos == [0, 0, 2, 6]
 
 
 def test_filtro_todos_mantem_a_ordem_de_cadastro(estoque_page):
     assert visiveis(estoque_page) == [
-        "PRD-009", "PRD-008", "PRD-007", "PRD-006", "PRD-005", "PRD-003",
+        "PRD-009", "PRD-008", "PRD-007", "PRD-006", "PRD-005", "PRD-003", "PRD-002",
     ]
 
 
@@ -172,9 +180,13 @@ def test_regra_espelha_fn_stock_state():
         (11, 10, "Atenção"),   # 11 < 12
         (12, 10, "Normal"),    # 12 >= 10 × 1,2
         (30, 10, "Normal"),
-        (5,  0,    "Normal"),  # sem mínimo configurado
+        # O par que prova a US03: mesmo saldo zerado, respostas diferentes.
+        (0,  None, "Normal"),   # ausente: nunca alerta, nem zerado
+        (0,  0,    "Crítico"),                          # zero: avise ao acabar
+        (5,  0,    "Normal"),   # mínimo zero só alerta quando o saldo acaba
+        (1,  0,    "Normal"),
         (5,  None, "Normal"),
-        (0,  None, "Normal"),  # nem zerado alerta sem limiar
+        (-3, 0,    "Crítico"),  # saldo negativo também
     ]
     for saldo, minimo, esperado in casos:
         assert derive_stock_status(saldo, minimo) == esperado, (saldo, minimo)

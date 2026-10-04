@@ -26,8 +26,8 @@ class ProductInput:
     # porque não vem de campo livre: a tela o entrega por `QSpinBox` e o banco
     # o guarda em `product_stock.min_quantity`.
     #
-    # O padrão é "não configurado" (zero), NUNCA um valor plausível: um
-    # chamador que não informa mínimo não está pedindo alerta com limiar 10,
-    # está dizendo que não há limiar. `fn_stock_state` trata zero como NORMAL,
-    # e é assim que a US04 exclui do alerta quem não tem configuração.
-    minimum_stock: int = NOT_CONFIGURED
+    # O padrão é AUSENTE (`None`), nunca um valor plausível: quem não informa
+    # mínimo não está pedindo alerta com limiar 10, está dizendo que não há
+    # limiar. E ausente não é zero — zero é a configuração "me avise quando
+    # acabar", que alerta com saldo zerado.
+    minimum_stock: int | None = NOT_CONFIGURED
