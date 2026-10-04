@@ -164,3 +164,124 @@ def test_a_porta_exige_list_alerts_dos_dois(adaptador):
     classe = {"demo": DemoProductRepository,
               "supabase": SupabaseProductRepository}[adaptador]
     assert hasattr(classe, "list_alerts")
+
+
+# ============================ a falha do alerta nao derruba a lista
+
+
+class RepoComAlertaQuebrado:
+    """Catálogo saudável, consulta de alerta falhando.
+
+    É o estado em que a `main` ficou quando o código passou a pedir
+    `product_code` da view antes de a migration que cria a coluna ter sido
+    aplicada.
+    """
+
+    def __init__(self, catalogo, erro=None):
+        self._interno = DemoProductRepository(catalogo)
+        self._catalogo = catalogo
+        self._erro = erro or RuntimeError(
+            "column vw_stock_alerts.product_code does not exist"
+        )
+
+    def load_catalog(self):
+        return self._catalogo
+
+    def list_alerts(self):
+        raise self._erro
+
+    def __getattr__(self, nome):
+        return getattr(self._interno, nome)
+
+
+@pytest.fixture
+def janela_com_alerta_quebrado(qapp, request, monkeypatch):
+    from stockflow.presentation.demo_accounts import conta_admin
+    from stockflow.presentation.windows.main_window import MainWindow
+    from stockflow.presentation.workers import executar_agora
+
+    catalogo = dict(DEMO_PRODUCTS)
+    monkeypatch.setattr(
+        "stockflow.presentation.windows.main_window.build_catalog",
+        lambda s: (catalogo, RepoComAlertaQuebrado(catalogo)),
+    )
+    window = MainWindow(conta_admin().session())
+    window.executar_em_segundo_plano = executar_agora
+    request.addfinalizer(window.close)
+    return window
+
+
+def test_alerta_quebrado_nao_esconde_o_catalogo(janela_com_alerta_quebrado):
+    """A regressão: a tela inteira caía com o catálogo já carregado.
+
+    Sem catálogo não há lista nenhuma; sem a consulta de alerta ainda há o
+    cálculo local. Tratar as duas falhas do mesmo jeito tirava do usuário uma
+    tela que funcionava.
+    """
+    window = janela_com_alerta_quebrado
+    window.show_page("estoque")
+    estoque = window.estoque_page
+
+    assert estoque._list_state == "ready"
+    assert estoque.stock_table.isVisibleTo(estoque)
+    assert estoque.table.rowCount() > 0
+
+
+def test_alerta_quebrado_volta_para_o_calculo_local(janela_com_alerta_quebrado):
+    window = janela_com_alerta_quebrado
+    window.show_page("estoque")
+    estoque = window.estoque_page
+
+    assert estoque._alertas is None, "a decisão volta a ser local"
+    clicar_filtro(estoque, ALERTA)
+    assert sorted(visiveis(estoque)) == [
+        "PRD-002", "PRD-006", "PRD-007", "PRD-008",
+    ]
+
+
+def test_a_falha_do_alerta_fica_registrada(janela_com_alerta_quebrado):
+    """Degradar em silêncio sem rastro esconderia o problema de quem opera."""
+    window = janela_com_alerta_quebrado
+    window.show_page("estoque")
+
+    assert isinstance(window.last_load_error, RuntimeError)
+    assert "product_code" in str(window.last_load_error)
+
+
+def test_catalogo_quebrado_AINDA_mostra_erro(qapp, request, monkeypatch):
+    """A contraprova: sem catálogo não há o que degradar para."""
+    from stockflow.presentation.demo_accounts import conta_admin
+    from stockflow.presentation.windows.main_window import MainWindow
+    from stockflow.presentation.workers import executar_agora
+
+    catalogo = dict(DEMO_PRODUCTS)
+
+    class RepoSemCatalogo(RepoComAlertaQuebrado):
+        def load_catalog(self):
+            raise RuntimeError("timeout na consulta")
+
+    monkeypatch.setattr(
+        "stockflow.presentation.windows.main_window.build_catalog",
+        lambda s: (catalogo, RepoSemCatalogo(catalogo)),
+    )
+    window = MainWindow(conta_admin().session())
+    window.executar_em_segundo_plano = executar_agora
+    request.addfinalizer(window.close)
+
+    window.show_page("estoque")
+
+    assert window.estoque_page._list_state == "error"
+    assert "timeout" in window.estoque_page.load_error_label.text()
+
+
+def test_clear_alerts_devolve_a_decisao_para_a_regra_local(estoque_page):
+    estoque_page.set_alerts([("PRD-009", "18", 10, "Baixo")])
+    clicar_filtro(estoque_page, ALERTA)
+    assert visiveis(estoque_page) == ["PRD-009"]
+
+    estoque_page.clear_alerts()
+
+    assert estoque_page._alertas is None
+    assert sorted(visiveis(estoque_page)) == [
+        "PRD-002", "PRD-006", "PRD-007", "PRD-008",
+    ]
