@@ -12,6 +12,7 @@ WITH (security_invoker = true) AS
 SELECT
     s.company_id,
     s.product_id,
+    s.product_code,
     s.product_name,
     s.current_balance,
     s.min_quantity,

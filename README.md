@@ -81,7 +81,18 @@ ativos, com mínimo configurado, cujo saldo é menor ou igual a esse mínimo —
 ordenados do mais urgente para o menos. Inativos ficam de fora porque situação
 de estoque é sobre repor, e repor não se aplica a produto fora de operação.
 Quem não tem mínimo definido também fica de fora, por isso a coluna mostra `—`
-em vez de `0`. No banco a mesma consulta é a view `vw_stock_alerts`.
+em vez de `0`.
+
+**Quem decide o alerta é a consulta, não a tela.** `vw_stock_alerts` aplica os
+critérios no banco e devolve os quatro campos que a lista mostra; a tela
+reflete o resultado. No modo demonstração não há view, então o mesmo critério
+é aplicado pelo adaptador de demonstração — num lugar só, nunca espalhado
+pela interface.
+
+A razão é concreta: enquanto a tela decidia sozinha, existiam duas
+implementações do mesmo critério, e a primeira vez que divergiram a
+divergência passou despercebida e violou um critério de aceitação — produto
+sem mínimo aparecia no alerta.
 
 A lista tem três apresentações, e a tabela sozinha não as distingue — zero
 linhas significaria as três ao mesmo tempo:

@@ -27,6 +27,7 @@ from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.domain.stock_level import (
     derive_stock_status,
+    state_to_label,
     to_int,
     to_min,
 )
@@ -289,6 +290,31 @@ class SupabaseProductRepository:
             self._ids[data.code] = product_id
         self._publicar(data.code, data, remover=code)
         return data.code
+
+    def list_alerts(self) -> tuple:
+        """Lê `vw_stock_alerts` — a consulta é quem decide quem alerta.
+
+        A view já aplica os critérios da US04 (ativo, mínimo configurado,
+        saldo menor ou igual a ele) e devolve os quatro campos que a tela
+        exibe. Reimplementar o filtro aqui criaria a segunda versão da regra
+        que este método existe para eliminar.
+
+        `state` vem como valor de `public.stock_state` (caixa alta, sem
+        acento) e é traduzido para o rótulo da tela por `state_to_label`.
+        """
+        linhas = self._rows(
+            self._client.table("vw_stock_alerts")
+            .select("product_code,current_balance,min_quantity,state")
+            .eq("company_id", self._company_id)
+            .execute()
+        )
+        return tuple(
+            (linha.get("product_code") or "",
+             str(to_int(linha.get("current_balance"))),
+             to_min(linha.get("min_quantity")),
+             state_to_label(linha.get("state")))
+            for linha in linhas
+        )
 
     def set_active(self, code: str, active: bool) -> None:
         """Ativar/desativar sem passar pelo formulário (US02/US04).

@@ -78,6 +78,11 @@ class EstoquePage(QWidget):
         self._list_state = READY
         self.last_load_error = None
 
+        # Resultado da CONSULTA de alerta: `código -> (saldo, mínimo, situação)`.
+        # `None` significa "nenhuma consulta ligada" — página isolada, sem
+        # janela. Ver `_codigos_em_alerta`.
+        self._alertas = None
+
         self.products = dict(DEMO_PRODUCTS) if products is None else products
         self.produtos = self._build_rows()
         layout = QVBoxLayout(self)
@@ -263,11 +268,22 @@ class EstoquePage(QWidget):
         filtro = self.current_filter()
         busca = self.search_input.text().strip().casefold()
 
+        em_alerta = self._codigos_em_alerta()
         visiveis = [
             row for row in self.produtos
             if self._combina_com_busca(row, busca)
-            and self._combina_com_filtro(row, filtro)
+            and self._combina_com_filtro(row, filtro, em_alerta)
         ]
+
+        # Os valores que a tela mostra no alerta vêm da MESMA consulta que
+        # decidiu quem entra nele. Sem isto, a linha poderia dizer "Baixo"
+        # com um saldo que a consulta já não enxerga — o alerta estaria
+        # certo e o número ao lado dele, velho.
+        if filtro == BELOW_MINIMUM_FILTER and self._alertas:
+            for row in visiveis:
+                dados = self._alertas.get(row[CODE])
+                if dados is not None:
+                    row[STOCK], row[MINIMUM], row[STATUS] = dados
 
         if filtro in SORTED_BY_CRITICALITY:
             # Pior situação primeiro e, dentro dela, menor saldo primeiro.
@@ -296,7 +312,7 @@ class EstoquePage(QWidget):
         return busca in alvo
 
     @staticmethod
-    def _combina_com_filtro(row, filtro: str) -> bool:
+    def _combina_com_filtro(row, filtro: str, em_alerta=None) -> bool:
         """Qual recorte cada filtro mostra.
 
         `Todos` significa TODOS, inativos inclusive. Esconder o desativado da
@@ -318,8 +334,35 @@ class EstoquePage(QWidget):
         if not ativo:
             return False
         if filtro == BELOW_MINIMUM_FILTER:
+            # A consulta manda quando existe. A regra local só responde
+            # quando não há consulta ligada — e é o espelho declarado dela.
+            if em_alerta is not None:
+                return row[CODE] in em_alerta
             return is_below_minimum(row[STATUS])
         return row[STATUS] == filtro
+
+    def set_alerts(self, linhas):
+        """Recebe o resultado da consulta de alerta e redesenha.
+
+        A tela deixa de decidir QUEM alerta: ela passa a refletir o que a
+        consulta devolveu. É o que o cartão pede ao dizer que a regra
+        pertence à consulta — e o que impede uma segunda implementação do
+        critério de divergir da primeira, como já aconteceu neste projeto.
+        """
+        self._alertas = {
+            linha[0]: (linha[1], linha[2], linha[3]) for linha in (linhas or ())
+        }
+        self.apply_filters()
+
+    def _codigos_em_alerta(self):
+        """Conjunto de códigos em alerta, ou `None` se não há consulta ligada.
+
+        O `None` cobre a página montada isolada (teste de widget, inspeção
+        visual), onde não existe repositório para consultar. Nesse caso a
+        situação já calculada na linha decide — ela vem de
+        `derive_stock_status`, o espelho declarado de `fn_stock_state`.
+        """
+        return None if self._alertas is None else set(self._alertas)
 
     def toggle_product_status(self, produto):
         """Inverte ativo/inativo do produto da linha (US02 + US04).
