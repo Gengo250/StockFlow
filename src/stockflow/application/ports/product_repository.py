@@ -40,6 +40,19 @@ class ProductRepository(Protocol):
         """
         ...
 
+    def list_alerts(self) -> tuple:
+        """Produtos em alerta de estoque baixo, pela regra da CONSULTA.
+
+        Cada item é `(código, saldo, mínimo, situação)` — os quatro campos
+        que a tela de alerta exibe.
+
+        Existe para que a regra tenha um dono só. Enquanto a tela decidia
+        sozinha quem alerta, havia duas implementações do mesmo critério; e
+        a primeira vez que elas divergiram neste projeto, a divergência
+        passou despercebida e violou um critério de aceitação.
+        """
+        ...
+
     def set_active(self, code: str, active: bool) -> None:
         """Ativa ou desativa o produto. Soft-delete, nunca remoção.
 
