@@ -34,6 +34,7 @@ from stockflow.infrastructure.repositories.supabase_product_repository import (
 from stockflow.presentation import backend
 from stockflow.presentation.demo_accounts import conta_admin, conta_por_papel
 from stockflow.presentation.windows.main_window import MainWindow
+from stockflow.presentation.workers import executar_agora
 
 from test_supabase_product_repository import COMPANY, ClienteFalso, catalogo_falso
 
@@ -230,6 +231,9 @@ def test_abrir_estoque_reconsulta_quando_ha_banco(qapp, monkeypatch, request):
     )
     window = MainWindow(conta_admin().session())
     request.addfinalizer(window.close)
+    # Executor síncrono: um teste de UI não tem laço de eventos girando, e a
+    # tarefa em segundo plano nunca entregaria o resultado.
+    window.executar_em_segundo_plano = executar_agora
 
     window.show_page("estoque")
     assert chamadas, "abrir a tela precisa reconsultar o catálogo"
@@ -251,6 +255,7 @@ def test_falha_na_reconsulta_aparece_na_lista(qapp, monkeypatch, request):
     )
     window = MainWindow(conta_admin().session())
     request.addfinalizer(window.close)
+    window.executar_em_segundo_plano = executar_agora
 
     window.show_page("estoque")
 

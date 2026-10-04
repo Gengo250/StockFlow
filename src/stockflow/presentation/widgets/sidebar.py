@@ -19,6 +19,9 @@ from stockflow.presentation.widgets.menu_button import create_menu_button
 MENU_ITEMS = [
     ("dashboard", "Dashboard", "fa5s.home"),
     ("estoque", "Estoque", "fa5s.cube"),
+    # Logo abaixo de Estoque: é o saldo daquela tela que estas entradas e
+    # saídas compõem, e quem abre uma costuma querer a outra.
+    ("movimentacoes", "Movimentações", "fa5s.exchange-alt"),
     ("vendas", "Vendas", "fa5s.chart-bar"),
     ("produtos", "Produtos", "fa5s.box"),
     ("relatorios", "Relatórios", "fa5s.file-alt"),
@@ -124,6 +127,16 @@ class Sidebar(QFrame):
         if button is None:
             return
         button.setVisible(visible)
+
+    def item_is_visible(self, key) -> bool:
+        """Par de leitura de `set_item_visible`.
+
+        Existe para que quem verifica a permissão não precise saber que o
+        item escondido continua em `self.buttons` — detalhe interno que o
+        relogin exige e que ninguém de fora deveria depender.
+        """
+        button = self.buttons.get(key)
+        return button is not None and not button.isHidden()
 
     def set_active(self, key):
 

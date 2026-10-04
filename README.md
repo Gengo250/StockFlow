@@ -180,6 +180,22 @@ não escrevem `products.stock` — registram movimentação, e um trigger recalc
 a coluna a partir das linhas com situação `CONFIRMADA`. Movimentação nasce
 `PENDENTE`: registrar não é confirmar, e só confirmar muda o saldo.
 
+Em **Movimentações**, entradas e saídas são lançadas e confirmadas. Os dois
+passos são separados porque o banco os separa: registrar cria a intenção,
+**confirmar é o que move o saldo**. Para o caso comum — lançar algo que já
+aconteceu — há o atalho "Registrar e confirmar".
+
+| Situação | Efeito no saldo |
+|---|---|
+| `Pendente` | nenhum |
+| `Confirmada` | soma (entrada) ou subtrai (saída) |
+| `Cancelada` | nenhum; cancelar uma confirmada **devolve** o saldo |
+
+A tela é restrita a ADMIN e STOCK, porque `fn_register_movement` e as irmãs
+recusam qualquer outro papel — nem o histórico é do vendedor. Confirmar ou
+cancelar reconsulta o Estoque na sequência: alerta desatualizado é o que a
+US04 proíbe.
+
 Em **Usuários**, a lista vem de `fn_list_company_users`, que recusa quem não é
 ADMIN. A busca só acontece ao abrir a tela, não ao montar a janela: um papel
 sem permissão nem chega a gastar a requisição. Três colunas são derivadas, não
@@ -206,6 +222,8 @@ src/stockflow/
 │   ├── permissions.py                quem pode cadastrar/editar produto e usuário
 │   ├── product_status.py             produto ativo/inativo em operações novas
 │   ├── stock_level.py                espelho de fn_stock_state (US03/US04)
+│   ├── enums/movement_kind.py        ENTRADA/SAIDA, com o sinal de cada uma
+│   ├── enums/movement_status.py      PENDENTE/CONFIRMADA/CANCELADA
 │   ├── enums/                        papéis de usuário e tipos de operação
 │   └── exceptions/                   recusas nomeadas do domínio
 ├── application/                      casos de uso sobre o domínio
@@ -225,6 +243,7 @@ src/stockflow/
 └── presentation/                     camada de interface
     ├── app.py                        run(): cria o QApplication e abre a janela
     ├── backend.py                    escolhe demonstração ou banco
+    ├── workers.py                    tira trabalho lento da thread da UI
     ├── windows/main_window.py        MainWindow: janela, menu lateral e páginas
     ├── demo_products.py              produtos demonstrativos compartilhados
     ├── demo_users.py                 usuários demonstrativos e perfis

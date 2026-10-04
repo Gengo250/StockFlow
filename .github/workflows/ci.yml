@@ -1,0 +1,113 @@
+# Suíte de testes em cada pull request.
+#
+# Existe por um motivo concreto, não por higiene: este repositório já perdeu
+# implementação em merge três vezes — a US04 inteira, a função
+# `_show_product_details` e a PR #15, cujo merge descartou os arquivos de `src/`
+# e manteve os testes. Nos três casos a `main` ficou vermelha e ninguém percebeu
+# até alguém rodar `pytest` à mão, dias depois. O ponto deste arquivo é que o
+# merge pare de ser o lugar onde a regressão aparece.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Um commit novo na mesma PR cancela a execução anterior: só o último estado do
+# branch interessa, e fila de job obsoleto atrasa o feedback de quem revisa.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# A suíte roda offline por desenho — catálogo em memória, contas locais, nenhuma
+# chamada ao Supabase. Logo este job não precisa de segredo nenhum: nada de
+# `SUPABASE_*`, nada de token de escrita. Ler o código é todo o acesso que ele tem.
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: pytest (Linux headless)
+    runs-on: ubuntu-latest
+    # A suíte local leva ~25s. O teto não é para ela, é para o caso patológico:
+    # se o Qt tentar abrir janela, ele fica esperando um servidor gráfico que não
+    # existe, e sem este limite o job só morreria no teto de 6h da plataforma.
+    timeout-minutes: 15
+
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v7
+
+      - name: Instalar as bibliotecas de sistema do Qt
+        # O wheel do PySide6 traz o Qt compilado, mas não traz as bibliotecas de
+        # sistema contra as quais esse Qt foi linkado — e o runner `ubuntu-latest`
+        # é uma imagem sem ambiente gráfico. A falha, quando falta alguma, não é
+        # um teste vermelho: é a importação morrendo com
+        # `ImportError: libEGL.so.1: cannot open shared object file`.
+        #
+        # A lista não é chutada. Ela é o `ldd` de `libQt6Gui.so.6` e de
+        # `plugins/platforms/libqoffscreen.so` do wheel que este projeto trava no
+        # `uv.lock`, reduzido ao que resolve fora do wheel e ao nome do pacote
+        # Debian correspondente:
+        #
+        #   libegl1        -> libEGL.so.1        (o ausente clássico no runner)
+        #   libgl1         -> libGL.so.1
+        #   libx11-6       -> libX11.so.6
+        #   libxcb1        -> libxcb.so.1
+        #   libxkbcommon0  -> libxkbcommon.so.0
+        #   libdbus-1-3    -> libdbus-1.so.3
+        #   libfontconfig1 -> libfontconfig.so.1
+        #
+        # `apt-get install` de pacote já presente é no-op, então a lista completa
+        # fica aqui como documentação do que o Qt exige, e não só o delta da
+        # imagem do runner — que muda sem aviso a cada atualização dela.
+        #
+        # O que NÃO está aqui, de propósito: a pilha do plugin `xcb`
+        # (`libxcb-cursor0`, `libxcb-icccm4`, `libxcb-xinerama0`,
+        # `libxkbcommon-x11-0` e companhia). Nenhuma delas aparece no `ldd` do
+        # caminho que este job percorre, porque o plugin `xcb` só é carregado por
+        # quem abre janela de verdade — e aqui a plataforma é `offscreen` (veja o
+        # passo da suíte). Quem um dia tirar o `offscreen` daqui precisa trazer
+        # essa pilha junto, ou o Qt aborta com "could not load the Qt platform
+        # plugin xcb".
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 \
+            libgl1 \
+            libx11-6 \
+            libxcb1 \
+            libxkbcommon0 \
+            libdbus-1-3 \
+            libfontconfig1
+
+      - name: Instalar o uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          # Sem cache, cada execução rebaixa o PySide6 inteiro (~200 MB) do PyPI.
+          # A chave vem do `uv.lock`, então ela só é invalidada quando alguma
+          # dependência realmente muda — não a cada commit.
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Instalar o Python fixado em .python-version
+        # O uv lê o `.python-version` (3.12) sozinho e baixa o interpretador se
+        # faltar. O passo é explícito para que, se isso falhar, a falha apareça
+        # com esse nome — e não disfarçada no meio da coleta dos testes.
+        run: uv python install
+
+      - name: Rodar a suíte
+        # Duas partes deste comando não são estilo, são requisito — é o mesmo
+        # comando documentado no README, e ele não deve divergir dali:
+        #
+        # `QT_QPA_PLATFORM=offscreen` — são testes de UI PySide6. Sem isso o Qt
+        # procura um servidor gráfico, não encontra, e o job fica pendurado até o
+        # `timeout-minutes` acima. O `tests/conftest.py` já faz `setdefault` dessa
+        # variável, mas ela fica aqui mesmo assim: o `setdefault` protege quem
+        # roda local, e o valor explícito protege o CI de uma mudança no conftest.
+        #
+        # `tests/` — `pytest` sem argumento varre `scripts/` e tenta coletar
+        # `scripts/test_supabase_connection.py`, que fala com a rede. O caminho
+        # não é economia de tempo: é o que mantém a suíte offline.
+        run: QT_QPA_PLATFORM=offscreen uv run --with pytest python -m pytest tests/ -q
