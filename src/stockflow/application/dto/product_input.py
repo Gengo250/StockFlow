@@ -31,3 +31,4 @@ class ProductInput:
     # limiar. E ausente não é zero — zero é a configuração "me avise quando
     # acabar", que alerta com saldo zerado.
     minimum_stock: int | None = NOT_CONFIGURED
+    supplier_id: str | None = None

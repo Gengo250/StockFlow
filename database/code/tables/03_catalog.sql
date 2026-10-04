@@ -23,6 +23,7 @@ CREATE TABLE public.products (
     unit           public.unit_enum NOT NULL DEFAULT 'UN',
     stock          integer NOT NULL DEFAULT 0 CHECK (stock >= 0),
     item_category  uuid,
+    supplier_id    uuid,
     active         boolean NOT NULL DEFAULT true,
     created_on     timestamptz NOT NULL DEFAULT now(),
     UNIQUE (company_id, barcode),

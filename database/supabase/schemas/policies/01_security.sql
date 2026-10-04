@@ -26,6 +26,7 @@ ALTER TABLE public.product_stock  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
 
 -- register não tem coluna de empresa (tables/02_cash_register.sql: "Caixa.
 -- Independente das demais tabelas."), então não há como escopar por tenant.
@@ -58,6 +59,7 @@ GRANT SELECT ON public.company,
                 public.product_stock,
                 public.stock_movements,
                 public.clients,
+                public.suppliers,
                 public.sales,
                 public.vw_stock_situation,
                 public.vw_stock_alerts
@@ -72,6 +74,7 @@ DROP POLICY IF EXISTS product_stock_select ON public.product_stock;
 DROP POLICY IF EXISTS stock_movements_select ON public.stock_movements;
 DROP POLICY IF EXISTS clients_select          ON public.clients;
 DROP POLICY IF EXISTS sales_select            ON public.sales;
+DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
 
 -- Policy é por role: o GRANT acima deixa `authenticated` chegar à tabela, mas
 -- sem aparecer no TO da policy ela veria zero linha. O predicado é o MESMO
@@ -100,6 +103,10 @@ CREATE POLICY clients_select ON public.clients
 CREATE POLICY sales_select ON public.sales
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
+
+CREATE POLICY suppliers_select ON public.suppliers
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_has_role(company_id, ARRAY['ADMIN','STOCK']::public.user_role[]));
 
 CREATE POLICY product_stock_select ON public.product_stock
   FOR SELECT TO app_backend, authenticated
@@ -146,7 +153,10 @@ DECLARE
     'fn_register_movement', 'fn_confirm_movement', 'fn_cancel_movement',
     'fn_confirmed_balance',
     'fn_list_company_clients', 'fn_create_client', 'fn_update_client',
-    'fn_set_client_active', 'fn_register_sale'
+    'fn_set_client_active', 'fn_register_sale',
+    'fn_list_company_suppliers', 'fn_create_supplier', 'fn_update_supplier',
+    'fn_set_supplier_active', 'fn_set_product_supplier',
+    'fn_register_supplier_movement'
   ];
   v_name    text;
   v_sig     regprocedure;

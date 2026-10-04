@@ -309,6 +309,7 @@ class NovoProdutoPage(QWidget):
             stock=str(self.initial_stock_input.value()),
             active=self.product_status_toggle.isChecked(),
             minimum_stock=self._minimo_do_formulario(),
+            supplier_id=self.supplier_input.currentData(),
         )
 
     def _minimo_do_formulario(self):
@@ -347,7 +348,7 @@ class NovoProdutoPage(QWidget):
         self.low_stock_alert.setChecked(True)
         self.product_status_toggle.setChecked(True)
 
-    def set_catalog_options(self, categories, units):
+    def set_catalog_options(self, categories, units, suppliers=()):
         """Mostra apenas categorias e unidades ativas para novos produtos."""
         self.category_input.clear()
         self.category_input.addItem("Selecione uma categoria")
@@ -355,6 +356,15 @@ class NovoProdutoPage(QWidget):
 
         self.unit_input.clear()
         self.unit_input.addItems(units)
+        self.supplier_input.clear()
+        self.supplier_input.addItem("Selecione um fornecedor", None)
+        for supplier in suppliers:
+            if isinstance(supplier, tuple):
+                supplier_id, name = supplier
+            else:
+                supplier_id = supplier.supplier_id
+                name = supplier.name + (" (Inativo)" if not supplier.active else "")
+            self.supplier_input.addItem(name, supplier_id)
 
     def set_code(self, code: str):
         """Preenche o SKU sugerido.
@@ -433,3 +443,12 @@ class NovoProdutoPage(QWidget):
             SEM_MINIMO if to_min(minimum) is None else _para_inteiro(minimum)
         )
         self.product_status_toggle.setChecked(bool(active))
+        supplier_id = getattr(product, "supplier_id", None)
+        if supplier_id is not None:
+            index = self.supplier_input.findData(supplier_id)
+            if index < 0:
+                self.supplier_input.addItem(
+                    "Fornecedor inativo", supplier_id
+                )
+                index = self.supplier_input.findData(supplier_id)
+            self.supplier_input.setCurrentIndex(index)

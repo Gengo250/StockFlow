@@ -61,6 +61,7 @@ ACTION_BY_RPC = {
     "fn_update_products": "editar produtos",
     "fn_set_product_active": "ativar ou desativar produtos",
     "fn_set_min_stock": "configurar o estoque mínimo",
+    "fn_set_product_supplier": "associar fornecedor ao produto",
 }
 
 
@@ -95,7 +96,7 @@ class SupabaseProductRepository:
     def _products_query(self):
         return (
             self._client.table("products")
-            .select("id,barcode,name,sell_price,buy_price,unit,stock,item_category,active")
+            .select("id,barcode,name,sell_price,buy_price,unit,stock,item_category,supplier_id,active")
             .eq("company_id", self._company_id)
         )
 
@@ -257,6 +258,10 @@ class SupabaseProductRepository:
             "fn_create_products", product_input_to_create_args(data, self._company_id)
         )
         self._ids[data.code] = product_id
+        self._rpc(
+        "fn_set_product_supplier",
+        {"p_product_id": product_id, "p_supplier_id": data.supplier_id},
+        )
         self._aplicar_minimo(product_id, data)
         # `fn_create_products` não recebe `active`: a coluna nasce `true`.
         # Só vale uma chamada extra quando o formulário pediu inativo.
@@ -274,6 +279,10 @@ class SupabaseProductRepository:
             raise LookupError(f"Produto {code} não encontrado.")
 
         self._rpc("fn_update_products", product_input_to_update_args(data, product_id))
+        self._rpc(
+            "fn_set_product_supplier",
+            {"p_product_id": product_id, "p_supplier_id": data.supplier_id},
+        )
         self._aplicar_minimo(product_id, data)
         # Situação de cadastro tem função própria; ver a nota em
         # `product_input_to_update_args`.
@@ -381,6 +390,7 @@ class SupabaseProductRepository:
             stock=str(estoque),
             stock_status=derive_stock_status(estoque, minimo),
             minimum_stock=to_min(minimo),
+            supplier_id=getattr(data, "supplier_id", None),
         )
 
     def _aplicar_minimo(self, product_id, data) -> None:

@@ -26,7 +26,7 @@ from stockflow.domain.product_status import selectable_products
 from stockflow.presentation.styles import inventory
 
 COLUMNS = ("Produto", "Espécie", "Quantidade", "Situação", "Observação",
-           "Quando", "Ações")
+           "Quando", "Fornecedor", "Ações")
 ACTIONS_COLUMN = len(COLUMNS) - 1
 
 # Índices da tupla que o repositório devolve:
@@ -64,6 +64,7 @@ class MovimentacoesPage(QWidget):
         self.products = {} if products is None else products
         self.movimentacoes = ()
         self._pode_movimentar = True
+        self._suppliers = ()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 22, 22, 22)
@@ -127,6 +128,12 @@ class MovimentacoesPage(QWidget):
         self.especie_combo.setAccessibleName("Espécie da movimentação")
         for especie in MovementKind:
             self.especie_combo.addItem(especie.label, especie)
+        self.especie_combo.currentIndexChanged.connect(self._update_supplier_enabled)
+
+        self.fornecedor_combo = QComboBox()
+        self.fornecedor_combo.setFixedHeight(42)
+        self.fornecedor_combo.setAccessibleName("Fornecedor da entrada")
+        self.fornecedor_combo.addItem("Selecione um fornecedor...", None)
 
         self.quantidade_input = QSpinBox()
         self.quantidade_input.setRange(1, 999999)
@@ -154,6 +161,7 @@ class MovimentacoesPage(QWidget):
 
         linha.addWidget(self.produto_combo, 3)
         linha.addWidget(self.especie_combo, 1)
+        linha.addWidget(self.fornecedor_combo, 2)
         linha.addWidget(self.quantidade_input, 1)
         linha.addWidget(self.nota_input, 3)
         linha.addWidget(self.registrar_button, 1)
@@ -214,6 +222,24 @@ class MovimentacoesPage(QWidget):
             if indice >= 0:
                 self.produto_combo.setCurrentIndex(indice)
 
+    def set_suppliers(self, suppliers):
+        """Oferece somente fornecedores ativos para novas entradas."""
+        selected = self.fornecedor_combo.currentData()
+        self._suppliers = tuple(s for s in suppliers if s.active)
+        self.fornecedor_combo.clear()
+        self.fornecedor_combo.addItem("Selecione um fornecedor...", None)
+        for supplier in self._suppliers:
+            self.fornecedor_combo.addItem(supplier.name, supplier.supplier_id)
+        if selected is not None:
+            index = self.fornecedor_combo.findData(selected)
+            if index >= 0:
+                self.fornecedor_combo.setCurrentIndex(index)
+        self._update_supplier_enabled()
+
+    def _update_supplier_enabled(self, *_):
+        is_entry = self.especie_combo.currentData() == MovementKind.ENTRADA
+        self.fornecedor_combo.setEnabled(is_entry and self._pode_movimentar)
+
     def set_movements(self, movimentacoes):
         """Redesenha o histórico inteiro a partir das tuplas recebidas."""
         self.movimentacoes = tuple(movimentacoes)
@@ -234,6 +260,8 @@ class MovimentacoesPage(QWidget):
             self.table.setItem(row, 3, QTableWidgetItem(str(mov[MOV_STATUS])))
             self.table.setItem(row, 4, QTableWidgetItem(str(mov[MOV_NOTE] or "—")))
             self.table.setItem(row, 5, QTableWidgetItem(str(mov[MOV_WHEN])))
+            supplier_name = str(mov[8]) if len(mov) > 8 else "—"
+            self.table.setItem(row, 6, QTableWidgetItem(supplier_name))
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._acoes(mov))
 
         self.table.setVisible(True)
@@ -322,18 +350,26 @@ class MovimentacoesPage(QWidget):
             self.warning_label.setText("Selecione um produto ativo.")
             return
 
+        especie = self.especie_combo.currentData()
+        supplier_id = self.fornecedor_combo.currentData()
+        if especie == MovementKind.ENTRADA and not supplier_id:
+            self.warning_label.setText("Selecione um fornecedor ativo para a entrada.")
+            return
+
         self.warning_label.setText("")
         self.register_requested.emit(MovementInput(
             product_code=codigo,
-            kind=self.especie_combo.currentData(),
+            kind=especie,
             quantity=self.quantidade_input.value(),
             note=self.nota_input.text().strip(),
             confirm=confirmar,
+            supplier_id=supplier_id if especie == MovementKind.ENTRADA else None,
         ))
 
     def limpar_formulario(self):
         self.quantidade_input.setValue(1)
         self.nota_input.clear()
+        self.fornecedor_combo.setCurrentIndex(0)
         self.warning_label.setText("")
 
     def mostrar_recusa(self, mensagem):
@@ -352,8 +388,10 @@ class MovimentacoesPage(QWidget):
         self._pode_movimentar = bool(pode_movimentar)
         for widget in (self.produto_combo, self.especie_combo,
                        self.quantidade_input, self.nota_input,
+                       self.fornecedor_combo,
                        self.registrar_button, self.registrar_confirmar_button):
             widget.setEnabled(self._pode_movimentar)
         # Os botões da tabela nascem habilitados a cada redesenho; refazer as
         # linhas é o que reaplica a permissão neles.
         self.set_movements(self.movimentacoes)
+        self._update_supplier_enabled()

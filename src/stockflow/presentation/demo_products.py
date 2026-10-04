@@ -28,6 +28,7 @@ class Product:
     # produto construído sem mínimo não tem limiar e não alerta. Zero é outra
     # coisa — é o limiar "me avise quando acabar".
     minimum_stock: int | None = NOT_CONFIGURED
+    supplier_id: str | None = None
 
 
 # Catálogo de demonstração, montado para cobrir TODAS as faixas de

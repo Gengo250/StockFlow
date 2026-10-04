@@ -32,6 +32,10 @@ USER_MANAGEMENT_ROLES: frozenset[UserRole] = frozenset({UserRole.ADMIN})
 # Reaproveitar `PRODUCT_WRITE_ROLES` faria essa mudança vazar para o catálogo.
 MOVEMENT_ROLES: frozenset[UserRole] = frozenset({UserRole.ADMIN, UserRole.STOCK})
 
+SUPPLIER_MANAGEMENT_ROLES: frozenset[UserRole] = frozenset(
+    {UserRole.ADMIN, UserRole.STOCK}
+)
+
 
 def _papel_de(role_or_session) -> UserRole | None:
     """Normaliza a entrada das políticas em um `UserRole` ou `None`.
@@ -103,4 +107,17 @@ def ensure_can_move_stock(session, action: str = "movimentar o estoque") -> None
     altera saldo, e saldo é o número que decide reposição e venda.
     """
     if not can_move_stock(session):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
+
+
+def can_manage_suppliers(role_or_session) -> bool:
+    """Quem pode consultar e manter fornecedores: ADMIN e STOCK."""
+    return _papel_de(role_or_session) in SUPPLIER_MANAGEMENT_ROLES
+
+
+def ensure_can_manage_suppliers(
+    session, action: str = "gerenciar fornecedores"
+) -> None:
+    """Negação fechada para sessão ausente e papéis sem alçada."""
+    if not can_manage_suppliers(session):
         raise PermissionDeniedError(action, getattr(session, "role", None))

@@ -47,6 +47,8 @@ def lancar(window, code="PRD-009", especie=MovementKind.SAIDA, quantidade=5,
     page = window.movimentacoes_page
     page.produto_combo.setCurrentIndex(page.produto_combo.findData(code))
     page.especie_combo.setCurrentIndex(page.especie_combo.findData(especie))
+    if especie == MovementKind.ENTRADA:
+        page.fornecedor_combo.setCurrentIndex(1)
     page.quantidade_input.setValue(quantidade)
     botao = (page.registrar_confirmar_button if confirmar
              else page.registrar_button)

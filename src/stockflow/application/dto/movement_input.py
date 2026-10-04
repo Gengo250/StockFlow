@@ -19,6 +19,7 @@ class MovementInput:
     kind: MovementKind
     quantity: int
     note: str = ""
+    supplier_id: str | None = None
     # Registrar e confirmar são passos distintos; confirmar no mesmo ato é
     # atalho para quem está lançando algo que já aconteceu.
     confirm: bool = False

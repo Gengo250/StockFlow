@@ -40,8 +40,9 @@ ID_DIGITS = 3
 
 
 class DemoMovementRepository:
-    def __init__(self, products: dict, movements=None, agora=None):
+    def __init__(self, products: dict, movements=None, agora=None, suppliers=None):
         self._products = products
+        self._suppliers = suppliers
         # Lista, e não dict por id: a ordem de inserção É o histórico, e a
         # leitura só precisa invertê-la para entregar a mais recente primeiro.
         self._movements = list(movements or ())
@@ -63,15 +64,20 @@ class DemoMovementRepository:
         linhas = reversed(self._movements)
         if product_code:
             linhas = [m for m in linhas if m["product_code"] == product_code]
-        return tuple(
-            row_to_movement(
+        result = []
+        for linha in linhas:
+            movimento = row_to_movement(
                 linha,
                 product_code=linha["product_code"],
                 product_name=self._nome_do_produto(linha["product_code"]),
                 agora=self._agora,
             )
-            for linha in linhas
-        )
+            if linha.get("supplier_id"):
+                supplier = self._suppliers.get(linha["supplier_id"]) if self._suppliers else None
+                name = getattr(supplier, "name", "") or "Fornecedor indisponível"
+                movimento += (name,)
+            result.append(movimento)
+        return tuple(result)
 
     def _nome_do_produto(self, code: str) -> str:
         produto = self._products.get(code)
@@ -104,6 +110,7 @@ class DemoMovementRepository:
                 MovementStatus.CONFIRMADA if confirmada else MovementStatus.PENDENTE
             ).value,
             "note": data.note,
+            "supplier_id": getattr(data, "supplier_id", None),
             "created_on": agora,
             "confirmed_on": agora if confirmada else None,
         }

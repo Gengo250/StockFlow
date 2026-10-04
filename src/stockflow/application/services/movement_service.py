@@ -16,8 +16,9 @@ from stockflow.domain.permissions import ensure_can_move_stock
 
 
 class MovementService:
-    def __init__(self, repository: MovementRepository):
+    def __init__(self, repository: MovementRepository, supplier_repository=None):
         self._repository = repository
+        self._supplier_repository = supplier_repository
 
     def list_movements(self, session, product_code: str | None = None) -> tuple:
         ensure_can_move_stock(session, action="consultar movimentações")
@@ -40,6 +41,12 @@ class MovementService:
         # Normaliza a espécie aqui para que um valor desconhecido estoure
         # antes da ida à rede, com o nome do campo na mensagem.
         MovementKind.from_value(data.kind)
+        if data.supplier_id:
+            if self._supplier_repository is None:
+                raise ValueError("Não foi possível validar o fornecedor da entrada.")
+            supplier = self._supplier_repository.get(data.supplier_id)
+            if supplier is None or not supplier.active:
+                raise ValueError("Selecione um fornecedor ativo.")
 
         return self._repository.register(data)
 

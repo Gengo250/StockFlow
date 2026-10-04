@@ -234,6 +234,43 @@ def test_register_com_confirmacao_pede_a_confirmacao_na_propria_funcao():
     assert not any(n == "fn_confirm_movement" for n, _ in cliente.chamadas_rpc)
 
 
+def test_compra_chama_funcao_que_valida_fornecedor_e_associa_historico():
+    client = ClienteFalso(
+        movimentos_falsos(),
+        rpc_resultados={"fn_register_supplier_movement": MOV_ID},
+    )
+    data = entrada(supplier_id="supplier-1")
+    assert repositorio(client).register(data) == MOV_ID
+    assert client.chamadas_rpc[-1] == (
+        "fn_register_supplier_movement",
+        {
+            "p_company_id": COMPANY,
+            "p_product_id": PRODUTO_ID,
+            "p_kind": "ENTRADA",
+            "p_quantity": 12,
+            "p_note": "Compra NF 4821",
+            "p_confirm": False,
+            "p_supplier_id": "supplier-1",
+        },
+    )
+
+
+def test_leitura_mostra_fornecedor_da_entrada_historica():
+    tables = movimentos_falsos()
+    tables["stock_movements"][0]["supplier_id"] = "supplier-1"
+    tables["suppliers"] = [
+        {"id": "supplier-1", "company_id": COMPANY, "name": "Comercial Sul"}
+    ]
+    client = ClienteFalso(tables)
+
+    movement = repositorio(client).list_movements()[1]
+
+    assert movement[0] == MOV_ID
+    assert movement[8] == "Comercial Sul"
+    supplier_queries = [filters for table, filters in client.consultas if table == "suppliers"]
+    assert supplier_queries and supplier_queries[0]["company_id"] == COMPANY
+
+
 def test_nota_vazia_vira_null():
     """`''` faria um filtro por nota preenchida achar movimentação sem nota."""
     cliente = ClienteFalso(

@@ -7,8 +7,9 @@ from stockflow.domain.validators.product import validate_product
 
 
 class ProductService:
-    def __init__(self, repository: ProductRepository):
+    def __init__(self, repository: ProductRepository, supplier_repository=None):
         self._repository = repository
+        self._supplier_repository = supplier_repository
 
     def create_product(self, session, data: ProductInput) -> str:
         """Cadastra um produto. Levanta `ValueError` se o código já existir."""
@@ -24,6 +25,7 @@ class ProductService:
             category_is_active=self._repository.is_category_active,
             unit_is_active=self._repository.is_unit_active,
         )
+        self._validate_supplier(data)
         return self._repository.create(data)
 
     def update_product(self, session, code: str, data: ProductInput) -> str:
@@ -41,4 +43,17 @@ class ProductService:
             category_is_active=self._repository.is_category_active,
             unit_is_active=self._repository.is_unit_active,
         )
+        get_current = getattr(self._repository, "get", None)
+        current = get_current(code) if get_current is not None else None
+        self._validate_supplier(data, current)
         return self._repository.update(code, data)
+
+    def _validate_supplier(self, data, current=None):
+        if not data.supplier_id or self._supplier_repository is None:
+            return
+        supplier = self._supplier_repository.get(data.supplier_id)
+        if supplier is None or (
+            not supplier.active
+            and getattr(current, "supplier_id", None) != data.supplier_id
+        ):
+            raise ValueError("Selecione um fornecedor ativo para o produto.")
