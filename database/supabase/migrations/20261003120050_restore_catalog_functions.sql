@@ -1,3 +1,4 @@
+-- 2026-10-05: aceita também banco novo vazio; mantém guards sobre dados reais.
 -- Reconciliação do catálogo (categories/products) com o schema canônico.
 --
 -- ------------------------------------------------------------------ causa
@@ -106,12 +107,12 @@ BEGIN
                     'legítimo e não pode ser apagada às cegas.', v_company;
   END IF;
 
-  IF v_categories <> 1 THEN
+  IF v_categories NOT IN (0, 1) THEN
     RAISE EXCEPTION 'Abortado: public.categories tem % linha(s); esperado '
-                    'exatamente 1 (a sonda).', v_categories;
+                    '0 (banco novo) ou 1 (a sonda).', v_categories;
   END IF;
 
-  IF v_sonda <> 1 THEN
+  IF v_categories = 1 AND v_sonda <> 1 THEN
     RAISE EXCEPTION 'Abortado: a única linha de public.categories não é a '
                     'sonda esperada (name = ''__sonda__'' AND company_id IS NULL).';
   END IF;

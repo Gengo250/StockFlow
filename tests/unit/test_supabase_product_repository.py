@@ -68,7 +68,7 @@ class ConsultaFalsa:
     def limit(self, _n):
         return self
 
-    def order(self, _coluna):
+    def order(self, _coluna, **kwargs):
         return self
 
     def execute(self):
@@ -249,63 +249,58 @@ def test_categorias_vem_do_banco_e_unidades_do_enum():
 # ------------------------------------------------------------------ escrita
 
 
-def test_create_chama_a_funcao_com_os_tipos_do_banco():
-    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_create_products": PRODUTO_ID})
-    assert repositorio(cliente).create(dados()) == "PRD-010"
-
-    args = args_de(cliente, "fn_create_products")
+def test_create_chama_uma_transacao_com_tipos_e_metadados_do_banco():
+    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_save_product": PRODUTO_ID})
+    assert repositorio(cliente).create(dados(description="Descrição", ncm="12345678")) == "PRD-010"
+    assert len(cliente.chamadas_rpc) == 1
+    args = args_de(cliente, "fn_save_product")
     assert args["p_company_id"] == COMPANY
-    assert args["p_barcode"] == "PRD-010"
-    assert args["p_sell_price"] == "459.90"   # texto decimal, nunca float
-    assert args["p_buy_price"] == "280.00"
-    assert args["p_unit"] == "UN"             # enum, não o rótulo da tela
-    assert args["p_stock"] == 7               # inteiro, não "7"
-    assert args["p_item_category"] == "Periféricos"  # nome; a função resolve o id
+    assert args["p_product_id"] is None
+    data = args["p_data"]
+    assert data["code"] == "PRD-010"
+    assert data["sale_price"] == "459.90"
+    assert data["cost"] == "280.00"
+    assert data["unit"] == "UN"
+    assert data["stock"] == "7"
+    assert data["description"] == "Descrição"
+    assert data["ncm"] == "12345678"
 
 
-def test_create_grava_o_estoque_minimo_na_tabela_propria():
-    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_create_products": PRODUTO_ID})
+def test_create_inclui_minimo_na_mesma_transacao():
+    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_save_product": PRODUTO_ID})
     repositorio(cliente).create(dados(minimum_stock=3))
-
-    args = args_de(cliente, "fn_set_min_stock")
-    assert args == {"p_product_id": PRODUTO_ID, "p_min": 3}
+    assert args_de(cliente, "fn_save_product")["p_data"]["minimum_stock"] == 3
+    assert len(cliente.chamadas_rpc) == 1
 
 
 def test_create_ativo_nao_gasta_chamada_de_situacao():
-    """A coluna nasce `true`; chamar fn_set_product_active seria request à toa."""
-    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_create_products": PRODUTO_ID})
+    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_save_product": PRODUTO_ID})
     repositorio(cliente).create(dados(active=True))
-    assert not any(n == "fn_set_product_active" for n, _ in cliente.chamadas_rpc)
+    assert args_de(cliente, "fn_save_product")["p_data"]["active"] is True
+    assert len(cliente.chamadas_rpc) == 1
 
 
-def test_create_inativo_desativa_logo_apos_criar():
-    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_create_products": PRODUTO_ID})
+def test_create_inativo_e_atomico():
+    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_save_product": PRODUTO_ID})
     repositorio(cliente).create(dados(active=False))
-    assert args_de(cliente, "fn_set_product_active") == {
-        "p_product_id": PRODUTO_ID, "p_active": False
-    }
+    assert args_de(cliente, "fn_save_product")["p_data"]["active"] is False
+    assert len(cliente.chamadas_rpc) == 1
 
 
-def test_update_resolve_o_uuid_e_nao_manda_company_id():
-    """`fn_update_products` resolve a empresa pela linha do produto.
-
-    Mandar `p_company_id` daqui reabriria o buraco que a função fecha: editar
-    produto de outra empresa bastando informar uma onde o usuário é ADMIN.
-    """
+def test_update_resolve_uuid_e_informa_empresa_para_conferencia_servidor():
     cliente = ClienteFalso(catalogo_falso())
     repositorio(cliente).update("PRD-009", dados(code="PRD-009"))
-
-    args = args_de(cliente, "fn_update_products")
+    args = args_de(cliente, "fn_save_product")
     assert args["p_product_id"] == PRODUTO_ID
-    assert "p_company_id" not in args
+    assert args["p_company_id"] == COMPANY
+    assert len(cliente.chamadas_rpc) == 1
 
 
-def test_update_aplica_a_situacao_por_funcao_separada():
+def test_update_envia_status_no_formulario_atomico():
     cliente = ClienteFalso(catalogo_falso())
     repositorio(cliente).update("PRD-009", dados(code="PRD-009", active=False))
-
-    assert "p_active" not in args_de(cliente, "fn_update_products")
-    assert args_de(cliente, "fn_set_product_active")["p_active"] is False
+    assert args_de(cliente, "fn_save_product")["p_data"]["active"] is False
+    assert len(cliente.chamadas_rpc) == 1
 
 
 def test_update_de_codigo_inexistente_levanta_lookup():
@@ -334,20 +329,41 @@ def test_recusa_do_banco_vira_erro_de_dominio(erro):
     Deixar a exceção crua do cliente HTTP subir faria a tela mostrar um
     traceback onde deveria aparecer a mensagem de permissão da US01.
     """
-    cliente = ClienteFalso(catalogo_falso(), rpc_erros={"fn_create_products": erro})
+    cliente = ClienteFalso(catalogo_falso(), rpc_erros={"fn_save_product": erro})
     repo = repositorio(cliente, role=UserRole.SELLER)
 
     with pytest.raises(PermissionDeniedError) as capturado:
         repo.create(dados())
 
-    assert "cadastrar produtos" in str(capturado.value)
+    assert "salvar produtos" in str(capturado.value)
     assert "SELLER" in str(capturado.value)
 
 
 def test_erro_que_nao_e_de_permissao_sobe_como_veio():
     """Categoria inexistente não é falta de permissão, e não pode virar uma."""
     erro = ErroDoPostgrest("Item category doesnt exist", code="23503")
-    cliente = ClienteFalso(catalogo_falso(), rpc_erros={"fn_create_products": erro})
+    cliente = ClienteFalso(catalogo_falso(), rpc_erros={"fn_save_product": erro})
 
     with pytest.raises(ErroDoPostgrest):
         repositorio(cliente).create(dados())
+
+
+def test_create_category_chama_a_funcao_da_empresa():
+    cliente = ClienteFalso(catalogo_falso())
+    repositorio(cliente).create_category("Periféricos")
+
+    assert ("fn_create_categories",
+            {"p_company_id": COMPANY, "p_name": "Periféricos"}) in cliente.chamadas_rpc
+
+
+def test_create_category_traduz_recusa_do_banco():
+    """Recusa de papel tem que chegar como erro de domínio, não como HTTP cru."""
+    from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+
+    cliente = ClienteFalso(catalogo_falso(), rpc_erros={
+        "fn_create_categories": ErroDoPostgrest(
+            "Sem permissão para cadastrar categorias nesta empresa", code="42501"),
+    })
+
+    with pytest.raises(PermissionDeniedError):
+        repositorio(cliente).create_category("Periféricos")

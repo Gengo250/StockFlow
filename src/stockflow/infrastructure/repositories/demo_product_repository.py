@@ -115,6 +115,9 @@ class DemoProductRepository:
     def list_active_categories(self) -> tuple[str, ...]:
         return tuple(sorted(self._active_categories))
 
+    def create_category(self, name: str) -> None:
+        self._active_categories.add(name)
+
     def list_active_units(self) -> tuple[str, ...]:
         return tuple(unit for unit in PRODUCT_UNITS if unit in self._active_units)
     def get(self, code: str):
@@ -199,4 +202,11 @@ class DemoProductRepository:
             stock_status=derive_stock_status(stock, minimo),
             minimum_stock=to_min(minimo),
             supplier_id=getattr(data, "supplier_id", None),
+            description=getattr(data, "description", ""),
+            ncm=getattr(data, "ncm", ""),
+            ean=getattr(data, "ean", ""),
+            location=getattr(data, "location", ""),
+            low_stock_alert=getattr(data, "low_stock_alert", True),
+            image_data=getattr(data, "image_data", ""),
+
         )

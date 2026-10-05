@@ -24,9 +24,10 @@ class UsersPage(QWidget):
     uma operação administrativa a quem o banco recusaria.
     """
 
-    def __init__(self, users=None):
+    def __init__(self, users=None, on_save=None):
         """Tela sobre as linhas recebidas; sem elas, cai na demonstração."""
         super().__init__()
+        self.on_save = on_save
         self.users = tuple(linhas_de_usuarios() if users is None else users)
         self.setObjectName("usersPage")
         self.setStyleSheet(USERS_QSS)
@@ -151,7 +152,7 @@ class UsersPage(QWidget):
         """
         if not self._pode_gerenciar:
             return None
-        dialog = UserForm(user, self, pode_gerenciar=True)
+        dialog = UserForm(user, self, pode_gerenciar=True, on_save=self.on_save)
         dialog.setStyleSheet(USERS_QSS)
         dialog.exec()
         return dialog

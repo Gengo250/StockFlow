@@ -61,6 +61,7 @@ BEGIN
         -- depende de `auth.users`, schema gerido pelo Supabase: o contrato
         -- desta coluna não deve mudar junto com a plataforma.
         COALESCE(
+            NULLIF(btrim(cd.display_name), ''),
             NULLIF(btrim(au.raw_user_meta_data->>'name'), ''),
             NULLIF(btrim(au.raw_user_meta_data->>'full_name'), ''),
             ua.name

@@ -25,12 +25,17 @@ from stockflow.infrastructure.repositories.demo_product_repository import (
 )
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
+from stockflow.application.services.sale_service import SaleService
+from stockflow.infrastructure.repositories.demo_client_repository import DemoClientRepository
+from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
+from stockflow.domain.permissions import can_manage_clients
+
 
 
 class VendasPage(QWidget):
     """Página provisória para simulação de vendas e associação de clientes."""
 
-    def __init__(self, products=None, product_selection=None, parent=None):
+    def __init__(self, products=None, product_selection=None, parent=None, service=None, session=None):
         """Monta a tela sobre o catálogo compartilhado `code -> Product`.
 
         Sem argumento cai numa CÓPIA de `DEMO_PRODUCTS`, para a página
@@ -99,14 +104,14 @@ class VendasPage(QWidget):
         #
         # VND-1001 aponta para PRD-004, que nem está mais no catálogo: é o
         # caso que prova que a consulta do histórico não depende do cadastro.
-        self.historico_vendas = [
-            {"id": "VND-1001", "cliente": "Patrícia Lima",
-             "produto_codigo": "PRD-004", "produto": "Cabo HDMI 2m",
-             "valor": "R$ 450,00", "data": "10/08/2026"},
-            {"id": "VND-1002", "cliente": "Ana Ferreira",
-             "produto_codigo": "PRD-007", "produto": "Mouse ergonômico",
-             "valor": "R$ 1.290,00", "data": "28/09/2026"},
-        ]
+        self.session = session
+        self.service = service or SaleService(
+            DemoSaleRepository(), DemoClientRepository(), DemoProductRepository(self.products)
+        )
+        self.clientes = [{"id": c.client_id, "nome": c.name, "status": c.status}
+                         for c in self.service.clients.list_all()]
+        self.historico_vendas = self.service.list_sales()
+
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 22, 22, 22)
@@ -151,7 +156,7 @@ class VendasPage(QWidget):
         self.val_input.setPlaceholderText("Valor (R$)")
         self.val_input.setFixedHeight(42)
 
-        btn_salvar = QPushButton(" Finalizar Venda")
+        self.save_button = btn_salvar = QPushButton(" Finalizar Venda")
         btn_salvar.setObjectName("primaryButton")
         btn_salvar.setFixedHeight(42)
         btn_salvar.setIcon(qta.icon("fa5s.check", color="white"))
@@ -189,16 +194,47 @@ class VendasPage(QWidget):
         layout.addWidget(table_card, 1)
 
         self.atualizar_tabela_historico()
+        self.apply_session(session)
+
+    def apply_session(self, session):
+        self.session = session
+        self.save_button.setEnabled(can_manage_clients(session))
+
+    def reload_sales(self):
+        self.historico_vendas = self.service.list_sales()
+        self.atualizar_tabela_historico()
 
     def recarregar_clientes_disponiveis(self):
-        """Preenche o combo apenas com clientes ativos para novas associações."""
+        """Preenche o combo apenas com clientes ativos para novas associações.
+
+        A escolha atual é reapontada depois da recarga, pelo mesmo motivo do
+        combo de produtos: a lista é refeita toda vez que a tela de Clientes
+        sincroniza — inclusive durante a navegação para cá — e perder a
+        seleção no caminho fazia o cliente associado pela tela de Usuários
+        chegar aqui com o combo no placeholder. Se o cliente escolhido tiver
+        sido inativado, ele simplesmente não volta.
+        """
+        escolhido = self.cliente_combo.currentData()
+
         self.cliente_combo.clear()
         self.cliente_combo.addItem("Selecione um cliente...", None)
-        
+
         for cli in self.clientes:
             # Clientes inativos não aparecem na seleção de nova venda
             if cli["status"] == "Ativo":
                 self.cliente_combo.addItem(f"{cli['nome']} ({cli['id']})", cli)
+
+        if escolhido:
+            self._apontar_cliente(escolhido["id"])
+
+    def _apontar_cliente(self, client_id):
+        """Põe o combo no cliente pedido, se ele estiver na oferta."""
+        for i in range(self.cliente_combo.count()):
+            data = self.cliente_combo.itemData(i)
+            if data and data.get("id") == client_id:
+                self.cliente_combo.setCurrentIndex(i)
+                return True
+        return False
 
     def recarregar_produtos_disponiveis(self):
         """Preenche o combo apenas com produtos ativos para novas vendas.
@@ -347,16 +383,13 @@ class VendasPage(QWidget):
             self.warning_label.setText("Informe o valor da venda.")
             return
 
-        # Persiste o vínculo gravando nome do cliente e código/nome do
-        # produto: a venda registrada passa a não depender mais do cadastro.
-        nova_venda = {
-            "id": f"VND-100{len(self.historico_vendas) + 1}",
-            "cliente": data["nome"],
-            "produto_codigo": produto.code,
-            "produto": produto.name,
-            "valor": f"R$ {valor}",
-            "data": "Hoje",
-        }
+        try:
+            nova_venda = self.service.register(
+                self.session, data["id"], produto.code, valor
+            )
+        except Exception as erro:
+            self.warning_label.setText(str(erro))
+            return
         self.historico_vendas.insert(0, nova_venda)
         self.val_input.clear()
         self.cliente_combo.setCurrentIndex(0)

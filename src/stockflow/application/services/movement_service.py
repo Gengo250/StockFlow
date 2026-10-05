@@ -16,9 +16,10 @@ from stockflow.domain.permissions import ensure_can_move_stock
 
 
 class MovementService:
-    def __init__(self, repository: MovementRepository, supplier_repository=None):
+    def __init__(self, repository: MovementRepository, supplier_repository=None, product_repository=None):
         self._repository = repository
         self._supplier_repository = supplier_repository
+        self._product_repository = product_repository
 
     def list_movements(self, session, product_code: str | None = None) -> tuple:
         ensure_can_move_stock(session, action="consultar movimentações")
@@ -30,6 +31,11 @@ class MovementService:
 
         if not (data.product_code or "").strip():
             raise ValueError("Selecione o produto da movimentação.")
+
+        if self._product_repository is not None:
+            product = self._product_repository.get(data.product_code)
+            if product is None or not product.active:
+                raise ValueError("Selecione um produto ativo.")
 
         # Quantidade positiva é regra de domínio, não só CHECK do banco: sem
         # ela, a tela mandaria zero e receberia de volta uma mensagem do

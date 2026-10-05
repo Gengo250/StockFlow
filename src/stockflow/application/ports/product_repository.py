@@ -21,6 +21,15 @@ class ProductRepository(Protocol):
 
     def list_active_categories(self) -> tuple[str, ...]: ...
 
+    def create_category(self, name: str) -> None:
+        """Cadastra uma categoria na empresa da sessão.
+
+        Está na porta porque sem ela uma empresa nova é um beco sem saída:
+        o cadastro de produto exige categoria, e a única origem do combo era
+        a leitura das categorias já existentes.
+        """
+        ...
+
     def list_active_units(self) -> tuple[str, ...]: ...
     def get(self, code: str):
         """Produto gravado sob o código, ou `None` se não houver.

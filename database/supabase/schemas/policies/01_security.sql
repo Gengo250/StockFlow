@@ -156,7 +156,7 @@ DECLARE
     'fn_set_client_active', 'fn_register_sale',
     'fn_list_company_suppliers', 'fn_create_supplier', 'fn_update_supplier',
     'fn_set_supplier_active', 'fn_set_product_supplier',
-    'fn_register_supplier_movement'
+    'fn_register_supplier_movement', 'fn_save_product', 'fn_save_company_member'
   ];
   v_name    text;
   v_sig     regprocedure;

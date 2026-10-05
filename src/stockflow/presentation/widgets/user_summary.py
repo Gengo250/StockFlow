@@ -15,10 +15,6 @@ ROLE_STYLE = {
     "Administrador": ("fa5s.shield-alt", "#8129FF"),
     "Estoque": ("fa5s.boxes", "#00A77A"),
     "Vendedor": ("fa5s.shopping-cart", "#195BFF"),
-    # Perfis que só existem na base de demonstração.
-    "Gerente": ("fa5s.user-tie", "#195BFF"),
-    "Operador": ("fa5s.boxes", "#00A77A"),
-    "Financeiro": ("fa5s.wallet", "#FF9500"),
 }
 DEFAULT_STYLE = ("fa5s.user", "#60799E")
 
@@ -26,9 +22,6 @@ PLURALS = {
     "Administrador": "Administradores",
     "Estoque": "Estoque",
     "Vendedor": "Vendedores",
-    "Gerente": "Gerentes",
-    "Operador": "Operadores",
-    "Financeiro": "Financeiro",
 }
 
 
@@ -36,9 +29,9 @@ class UserSummary(QWidget):
     def __init__(self, users=None, parent=None):
         """Um cartão por perfil PRESENTE nas linhas recebidas.
 
-        Os perfis saem dos próprios dados, não de uma lista fixa: o banco tem
-        três papéis e a demonstração tem outros quatro, e um conjunto fixo
-        mostraria cartão zerado para perfil que não existe naquela empresa.
+        Os perfis saem dos próprios dados, não de uma lista fixa: uma empresa
+        pode não ter ninguém num dos papéis, e um conjunto fixo mostraria
+        cartão zerado para perfil que não existe ali.
         """
         super().__init__(parent)
         self._layout = QGridLayout(self)

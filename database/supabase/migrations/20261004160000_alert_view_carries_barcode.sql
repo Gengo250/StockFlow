@@ -21,11 +21,11 @@ WITH (security_invoker = true) AS
 SELECT
     p.company_id,
     p.id                                            AS product_id,
-    p.barcode                                       AS product_code,
     p.name                                          AS product_name,
     p.stock                                         AS current_balance,
     ps.min_quantity                                 AS min_quantity,
-    public.fn_stock_state(p.stock, ps.min_quantity) AS state
+    public.fn_stock_state(p.stock, ps.min_quantity) AS state,
+    p.barcode AS product_code
 FROM public.products p
 LEFT JOIN public.product_stock ps ON ps.product_id = p.id
 WHERE p.active;
@@ -38,11 +38,11 @@ WITH (security_invoker = true) AS
 SELECT
     s.company_id,
     s.product_id,
-    s.product_code,
     s.product_name,
     s.current_balance,
     s.min_quantity,
-    s.state
+    s.state,
+    s.product_code
 FROM public.vw_stock_situation s
 WHERE s.min_quantity IS NOT NULL
   AND s.current_balance <= s.min_quantity;

@@ -36,15 +36,20 @@ DemoPerson = namedtuple(
 )
 
 
+# O campo `role` usa os RÓTULOS dos papéis reais do banco
+# (`public.user_role`, traduzidos em presentation/roles.py). A demonstração
+# tinha perfis próprios — "Gerente", "Operador", "Financeiro" — que nenhum
+# cadastro conseguiria gravar: o formulário só oferece os papéis do enum, e
+# editar uma dessas pessoas caía num perfil que não era o dela.
 DEMO_PEOPLE = (
     DemoPerson("CLI-001", "USR-001", "Ana Ferreira", "ana.ferreira@stockflow.com.br", "TI", "Administrador", "Ativo", "Hoje, 09:14", "#8129FF"),
-    DemoPerson("CLI-002", "USR-002", "Carlos Mendes", "c.mendes@stockflow.com.br", "Estoque", "Gerente", "Ativo", "Hoje, 08:47", "#195BFF"),
-    DemoPerson("CLI-004", "USR-004", "Juliana Ramos", "j.ramos@stockflow.com.br", "Vendas", "Operador", "Ativo", "Ontem, 17:30", "#00A77A"),
-    DemoPerson("CLI-005", "USR-005", "Roberto Souza", "r.souza@stockflow.com.br", "Estoque", "Operador", "Ativo", "Ontem, 16:05", "#E98600"),
-    DemoPerson("CLI-003", "USR-003", "Patrícia Lima", "p.lima@stockflow.com.br", "Financeiro", "Financeiro", "Inativo", "12/08/2026", "#E21885"),
-    DemoPerson("CLI-006", "USR-006", "Diego Alves", "d.alves@stockflow.com.br", "Vendas", "Gerente", "Ativo", "28/09/2026, 07:52", "#009BB9"),
-    DemoPerson("CLI-007", "USR-007", "Mariana Costa", "m.costa@stockflow.com.br", "Compras", "Operador", "Pendente", "Nunca", "#6045F5"),
-    DemoPerson("CLI-008", "USR-008", "Felipe Torres", "f.torres@stockflow.com.br", "Financeiro", "Financeiro", "Ativo", "27/09/2026, 18:11", "#EF6500"),
+    DemoPerson("CLI-002", "USR-002", "Carlos Mendes", "c.mendes@stockflow.com.br", "Estoque", "Estoque", "Ativo", "Hoje, 08:47", "#195BFF"),
+    DemoPerson("CLI-004", "USR-004", "Juliana Ramos", "j.ramos@stockflow.com.br", "Vendas", "Vendedor", "Ativo", "Ontem, 17:30", "#00A77A"),
+    DemoPerson("CLI-005", "USR-005", "Roberto Souza", "r.souza@stockflow.com.br", "Estoque", "Estoque", "Ativo", "Ontem, 16:05", "#E98600"),
+    DemoPerson("CLI-003", "USR-003", "Patrícia Lima", "p.lima@stockflow.com.br", "Financeiro", "Administrador", "Inativo", "12/08/2026", "#E21885"),
+    DemoPerson("CLI-006", "USR-006", "Diego Alves", "d.alves@stockflow.com.br", "Vendas", "Vendedor", "Ativo", "28/09/2026, 07:52", "#009BB9"),
+    DemoPerson("CLI-007", "USR-007", "Mariana Costa", "m.costa@stockflow.com.br", "Compras", "Estoque", "Pendente", "Nunca", "#6045F5"),
+    DemoPerson("CLI-008", "USR-008", "Felipe Torres", "f.torres@stockflow.com.br", "Financeiro", "Vendedor", "Ativo", "27/09/2026, 18:11", "#EF6500"),
 )
 
 

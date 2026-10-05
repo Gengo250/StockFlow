@@ -12,11 +12,11 @@ WITH (security_invoker = true) AS
 SELECT
     s.company_id,
     s.product_id,
-    s.product_code,
     s.product_name,
     s.current_balance,
     s.min_quantity,
-    s.state
+    s.state,
+    s.product_code
 FROM public.vw_stock_situation s
 WHERE s.min_quantity IS NOT NULL
   AND s.current_balance <= s.min_quantity;

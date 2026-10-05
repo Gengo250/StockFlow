@@ -35,4 +35,6 @@ def estoque_page(qapp):
 def vendas_page(qapp):
     from stockflow.presentation.pages.vendas import VendasPage
 
-    return VendasPage()
+    from stockflow.domain.enums.user_role import UserRole
+    from stockflow.presentation.demo_accounts import conta_por_papel
+    return VendasPage(session=conta_por_papel(UserRole.SELLER).session())
