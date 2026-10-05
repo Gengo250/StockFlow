@@ -4,6 +4,7 @@ import traceback
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from stockflow.presentation.windows.main_window import MainWindow
+from stockflow.presentation import backend
 from stockflow.presentation.windows.login_window import LoginWindow
 
 
@@ -20,10 +21,8 @@ class LoginFlow:
         # O sinal `authenticated` sempre entrega uma sessão; chamar sem ela
         # agora é um TypeError, e não um acesso concedido em silêncio.
         if self.main is not None:
-            # Relogar com outra conta precisa reaplicar a sessão na janela que
-            # já existe. Antes ela era só reexibida: o SELLER entrava e herdava
-            # a tela montada para o ADMIN, com o botão de salvar ainda ativo.
-            self.main.apply_session(session)
+            self.main.close()
+            self.main = None
         if self.main is None:
             try:
                 self.main = MainWindow(session)
@@ -49,9 +48,16 @@ class LoginFlow:
         self.login.hide()
 
     def logout(self):
+        # Drop the complete tenant context, even if revoking the remote session fails.
+        if self.main is not None:
+            self.main.close()
+            self.main = None
         self.login.reset()
+        try:
+            backend.sign_out()
+        except Exception:
+            self.login.error.setText("Sessão local encerrada. Não foi possível confirmar a saída no servidor.")
         self.login.show()
-        self.main.hide()
 
 
 def run():

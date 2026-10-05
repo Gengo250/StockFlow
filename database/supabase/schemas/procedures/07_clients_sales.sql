@@ -171,7 +171,7 @@ BEGIN
         RAISE EXCEPTION 'Sem permissão para registrar vendas nesta empresa'
             USING ERRCODE = 'insufficient_privilege';
     END IF;
-    IF p_total IS NULL OR p_total < 0 THEN
+    IF p_total IS NULL OR p_total < 0 OR p_total::text IN ('NaN', 'Infinity', '-Infinity') THEN
         RAISE EXCEPTION 'Valor da venda inválido' USING ERRCODE = 'check_violation';
     END IF;
 

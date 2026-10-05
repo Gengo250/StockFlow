@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from stockflow.application.dto.client_input import ClientInput
 from stockflow.application.services.client_service import ClientService
 from stockflow.domain.entities.client import Client
+from stockflow.domain.permissions import can_manage_clients
 from stockflow.infrastructure.repositories.demo_client_repository import DemoClientRepository
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.styles.clients import CLIENTS_QSS
@@ -33,14 +34,21 @@ from stockflow.presentation.widgets.client_inputs import (
 
 
 class ClientesPage(QWidget):
-    def __init__(self, sales_page=None, clients=None, parent=None):
+    def __init__(self, sales_page=None, clients=None, parent=None, repository=None, session=None):
         super().__init__(parent)
         self.sales_page = sales_page
         self.setObjectName("clientsPage")
         self.setStyleSheet(CLIENTS_QSS)
-        self.repository = DemoClientRepository(clients)
-        self.service = ClientService(self.repository)
+        self.repository = repository if repository is not None else DemoClientRepository(clients)
+        self.service = ClientService(self.repository, session)
+        self.session = session
         self._build_ui()
+        self.apply_session(session)
+
+    def apply_session(self, session):
+        self.session = session
+        self.service.session = session
+        self.new_client_button.setEnabled(can_manage_clients(session))
         self.reload_table()
 
     def _build_ui(self):
@@ -143,6 +151,8 @@ class ClientesPage(QWidget):
             toggle_button.setObjectName("clientActionButton")
             toggle_button.setMinimumSize(100, 34)
             toggle_button.clicked.connect(lambda checked=False, client=cliente: self.toggle_status(client))
+            edit_button.setEnabled(can_manage_clients(self.session))
+            toggle_button.setEnabled(can_manage_clients(self.session))
             actions_layout.addWidget(edit_button)
             actions_layout.addWidget(toggle_button)
             self.table.setCellWidget(row, 5, actions)
@@ -151,10 +161,15 @@ class ClientesPage(QWidget):
 
     def _sync_sales_page(self):
         if self.sales_page is not None:
-            self.sales_page.clientes = base_de_clientes()
+            self.sales_page.clientes = [
+                {"id": c.client_id, "nome": c.name, "status": c.status}
+                for c in self.service.list_clients()
+            ]
             self.sales_page.recarregar_clientes_disponiveis()
 
     def open_form(self, client: Client | None = None):
+        if not can_manage_clients(self.session):
+            return
         dialog = QDialog(self)
         dialog.setWindowTitle("Cliente" if client is None else "Editar cliente")
         dialog.setObjectName("clientForm")
@@ -216,14 +231,14 @@ class ClientesPage(QWidget):
                 else:
                     self.service.update_client(client.client_id, payload)
                 self.reload_table()
-            except ValueError as error:
+            except Exception as error:
                 self._show_error(str(error))
 
     def toggle_status(self, client: Client):
         try:
             self.service.set_active(client.client_id, not client.active)
             self.reload_table()
-        except (ValueError, LookupError) as error:
+        except Exception as error:
             self._show_error(str(error))
 
     def _filter_table(self, text: str):

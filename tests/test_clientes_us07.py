@@ -1,4 +1,7 @@
 import pytest
+from stockflow.domain.enums.user_role import UserRole
+from stockflow.presentation.demo_accounts import conta_por_papel
+
 
 from stockflow.application.dto.client_input import ClientInput
 from stockflow.application.services.client_service import ClientService
@@ -7,7 +10,7 @@ from stockflow.infrastructure.repositories.demo_client_repository import DemoCli
 
 @pytest.fixture
 def service():
-    return ClientService(DemoClientRepository())
+    return ClientService(DemoClientRepository(), conta_por_papel(UserRole.ADMIN).session())
 
 
 def test_criacao_e_inativacao_de_cliente(service):

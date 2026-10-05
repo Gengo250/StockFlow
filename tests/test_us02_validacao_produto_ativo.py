@@ -42,7 +42,7 @@ def catalogo():
 
 @pytest.fixture
 def vendas(qapp, catalogo):
-    return VendasPage(products=catalogo)
+    return VendasPage(products=catalogo, session=conta_por_papel(UserRole.SELLER).session())
 
 
 def desativar(catalogo, code):

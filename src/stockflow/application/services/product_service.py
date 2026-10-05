@@ -48,6 +48,32 @@ class ProductService:
         self._validate_supplier(data, current)
         return self._repository.update(code, data)
 
+    def list_categories(self) -> tuple[str, ...]:
+        return tuple(self._repository.list_active_categories())
+
+    def create_category(self, session, name: str) -> str:
+        """Cadastra uma categoria. Espelha `fn_create_categories`.
+
+        A recusa de nome repetido acontece aqui para a tela poder explicar o
+        motivo: o banco responde a mesma violação como `unique_violation`,
+        que chegaria à interface como erro de persistência. A comparação
+        ignora caixa e espaços porque `UNIQUE (company_id, name)` só pegaria
+        a repetição literal, e duas categorias "Eletrônicos"/"eletronicos  "
+        na mesma empresa são a mesma categoria para quem usa o combo.
+        """
+        ensure_can_manage_products(session, action="cadastrar categorias")
+
+        nome = (name or "").strip()
+        if not nome:
+            raise ValueError("Informe o nome da categoria.")
+
+        existentes = {c.casefold(): c for c in self._repository.list_active_categories()}
+        if nome.casefold() in existentes:
+            raise ValueError(f"A categoria {existentes[nome.casefold()]} já existe.")
+
+        self._repository.create_category(nome)
+        return nome
+
     def _validate_supplier(self, data, current=None):
         if not data.supplier_id or self._supplier_repository is None:
             return

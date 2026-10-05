@@ -120,6 +120,11 @@ def row_to_product(row, category_name=None, minimum_stock=None) -> Product:
         stock_status=derive_stock_status(estoque, minimo),
         minimum_stock=minimo,
         supplier_id=row.get("supplier_id"),
+        description=row.get("description") or "", ncm=row.get("ncm") or "",
+        ean=row.get("ean") or "", location=row.get("location") or "",
+        low_stock_alert=bool(row.get("low_stock_alert", True)),
+        image_data=row.get("image_data") or "",
+
     )
 
 

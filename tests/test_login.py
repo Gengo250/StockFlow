@@ -48,7 +48,7 @@ class LoginTest(unittest.TestCase):
             self.assertEqual(settings.value("login/email"), DEMO_EMAIL)
             flow.main.sidebar.logout_button.click()
             self.assertTrue(login.isVisible())
-            self.assertFalse(flow.main.isVisible())
+            self.assertIsNone(flow.main)  # O contexto anterior é descartado no logout.
             self.assertEqual(login.password_input.echoMode(), QLineEdit.Password)
             fresh = LoginWindow(settings)
             self.addCleanup(fresh.close)

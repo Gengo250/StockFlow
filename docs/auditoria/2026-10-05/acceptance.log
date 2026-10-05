@@ -1,0 +1,160 @@
+FFFFFFFFFFFFFFF..FFF                                                     [100%]
+=================================== FAILURES ===================================
+________________ test_remote_clients_use_persistent_repository _________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:80: in test_remote_clients_use_persistent_repository
+    assert not isinstance(w.clientes_page.repository, DemoClientRepository), 'Modo Supabase usa DemoClientRepository'
+E   AssertionError: Modo Supabase usa DemoClientRepository
+E   assert not True
+E    +  where True = isinstance(<stockflow.infrastructure.repositories.demo_client_repository.DemoClientRepository object at 0x7fbac01ebb90>, DemoClientRepository)
+E    +    where <stockflow.infrastructure.repositories.demo_client_repository.DemoClientRepository object at 0x7fbac01ebb90> = <stockflow.presentation.pages.clientes.ClientesPage(0x3fc46680, name="clientsPage") at 0x7fbabff2eac0>.repository
+E    +      where <stockflow.presentation.pages.clientes.ClientesPage(0x3fc46680, name="clientsPage") at 0x7fbabff2eac0> = <stockflow.presentation.windows.main_window.MainWindow(0x3e658240) at 0x7fbac045e9c0>.clientes_page
+_________________________ test_remote_sale_reaches_rpc _________________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:88: in test_remote_sale_reaches_rpc
+    assert any(name == 'fn_register_sale' for name, _ in client.chamadas_rpc), 'Venda só altera historico_vendas em memória'
+E   AssertionError: Venda só altera historico_vendas em memória
+E   assert False
+E    +  where False = any(<generator object test_remote_sale_reaches_rpc.<locals>.<genexpr> at 0x7fbabfc57440>)
+_________________ test_new_client_becomes_selectable_in_sales __________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:110: in test_new_client_becomes_selectable_in_sales
+    assert any((combo.itemData(i) or {}).get('nome') == 'Cliente Auditoria Novo' for i in range(combo.count())), 'Vendas recarrega DEMO_PEOPLE, não os clientes cadastrados'
+E   AssertionError: Vendas recarrega DEMO_PEOPLE, não os clientes cadastrados
+E   assert False
+E    +  where False = any(<generator object test_new_client_becomes_selectable_in_sales.<locals>.<genexpr> at 0x7fbac0487060>)
+----------------------------- Captured stderr call -----------------------------
+This plugin does not support propagateSizeHints()
+____________________ test_sale_rejects_invalid_amount[abc] _____________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:119: in test_sale_rejects_invalid_amount
+    assert len(page.historico_vendas) == before, f'Valor inválido aceito: {value}'
+E   AssertionError: Valor inválido aceito: abc
+E   assert 3 == 2
+E    +  where 3 = len([{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}])
+E    +    where [{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}] = <stockflow.presentation.pages.vendas.VendasPage(0x42ae4730, name="vendasPage") at 0x7fbabfb088c0>.historico_vendas
+___________________ test_sale_rejects_invalid_amount[-10,00] ___________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:119: in test_sale_rejects_invalid_amount
+    assert len(page.historico_vendas) == before, f'Valor inválido aceito: {value}'
+E   AssertionError: Valor inválido aceito: -10,00
+E   assert 3 == 2
+E    +  where 3 = len([{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}])
+E    +    where [{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}] = <stockflow.presentation.pages.vendas.VendasPage(0x43b07de0, name="vendasPage") at 0x7fbabfba7b00>.historico_vendas
+____________________ test_sale_rejects_invalid_amount[NaN] _____________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:119: in test_sale_rejects_invalid_amount
+    assert len(page.historico_vendas) == before, f'Valor inválido aceito: {value}'
+E   AssertionError: Valor inválido aceito: NaN
+E   assert 3 == 2
+E    +  where 3 = len([{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}])
+E    +    where [{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}] = <stockflow.presentation.pages.vendas.VendasPage(0x44b13380, name="vendasPage") at 0x7fbabfa7d280>.historico_vendas
+______________________ test_sale_rechecks_inactive_client ______________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:129: in test_sale_rechecks_inactive_client
+    assert len(page.historico_vendas) == before, 'Combo antigo vende para cliente já inativado'
+E   AssertionError: Combo antigo vende para cliente já inativado
+E   assert 3 == 2
+E    +  where 3 = len([{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}])
+E    +    where [{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}] = <stockflow.presentation.pages.vendas.VendasPage(0x45b1a640, name="vendasPage") at 0x7fbabf9741c0>.historico_vendas
+_____________________ test_stock_role_cannot_register_sale _____________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:138: in test_stock_role_cannot_register_sale
+    assert len(w.vendas_page.historico_vendas) == before, 'SQL permite ADMIN/SELLER; UI aceita STOCK'
+E   AssertionError: SQL permite ADMIN/SELLER; UI aceita STOCK
+E   assert 3 == 2
+E    +  where 3 = len([{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}])
+E    +    where [{'id': 'VND-1003', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-009', 'produto': 'Monitor LG UltraWide 34"', ......, ...}, {'id': 'VND-1002', 'cliente': 'Ana Ferreira', 'produto_codigo': 'PRD-007', 'produto': 'Mouse ergonômico', ...}] = <stockflow.presentation.pages.vendas.VendasPage(0x46b18480, name="vendasPage") at 0x7fbac0f80880>.historico_vendas
+E    +      where <stockflow.presentation.pages.vendas.VendasPage(0x46b18480, name="vendasPage") at 0x7fbac0f80880> = <stockflow.presentation.windows.main_window.MainWindow(0x45b53e10) at 0x7fbabfc34b00>.vendas_page
+_____________________ test_stock_role_cannot_create_client _____________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:146: in test_stock_role_cannot_create_client
+    assert not w.clientes_page.new_client_button.isEnabled(), 'SQL permite ADMIN/SELLER; UI libera cadastro a STOCK'
+E   AssertionError: SQL permite ADMIN/SELLER; UI libera cadastro a STOCK
+E   assert not True
+E    +  where True = <built-in method isEnabled of PySide6.QtWidgets.QPushButton object at 0x7fbabfa3ef00>()
+E    +    where <built-in method isEnabled of PySide6.QtWidgets.QPushButton object at 0x7fbabfa3ef00> = <PySide6.QtWidgets.QPushButton(0x43681370, name="primaryButton") at 0x7fbabfa3ef00>.isEnabled
+E    +      where <PySide6.QtWidgets.QPushButton(0x43681370, name="primaryButton") at 0x7fbabfa3ef00> = <stockflow.presentation.pages.clientes.ClientesPage(0x47c06fc0, name="clientsPage") at 0x7fbabf84ea40>.new_client_button
+E    +        where <stockflow.presentation.pages.clientes.ClientesPage(0x47c06fc0, name="clientsPage") at 0x7fbabf84ea40> = <stockflow.presentation.windows.main_window.MainWindow(0x47185920) at 0x7fbabfae3b80>.clientes_page
+______________________ test_admin_user_form_has_save_path ______________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:155: in test_admin_user_form_has_save_path
+    assert save.isEnabled(), 'Cadastro/edição de usuários não tem caminho de gravação'
+E   AssertionError: Cadastro/edição de usuários não tem caminho de gravação
+E   assert False
+E    +  where False = <built-in method isEnabled of PySide6.QtWidgets.QPushButton object at 0x7fbabf8afbc0>()
+E    +    where <built-in method isEnabled of PySide6.QtWidgets.QPushButton object at 0x7fbabf8afbc0> = <PySide6.QtWidgets.QPushButton(0x482388d0, name="primaryButton") at 0x7fbabf8afbc0>.isEnabled
+__________________ test_relogin_rebuilds_company_repositories __________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:169: in test_relogin_rebuilds_company_repositories
+    assert flow.main.product_repository._company_id == company_b, 'Sessão muda, repositório continua na empresa anterior'
+E   AssertionError: Sessão muda, repositório continua na empresa anterior
+E   assert '11111111-111...-111111111111' == 'bbbbbbbb-bbb...-bbbbbbbbbbbb'
+E     
+E     - bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
+E     + 11111111-1111-1111-1111-111111111111
+----------------------------- Captured stderr call -----------------------------
+This plugin does not support propagateSizeHints()
+__________________ test_product_save_handles_connection_error __________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:180: in test_product_save_handles_connection_error
+    window._save_new_product()
+src/stockflow/presentation/windows/main_window.py:715: in _save_new_product
+    code = self.product_service.create_product(self.session, data)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/tmp/stockflow-audit-20261005/test_acceptance.py:178: in fail
+    raise RuntimeError('Falha de conexão simulada')
+E   RuntimeError: Falha de conexão simulada
+__________________ test_demo_rejects_negative_stock_like_sql ___________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:193: in test_demo_rejects_negative_stock_like_sql
+    assert int(window.products[code].stock) == before, 'Demo aceita saldo -1; products CHECK (stock >= 0) recusa no banco'
+E   AssertionError: Demo aceita saldo -1; products CHECK (stock >= 0) recusa no banco
+E   assert -1 == 18
+E    +  where -1 = int('-1')
+E    +    where '-1' = Product(code='PRD-009', name='Monitor LG UltraWide 34"', category='Eletrônicos', unit='Unidade (UN)', sale_price='R$ 2.499,90', cost='R$ 1.850,00', active=True, stock='-1', stock_status='Crítico', minimum_stock=10, supplier_id=None).stock
+___________________ test_movement_rechecks_inactive_product ____________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:207: in test_movement_rechecks_inactive_product
+    assert len(window.movement_repository.list_movements()) == before, 'Movimentação aceita produto desativado após montar o combo'
+E   AssertionError: Movimentação aceita produto desativado após montar o combo
+E   assert 1 == 0
+E    +  where 1 = len((('MOV-001', 'PRD-009', 'Monitor LG UltraWide 34"', 'Saída', 1, 'Pendente', ...),))
+E    +    where (('MOV-001', 'PRD-009', 'Monitor LG UltraWide 34"', 'Saída', 1, 'Pendente', ...),) = list_movements()
+E    +      where list_movements = <stockflow.infrastructure.repositories.demo_movement_repository.DemoMovementRepository object at 0x7fbac016e1b0>.list_movements
+E    +        where <stockflow.infrastructure.repositories.demo_movement_repository.DemoMovementRepository object at 0x7fbac016e1b0> = <stockflow.presentation.windows.main_window.MainWindow(0x4b3bfbd0) at 0x7fbabf5579c0>.movement_repository
+_________________ test_optional_product_fields_survive_reopen __________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:222: in test_optional_product_fields_survive_reopen
+    assert window.editar_produto_page.basic_info_card.description_input.toPlainText() == 'Descrição persistente de auditoria', 'Descrição não faz parte do DTO/modelo/banco'
+E   AssertionError: Descrição não faz parte do DTO/modelo/banco
+E   assert '' == 'Descrição pe... de auditoria'
+E     
+E     - Descrição persistente de auditoria
+______________________ test_logout_ends_supabase_session _______________________
+/tmp/stockflow-audit-20261005/test_acceptance.py:253: in test_logout_ends_supabase_session
+    client.auth.sign_out.assert_called_once()
+/home/gengo/.local/share/uv/python/cpython-3.12.13-linux-x86_64-gnu/lib/python3.12/unittest/mock.py:928: in assert_called_once
+    raise AssertionError(msg)
+E   AssertionError: Expected 'mock' to have been called once. Called 0 times.
+___ test_view_migration_preserves_existing_column_prefix[vw_stock_situation] ___
+/tmp/stockflow-audit-20261005/test_acceptance.py:278: in test_view_migration_preserves_existing_column_prefix
+    assert new[:len(old)] == old, f'{view}: coluna nova desloca/renomeia colunas existentes em CREATE OR REPLACE VIEW'
+E   AssertionError: vw_stock_situation: coluna nova desloca/renomeia colunas existentes em CREATE OR REPLACE VIEW
+E   assert ['company_id'...min_quantity'] == ['company_id'...ity', 'state']
+E     
+E     At index 2 diff: 'product_code' != 'product_name'
+E     Use -v to get more diff
+____ test_view_migration_preserves_existing_column_prefix[vw_stock_alerts] _____
+/tmp/stockflow-audit-20261005/test_acceptance.py:278: in test_view_migration_preserves_existing_column_prefix
+    assert new[:len(old)] == old, f'{view}: coluna nova desloca/renomeia colunas existentes em CREATE OR REPLACE VIEW'
+E   AssertionError: vw_stock_alerts: coluna nova desloca/renomeia colunas existentes em CREATE OR REPLACE VIEW
+E   assert ['company_id'...min_quantity'] == ['company_id'...ity', 'state']
+E     
+E     At index 2 diff: 'product_code' != 'product_name'
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_remote_clients_use_persistent_repository
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_remote_sale_reaches_rpc
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_new_client_becomes_selectable_in_sales
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_sale_rejects_invalid_amount[abc]
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_sale_rejects_invalid_amount[-10,00]
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_sale_rejects_invalid_amount[NaN]
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_sale_rechecks_inactive_client
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_stock_role_cannot_register_sale
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_stock_role_cannot_create_client
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_admin_user_form_has_save_path
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_relogin_rebuilds_company_repositories
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_product_save_handles_connection_error
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_demo_rejects_negative_stock_like_sql
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_movement_rechecks_inactive_product
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_optional_product_fields_survive_reopen
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_logout_ends_supabase_session
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_view_migration_preserves_existing_column_prefix[vw_stock_situation]
+FAILED ../../../../../../../tmp/stockflow-audit-20261005/test_acceptance.py::test_view_migration_preserves_existing_column_prefix[vw_stock_alerts]
+18 failed, 2 passed in 6.45s

@@ -38,6 +38,7 @@ CREATE TABLE public.company_users (
     -- ser "Estoque" numa empresa e "Compras" em outra. Nullable porque a tela
     -- de Usuários precisa mostrar quem ainda não foi classificado.
     department       text,
+    display_name     text,
     created_on       timestamptz NOT NULL DEFAULT now(),
     updated_on       timestamptz NOT NULL DEFAULT now(),
     UNIQUE (company_id, user_account_id)

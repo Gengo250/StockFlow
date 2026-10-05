@@ -124,7 +124,7 @@ DECLARE
 BEGIN
   SELECT company_id, stock INTO v_company, v_atual
     FROM public.products
-   WHERE id = p_product_id;
+   WHERE id = p_product_id FOR UPDATE;
 
   IF v_company IS NULL
      OR NOT public.fn_has_role(v_company, ARRAY['ADMIN','STOCK']::public.user_role[]) THEN

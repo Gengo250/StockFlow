@@ -146,7 +146,8 @@ class NovoProdutoPage(QWidget):
     def _expose_form_fields(self):
         groups = (
             (self.basic_info_card, (
-                "name_input", "code_input", "category_input", "description_input", "description_counter",
+                "name_input", "code_input", "category_input", "new_category_button",
+                "description_input", "description_counter",
             )),
             (self.price_tax_card, (
                 "cost_price_input", "sale_price_input", "unit_input", "ncm_input", "ean_input",
@@ -237,12 +238,7 @@ class NovoProdutoPage(QWidget):
             }
             QPushButton:hover { background-color: #F8FAFC; }
         """)
-        # ATENÇÃO: "Salvar rascunho" ainda não tem handler — nenhum clique
-        # grava coisa alguma hoje. `apply_permission` já o desabilita junto
-        # com o botão de salvar para que ele não prometa uma ação que o papel
-        # não tem. Quem for conectar um handler PRECISA passar pelo
-        # `ProductService`: ligar o botão direto ao repositório devolveria ao
-        # vendedor exatamente a escrita que a US01 fecha.
+        # Rascunho local isolado por conta e empresa.
         self.draft_button = self._action_button("Salvar rascunho", """
             QPushButton {
                 background-color: transparent;
@@ -295,6 +291,9 @@ class NovoProdutoPage(QWidget):
         """
         self.save_button.setEnabled(pode_escrever)
         self.draft_button.setEnabled(pode_escrever)
+        # Mesma regra de `fn_create_categories`: quem não grava produto
+        # também não cadastra categoria.
+        self.new_category_button.setEnabled(pode_escrever)
         self.permission_warning.setVisible(not pode_escrever)
 
     def collect_input(self) -> ProductInput:
@@ -310,6 +309,12 @@ class NovoProdutoPage(QWidget):
             active=self.product_status_toggle.isChecked(),
             minimum_stock=self._minimo_do_formulario(),
             supplier_id=self.supplier_input.currentData(),
+            description=self.description_input.toPlainText().strip(),
+            ncm=self.ncm_input.text().strip(), ean=self.ean_input.text().strip(),
+            location=self.location_input.text().strip(),
+            low_stock_alert=self.low_stock_alert.isChecked(),
+            image_data=self.image_card.image_data,
+
         )
 
     def _minimo_do_formulario(self):
@@ -329,6 +334,7 @@ class NovoProdutoPage(QWidget):
         limpeza, o que sobrou de uma tentativa anterior — inclusive de uma que
         falhou — reaparece na próxima e é gravado como dado do produto novo.
         """
+        self.image_card.set_image_data("")
         self.code_input.clear()
         self.name_input.clear()
         self.category_input.setCurrentIndex(0)
@@ -374,6 +380,19 @@ class NovoProdutoPage(QWidget):
         chamada, o cadastro vai ao serviço com o código de outro produto.
         """
         self.code_input.setText(code)
+
+    def reload_categories(self, categories, selected=None):
+        """Repovoa só o combo de categoria e aponta a escolha.
+
+        Separado de `set_catalog_options` porque cadastrar uma categoria no
+        meio do formulário não pode limpar unidade, fornecedor nem o resto
+        do que já foi preenchido. Sem `selected`, mantém a escolha atual.
+        """
+        escolhida = selected if selected is not None else self.category_input.currentText()
+        self.category_input.clear()
+        self.category_input.addItem("Selecione uma categoria")
+        self.category_input.addItems(categories)
+        self._selecionar(self.category_input, escolhida)
 
     @staticmethod
     def _selecionar(combo, texto):
@@ -428,6 +447,13 @@ class NovoProdutoPage(QWidget):
             active = product.active
             minimum = getattr(product, "minimum_stock", None)
 
+        self.description_input.setPlainText(getattr(product, "description", ""))
+        self.ncm_input.setText(getattr(product, "ncm", ""))
+        self.ean_input.setText(getattr(product, "ean", ""))
+        self.location_input.setText(getattr(product, "location", ""))
+        self.low_stock_alert.setChecked(getattr(product, "low_stock_alert", True))
+        self.image_card.set_image_data(getattr(product, "image_data", ""))
+        self.supplier_input.setCurrentIndex(0)
         self.code_input.setText(code)
         self.name_input.setText(name)
         self._selecionar(self.category_input, category)

@@ -98,6 +98,8 @@ class DemoMovementRepository:
         if data.product_code not in self._products:
             raise LookupError(f"Produto {data.product_code} não encontrado.")
 
+        if not self._products[data.product_code].active:
+            raise ValueError("Selecione um produto ativo.")
         especie = MovementKind.from_value(data.kind)
         confirmada = bool(data.confirm)
         agora = self._agora or datetime.now()
@@ -114,17 +116,19 @@ class DemoMovementRepository:
             "created_on": agora,
             "confirmed_on": agora if confirmada else None,
         }
-        self._movements.append(linha)
         # Só a confirmada mexe no saldo. Aplicar aqui para a pendente faria o
         # modo demonstração contradizer o `fn_confirmed_balance` do banco, que
         # soma exclusivamente `status = 'CONFIRMADA'`.
         if confirmada:
             self._aplicar_no_saldo(linha, sentido=1)
+        self._movements.append(linha)
         return linha["id"]
 
     def confirm(self, movement_id: str) -> None:
         """Confirma uma pendente. É esta transição que altera o saldo."""
         linha = self._linha(movement_id)
+        if not self._products[linha["product_code"]].active:
+            raise ValueError("Produto inativo não pode ser movimentado.")
         if linha["status"] != MovementStatus.PENDENTE.value:
             # Mesma recusa de `fn_confirm_movement`: confirmar duas vezes
             # aplicaria a diferença duas vezes, e o saldo deixaria de ser a
@@ -133,9 +137,9 @@ class DemoMovementRepository:
                 "Só movimentação pendente pode ser confirmada "
                 f"(situação atual: {linha['status']})."
             )
+        self._aplicar_no_saldo(linha, sentido=1)
         linha["status"] = MovementStatus.CONFIRMADA.value
         linha["confirmed_on"] = self._agora or datetime.now()
-        self._aplicar_no_saldo(linha, sentido=1)
 
     def cancel(self, movement_id: str) -> None:
         """Cancela. Cancelar uma CONFIRMADA devolve o saldo.
@@ -163,10 +167,8 @@ class DemoMovementRepository:
         `fn_confirmed_balance` — reescrever "entrada soma, saída subtrai" aqui
         criaria a segunda cópia que esse `.sinal` existe para evitar.
 
-        O saldo NÃO é limitado a zero: o banco também não limita, e um
-        negativo é a forma honesta de mostrar que foram confirmadas saídas
-        além do que havia. Travar em zero esconderia o erro de lançamento
-        exatamente de quem precisa vê-lo.
+        Saldo negativo é recusado antes de modificar catálogo ou histórico,
+        espelhando a constraint products.stock >= 0 do PostgreSQL.
         """
         produto = self._products.get(linha["product_code"])
         if produto is None:
@@ -174,6 +176,8 @@ class DemoMovementRepository:
 
         especie = MovementKind.from_value(linha["kind"])
         novo = to_int(produto.stock) + sentido * especie.sinal * to_int(linha["quantity"])
+        if novo < 0:
+            raise ValueError("Saldo insuficiente para esta movimentação.")
         # `Product` é frozen: `replace` em vez de atribuição. E a situação é
         # RECALCULADA por `derive_stock_status`, nunca copiada — é a mesma
         # regra de `fn_stock_state`, e um saldo novo com o status velho faria

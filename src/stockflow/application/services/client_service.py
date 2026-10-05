@@ -3,12 +3,14 @@
 from stockflow.application.dto.client_input import ClientInput
 from stockflow.application.ports.client_repository import ClientRepository
 from stockflow.domain.entities.client import Client
+from stockflow.domain.permissions import ensure_can_manage_clients
 from stockflow.domain.validators.client import normalize_document, validate_client
 
 
 class ClientService:
-    def __init__(self, repository: ClientRepository):
+    def __init__(self, repository: ClientRepository, session=None):
         self._repository = repository
+        self.session = session
 
     def list_clients(self):
         return self._repository.list_all()
@@ -17,6 +19,7 @@ class ClientService:
         return self._repository.search(query)
 
     def create_client(self, data: ClientInput) -> Client:
+        ensure_can_manage_clients(self.session)
         validate_client(data)
         duplicate = self._duplicate_document(data.document)
         if duplicate is not None:
@@ -44,6 +47,7 @@ class ClientService:
         )
 
     def update_client(self, client_id: str, data: ClientInput) -> Client:
+        ensure_can_manage_clients(self.session)
         if not self._repository.exists(client_id):
             raise LookupError(f"Cliente {client_id} não encontrado.")
         validate_client(data)
@@ -67,6 +71,7 @@ class ClientService:
         return self._repository.update(client_id, payload)
 
     def set_active(self, client_id: str, active: bool) -> Client:
+        ensure_can_manage_clients(self.session)
         if not self._repository.exists(client_id):
             raise LookupError(f"Cliente {client_id} não encontrado.")
         self._repository.set_active(client_id, bool(active))

@@ -21,11 +21,14 @@ from stockflow.domain.permissions import (
 )
 from stockflow.presentation.backend import (
     build_catalog,
+    build_client_repository,
+    build_sale_repository,
     build_demo_user_directory,
     build_movement_repository,
     build_supplier_repository,
     build_user_directory,
     set_user_active as set_directory_user_active,
+    save_user,
     using_supabase,
 )
 from stockflow.presentation.workers import executar_em_segundo_plano
@@ -33,7 +36,7 @@ from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
 from stockflow.presentation.pages.clientes import ClientesPage
-from stockflow.presentation.pages.coming_soon import ComingSoonPage
+from stockflow.presentation.pages.overview import DashboardPage, ReportsPage, SettingsPage, preference_prefix
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
@@ -134,9 +137,6 @@ class MainWindow(QMainWindow):
 
         pages.setStyleSheet(theme.PAGES_QSS)
 
-        dashboard_page = QWidget()
-
-        dashboard_page.setStyleSheet(theme.DASHBOARD_PAGE_QSS)
 
         # O catálogo nasce antes das páginas: Estoque e Produtos recebem o
         # MESMO dict em que o repositório grava, e é essa identidade que faz
@@ -171,9 +171,13 @@ class MainWindow(QMainWindow):
         # que faz um produto desativado no Estoque deixar de ser oferecido
         # numa venda nova (US02). Uma cópia aqui ofereceria para sempre o
         # catálogo como ele estava quando a janela abriu.
-        self.vendas_page = VendasPage(self.products)
-        self.clientes_page = ClientesPage(sales_page=self.vendas_page)
-        self.users_page = UsersPage()
+        from stockflow.application.services.sale_service import SaleService
+        self.client_repository = build_client_repository(self.session)
+        self.sale_repository = build_sale_repository(self.session, self.products)
+        self.sale_service = SaleService(self.sale_repository, self.client_repository, self.product_repository)
+        self.vendas_page = VendasPage(self.products, service=self.sale_service, session=self.session)
+        self.clientes_page = ClientesPage(sales_page=self.vendas_page, repository=self.client_repository, session=self.session)
+        self.users_page = UsersPage(users=() if using_supabase() else None, on_save=self._save_user)
 
         # Movimentações recebe o MESMO catálogo: a oferta de produtos tem que
         # acompanhar desativações feitas no Estoque, pela mesma razão da tela
@@ -182,7 +186,7 @@ class MainWindow(QMainWindow):
             self.session, self.products, self.supplier_repository
         )
         self.movement_service = MovementService(
-            self.movement_repository, self.supplier_repository
+            self.movement_repository, self.supplier_repository, self.product_repository
         )
         self.movimentacoes_page = MovimentacoesPage(self.products)
         self.movimentacoes_page.set_suppliers(
@@ -190,18 +194,21 @@ class MainWindow(QMainWindow):
             if can_manage_suppliers(self.session) else ()
         )
 
+        self.dashboard_page = DashboardPage(self.product_repository, self.sale_repository, self.client_repository)
+        self.reports_page = ReportsPage(self.product_repository, self.sale_repository)
+        self.settings_page = SettingsPage(self.session)
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
-            "dashboard": dashboard_page,
+            "dashboard": self.dashboard_page,
             "estoque": self.estoque_page,
             "movimentacoes": self.movimentacoes_page,
             "fornecedores": self.suppliers_page,
             "clientes": self.clientes_page,
             "vendas": self.vendas_page,
             "produtos": self.products_page,
-            "relatorios": ComingSoonPage("Relatórios"),
+            "relatorios": self.reports_page,
             "usuarios": self.users_page,
-            "configuracoes": ComingSoonPage("Configurações"),
+            "configuracoes": self.settings_page,
         }
 
         for page in self.page_widgets.values():
@@ -221,6 +228,13 @@ class MainWindow(QMainWindow):
     def _connect(self):
 
         self.sidebar.page_requested.connect(self.show_page)
+        self.top_bar.search_input.returnPressed.connect(self._quick_search)
+        self.top_bar.notifications_button.clicked.connect(self._show_notifications)
+        self.novo_produto_page.draft_button.clicked.connect(self._save_product_draft)
+        for pagina in (self.novo_produto_page, self.editar_produto_page):
+            pagina.new_category_button.clicked.connect(
+                lambda checked=False, p=pagina: self._cadastrar_categoria(p)
+            )
         self.products_page.product_requested.connect(self._show_product_details)
         self.product_details_page.back_button.clicked.connect(
             lambda: self.show_page("produtos")
@@ -264,7 +278,7 @@ class MainWindow(QMainWindow):
 
         self.apply_session(self.session)
 
-        self.show_page(DEFAULT_KEY)
+        self.show_page(self.settings_page.start_page.currentData() or DEFAULT_KEY)
 
     # Telas que exigem permissão para serem ABERTAS, não só para gravar.
     # Usuários entra aqui porque `fn_list_company_users` recusa o não-admin:
@@ -307,6 +321,17 @@ class MainWindow(QMainWindow):
 
         self.last_navigation_error = None
 
+        if key == "dashboard":
+            self.dashboard_page.refresh()
+        if key == "relatorios":
+            self.reports_page.refresh()
+        if key in {"clientes", "vendas"}:
+            try:
+                self.clientes_page.reload_table()
+                if key == "vendas":
+                    self.vendas_page.reload_sales()
+            except Exception as error:
+                QMessageBox.warning(self, "Não foi possível atualizar", str(error))
         if key == "usuarios":
             self._carregar_usuarios_do_banco()
         if key == "fornecedores":
@@ -413,6 +438,7 @@ class MainWindow(QMainWindow):
         self._publicar_alertas()
         self.products_page.reload_products()
         self.vendas_page.reload_products()
+        self.movimentacoes_page.reload_products()
 
     def _reconsultar_estoque(self):
         """Reconsulta o catálogo ao ABRIR a tela de Estoque.
@@ -489,6 +515,7 @@ class MainWindow(QMainWindow):
 
         self.products_page.reload_products(catalogo)
         self.vendas_page.reload_products(catalogo)
+        self.movimentacoes_page.reload_products(catalogo)
 
     def _publicar_alertas(self):
         """Entrega à tela o resultado da consulta de alerta.
@@ -543,6 +570,11 @@ class MainWindow(QMainWindow):
             self.users_page.load_users(linhas)
         self._usuarios_carregados = True
 
+    def _save_user(self, **data):
+        save_user(self.session, **data)
+        rows = build_user_directory(self.session) if using_supabase() else build_demo_user_directory()
+        self.users_page.load_users(rows, from_database=using_supabase())
+
     def _on_user_status_changed(self, user_id, active):
         """Grava o status e repovoa a mesma tela com a origem atual."""
         try:
@@ -594,6 +626,15 @@ class MainWindow(QMainWindow):
             self.product_repository.list_active_units(),
             self._active_suppliers(),
         )
+        settings = self.settings_page.settings
+        draft = settings.value(self.settings_page.prefix + "/product_draft", "")
+        if draft:
+            import json
+            from types import SimpleNamespace
+            try:
+                self.novo_produto_page.load_product(SimpleNamespace(**json.loads(draft)))
+            except (ValueError, TypeError, AttributeError):
+                pass
         self.novo_produto_page.set_code(self.product_repository.next_code())
 
         self.pages.setCurrentWidget(self.novo_produto_page)
@@ -660,6 +701,8 @@ class MainWindow(QMainWindow):
 
         # `can_manage_products` já nega sessão ausente, então não há caminho
         # em que a janela sem login apareça com os controles liberados.
+        self.clientes_page.apply_session(self.session)
+        self.vendas_page.apply_session(self.session)
         pode_escrever = can_manage_products(self.session)
 
         self.novo_produto_page.apply_permission(pode_escrever)
@@ -716,11 +759,12 @@ class MainWindow(QMainWindow):
         except PermissionDeniedError as erro:
             self._report_save_error("Cadastro não permitido", erro)
             return
-        except ValueError as erro:
+        except Exception as erro:
             self._report_save_error("Não foi possível cadastrar", erro)
             return
 
         self.last_save_error = None
+        self.settings_page.settings.remove(self.settings_page.prefix + "/product_draft")
         self._refresh_product_views(code)
         self.show_page(self._new_product_origin)
 
@@ -775,7 +819,7 @@ class MainWindow(QMainWindow):
         except LookupError as erro:
             self._report_save_error("Não foi possível salvar", erro)
             return
-        except ValueError as erro:
+        except Exception as erro:
             self._report_save_error("Não foi possível salvar", erro)
             return
 
@@ -813,6 +857,7 @@ class MainWindow(QMainWindow):
         self.products_page.reload_products()
         self.estoque_page.reload_products()
         self.vendas_page.reload_products()
+        self.movimentacoes_page.reload_products()
 
         produto = self.products.get(code)
         if produto is not None and self.pages.currentWidget() is self.product_details_page:
@@ -865,6 +910,7 @@ class MainWindow(QMainWindow):
         self._publicar_alertas()
         self.products_page.reload_products()
         self.vendas_page.reload_products()
+        self.movimentacoes_page.reload_products()
 
         produto = self.products.get(code)
         if produto is not None and self.pages.currentWidget() is self.product_details_page:
@@ -878,11 +924,77 @@ class MainWindow(QMainWindow):
         vai para o combo, para seleção manual. Descartar o retorno fazia a
         navegação parecer bem-sucedida com o combo no placeholder.
         """
-        associado = self.vendas_page.selecionar_cliente_externo(nome_cliente)
-
+        # Navegar ANTES de escolher: entrar em "vendas" ressincroniza a lista
+        # de clientes, e a recarga é justamente o que descartava a escolha —
+        # e o aviso — feitos antes da troca de tela.
         self.show_page("vendas")
+
+        associado = self.vendas_page.selecionar_cliente_externo(nome_cliente)
 
         if not associado:
             self.vendas_page.cliente_combo.setFocus()
 
         return associado
+
+    def _cadastrar_categoria(self, page):
+        """Cadastra uma categoria sem sair do formulário de produto.
+
+        A empresa recém-criada não tem nenhuma, e o cadastro de produto
+        exige categoria: sem esta porta, o primeiro produto era impossível
+        de registrar pela tela.
+
+        A categoria nova já fica selecionada — quem a cadastrou estava
+        preenchendo um produto e ia escolhê-la em seguida de qualquer jeito.
+        """
+        from PySide6.QtWidgets import QInputDialog
+
+        nome, confirmou = QInputDialog.getText(
+            self, "Nova categoria", "Nome da categoria:"
+        )
+        if not confirmou:
+            return None
+
+        try:
+            criada = self.product_service.create_category(self.session, nome)
+        except PermissionDeniedError as erro:
+            QMessageBox.critical(self, "Acesso restrito", str(erro))
+            return None
+        except Exception as erro:
+            QMessageBox.warning(self, "Não foi possível cadastrar", str(erro))
+            return None
+
+        # Reconsultar em vez de acrescentar à lista da tela: se outra pessoa
+        # cadastrou uma categoria nesta empresa, ela aparece aqui também.
+        page.reload_categories(
+            self.product_repository.list_active_categories(), selected=criada
+        )
+        return criada
+
+    def _save_product_draft(self):
+        import dataclasses
+        import json
+        from stockflow.domain.permissions import ensure_can_manage_products
+        try:
+            ensure_can_manage_products(self.session)
+            payload = dataclasses.asdict(self.novo_produto_page.collect_input())
+            self.settings_page.settings.setValue(self.settings_page.prefix + "/product_draft", json.dumps(payload))
+            self.settings_page.settings.sync()
+            QMessageBox.information(self, "Rascunho salvo", "Rascunho salvo neste dispositivo. Será restaurado no próximo cadastro desta conta.")
+        except Exception as error:
+            self._report_save_error("Não foi possível salvar o rascunho", error)
+
+    def _quick_search(self):
+        self.show_page("estoque")
+        self.estoque_page.search_input.setText(self.top_bar.search_input.text())
+
+    def _show_notifications(self):
+        if not self.settings_page.notifications.isChecked():
+            QMessageBox.information(self, "Alertas", "Os alertas estão desativados nas configurações deste dispositivo.")
+            return
+        try:
+            rows = self.product_repository.list_alerts()
+            lines = [f"{code}: saldo {stock}, mínimo {minimum}" for code, stock, minimum, _ in rows
+                     if code in self.products and self.products[code].low_stock_alert]
+            QMessageBox.information(self, "Alertas de estoque", "\n".join(lines) if lines else "Nenhum alerta de estoque no momento.")
+        except Exception as error:
+            QMessageBox.warning(self, "Não foi possível consultar alertas", str(error))

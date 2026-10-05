@@ -182,6 +182,14 @@ class LoginWindow(QWidget):
         self.toggle_password.setIcon(qta.icon("fa5.eye-slash" if visible else "fa5.eye", color="#8ca1c2"))
 
     def _show_access_help(self):
+        from stockflow.presentation.backend import using_supabase
+        if using_supabase():
+            from stockflow.presentation.widgets.password_recovery import PasswordRecoveryDialog
+            try:
+                PasswordRecoveryDialog(self.email_input.text(), self).exec()
+            except Exception:
+                self.error.setText("Não foi possível abrir a recuperação. Confira a conexão.")
+            return
         contas = "\n\n".join(
             f"{rotulo_de_papel(conta.role)} — {conta.name}\n"
             f"E-mail: {conta.email}\nSenha: {conta.password}"
@@ -193,7 +201,7 @@ class LoginWindow(QWidget):
             f"{contas}\n\nCada conta entra com um papel diferente: só "
             "Administrador e Estoque podem cadastrar ou editar produtos.\n"
             "Esta versão usa contas locais de demonstração.\n"
-            "Recuperação por e-mail ainda não está disponível.",
+            "No modo Supabase, este botão recupera a senha por e-mail.",
         )
 
     def _submit(self):

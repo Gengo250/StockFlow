@@ -1,0 +1,92 @@
+[
+  {
+    "object": "products",
+    "kind": "table/view",
+    "result": "erro de contrato",
+    "code": "42703"
+  },
+  {
+    "object": "categories",
+    "kind": "table/view",
+    "result": "bloqueado para anonimo",
+    "code": "42501"
+  },
+  {
+    "object": "product_stock",
+    "kind": "table/view",
+    "result": "bloqueado para anonimo",
+    "code": "42501"
+  },
+  {
+    "object": "company",
+    "kind": "table/view",
+    "result": "bloqueado para anonimo",
+    "code": "42501"
+  },
+  {
+    "object": "stock_movements",
+    "kind": "table/view",
+    "result": "erro de contrato",
+    "code": "42703"
+  },
+  {
+    "object": "clients",
+    "kind": "table/view",
+    "result": "ausente no schema cache",
+    "code": "PGRST205"
+  },
+  {
+    "object": "sales",
+    "kind": "table/view",
+    "result": "ausente no schema cache",
+    "code": "PGRST205"
+  },
+  {
+    "object": "suppliers",
+    "kind": "table/view",
+    "result": "ausente no schema cache",
+    "code": "PGRST205"
+  },
+  {
+    "object": "vw_stock_alerts",
+    "kind": "table/view",
+    "result": "erro de contrato",
+    "code": "42703"
+  },
+  {
+    "object": "vw_stock_situation",
+    "kind": "table/view",
+    "result": "bloqueado para anonimo",
+    "code": "42501"
+  },
+  {
+    "object": "fn_current_user_id",
+    "kind": "read_rpc",
+    "result": "bloqueado para anonimo",
+    "code": "42501"
+  },
+  {
+    "object": "fn_my_companies",
+    "kind": "read_rpc",
+    "result": "bloqueado para anonimo",
+    "code": "42501"
+  },
+  {
+    "object": "fn_list_company_users",
+    "kind": "read_rpc",
+    "result": "bloqueado para anonimo",
+    "code": "42501"
+  },
+  {
+    "object": "fn_list_company_clients",
+    "kind": "read_rpc",
+    "result": "ausente no schema cache",
+    "code": "PGRST202"
+  },
+  {
+    "object": "fn_list_company_suppliers",
+    "kind": "read_rpc",
+    "result": "ausente no schema cache",
+    "code": "PGRST202"
+  }
+]

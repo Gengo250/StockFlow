@@ -121,3 +121,19 @@ def ensure_can_manage_suppliers(
     """Negação fechada para sessão ausente e papéis sem alçada."""
     if not can_manage_suppliers(session):
         raise PermissionDeniedError(action, getattr(session, "role", None))
+
+
+CLIENT_WRITE_ROLES = frozenset({UserRole.ADMIN, UserRole.SELLER})
+
+
+def can_manage_clients(role_or_session) -> bool:
+    return _papel_de(role_or_session) in CLIENT_WRITE_ROLES
+
+
+def ensure_can_manage_clients(session, action="gerenciar clientes") -> None:
+    if not can_manage_clients(session):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
+
+
+def ensure_can_register_sales(session) -> None:
+    ensure_can_manage_clients(session, action="registrar vendas")

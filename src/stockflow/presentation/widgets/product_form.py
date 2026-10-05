@@ -1,9 +1,11 @@
 import qtawesome as qta
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QTextCursor
+from PySide6.QtCore import Qt, QBuffer, QIODevice
+from PySide6.QtGui import QTextCursor, QImage, QPixmap, QImageReader
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFileDialog,
+    QMessageBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -72,8 +74,20 @@ class BasicInfoCard(FormCard):
         sku.layout().addWidget(sku_wrapper)
 
         category = _field("Categoria")
+        # O combo só lista o que já existe. Numa empresa recém-criada ele vem
+        # vazio, e como o cadastro exige categoria o primeiro produto ficava
+        # impossível de registrar pela tela. Este botão é a única porta de
+        # `fn_create_categories` na interface.
+        category_row = QHBoxLayout()
+        category_row.setSpacing(8)
         self.category_input = _combo(["Selecione uma categoria"])
-        category.layout().addWidget(self.category_input)
+        self.new_category_button = QPushButton("Nova")
+        self.new_category_button.setObjectName("secondaryButton")
+        self.new_category_button.setToolTip("Cadastrar uma categoria nesta empresa")
+        self.new_category_button.setFixedHeight(self.category_input.sizeHint().height())
+        category_row.addWidget(self.category_input, 1)
+        category_row.addWidget(self.new_category_button)
+        category.layout().addLayout(category_row)
         row.addWidget(sku)
         row.addWidget(category)
         layout.addLayout(row)
@@ -353,22 +367,64 @@ class BeforeRegisterCard(QFrame):
 
 
 class ProductImageCard(QFrame):
+    """Miniatura JPEG limitada, persistida junto ao produto."""
     def __init__(self):
         super().__init__()
-        self.setMinimumHeight(170)
-        self.setStyleSheet("""
-            ProductImageCard {
-                background-color: #FFFFFF;
-                border: 1px solid #DBEAFE;
-                border-radius: 16px;
-            }
-            ProductImageCard QLabel { background-color: transparent; }
-        """)
+        self.image_data = ""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 22, 22, 22)
-        label = QLabel("Imagem do produto")
-        label.setStyleSheet(
-            f"{LABEL_QSS} color: #0F172A; font-size: 16px; font-weight: 600; border: none;"
-        )
-        layout.addWidget(label)
-        layout.addStretch()
+        layout.addWidget(QLabel("Imagem do produto"))
+        self.preview = QLabel("Sem imagem")
+        self.preview.setAlignment(Qt.AlignCenter)
+        self.preview.setMinimumHeight(160)
+        layout.addWidget(self.preview)
+        self.choose_button = QPushButton("Selecionar imagem")
+        self.remove_button = QPushButton("Remover imagem")
+        layout.addWidget(self.choose_button)
+        layout.addWidget(self.remove_button)
+        self.choose_button.clicked.connect(self.choose_image)
+        self.remove_button.clicked.connect(lambda: self.set_image_data(""))
+
+    def choose_image(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Imagem do produto", "", "Imagens (*.png *.jpg *.jpeg *.webp)")
+        if path:
+            try:
+                self.load_image(path)
+            except ValueError as error:
+                QMessageBox.warning(self, "Imagem inválida", str(error))
+
+    def load_image(self, path):
+        from pathlib import Path
+        import base64
+        if Path(path).stat().st_size > 10 * 1024 * 1024:
+            raise ValueError("Selecione uma imagem de até 10 MB.")
+        reader = QImageReader(str(path))
+        reader.setAutoTransform(True)
+        size = reader.size()
+        if size.width() * size.height() > 40_000_000:
+            raise ValueError("Imagem excede o limite de 40 megapixels.")
+        image = reader.read()
+        if image.isNull():
+            raise ValueError("Não foi possível ler esta imagem.")
+        image = image.scaled(512, 512, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        buffer = QBuffer()
+        buffer.open(QIODevice.WriteOnly)
+        if not image.save(buffer, "JPEG", 80):
+            raise ValueError("Não foi possível preparar a imagem.")
+        encoded = base64.b64encode(bytes(buffer.data())).decode("ascii")
+        if len(encoded) > 350000:
+            raise ValueError("Imagem muito grande após a conversão.")
+        self.set_image_data(encoded)
+
+    def set_image_data(self, value):
+        import base64
+        self.image_data = value or ""
+        image = QImage()
+        try:
+            image.loadFromData(base64.b64decode(self.image_data, validate=True))
+        except (ValueError, TypeError):
+            pass
+        if image.isNull():
+            self.preview.clear()
+            self.preview.setText("Sem imagem")
+        else:
+            self.preview.setPixmap(QPixmap.fromImage(image).scaled(240, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation))
