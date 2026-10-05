@@ -1,0 +1,97 @@
+{
+  "marker": "__AUDIT_20261005_70f5468a",
+  "checks": [
+    {
+      "check": "Login pelos campos e botão reais da interface",
+      "result": "PASS"
+    },
+    {
+      "check": "Leitura autenticada de products",
+      "result": "FAIL",
+      "error": "42703",
+      "detail": "column products.supplier_id does not exist"
+    },
+    {
+      "check": "Leitura autenticada de categories",
+      "result": "PASS",
+      "evidence": {
+        "consulta_executada": true
+      }
+    },
+    {
+      "check": "Leitura autenticada de stock_movements",
+      "result": "FAIL",
+      "error": "42703",
+      "detail": "column stock_movements.supplier_id does not exist"
+    },
+    {
+      "check": "Leitura autenticada de suppliers",
+      "result": "FAIL",
+      "error": "PGRST205",
+      "detail": "Could not find the table 'public.suppliers' in the schema cache"
+    },
+    {
+      "check": "Leitura autenticada de clients",
+      "result": "FAIL",
+      "error": "PGRST205",
+      "detail": "Could not find the table 'public.clients' in the schema cache"
+    },
+    {
+      "check": "Leitura autenticada de sales",
+      "result": "FAIL",
+      "error": "PGRST205",
+      "detail": "Could not find the table 'public.sales' in the schema cache"
+    },
+    {
+      "check": "products sem a coluna nova de fornecedor",
+      "result": "PASS",
+      "evidence": {
+        "consulta_executada": true
+      }
+    },
+    {
+      "check": "stock_movements sem a coluna nova de fornecedor",
+      "result": "PASS",
+      "evidence": {
+        "consulta_executada": true
+      }
+    },
+    {
+      "check": "Consulta autenticada fn_list_company_users",
+      "result": "PASS",
+      "evidence": {
+        "consulta_executada": true
+      }
+    },
+    {
+      "check": "Consulta autenticada fn_list_company_suppliers",
+      "result": "FAIL",
+      "error": "PGRST202",
+      "detail": "Could not find the function public.fn_list_company_suppliers(p_company_id) in the schema cache"
+    },
+    {
+      "check": "Consulta autenticada fn_list_company_clients",
+      "result": "FAIL",
+      "error": "PGRST202",
+      "detail": "Could not find the function public.fn_list_company_clients(p_company_id) in the schema cache"
+    },
+    {
+      "check": "View real de alertas com código",
+      "result": "FAIL",
+      "error": "42703",
+      "detail": "column vw_stock_alerts.product_code does not exist"
+    },
+    {
+      "check": "Abrir janela principal com repositórios reais",
+      "result": "FAIL",
+      "error": "42703",
+      "detail": "column products.supplier_id does not exist"
+    }
+  ],
+  "test_records": {},
+  "cleanup": [
+    "Nenhuma gravação de cadastro ou movimentação foi tentada; não há registros para limpar",
+    "Sessão de teste encerrada"
+  ],
+  "role": "ADMIN"
+}

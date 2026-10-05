@@ -52,11 +52,10 @@ BEGIN
 
     -- O produto precisa ser DA empresa informada. Sem esta checagem, quem é
     -- STOCK numa empresa movimentaria o estoque de outra.
-    IF NOT EXISTS (
-        SELECT 1 FROM public.products
-         WHERE id = p_product_id AND company_id = p_company_id
-    ) THEN
-        RAISE EXCEPTION 'Produto não encontrado nesta empresa'
+    PERFORM 1 FROM public.products
+     WHERE id = p_product_id AND company_id = p_company_id AND active FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Produto não encontrado ou inativo nesta empresa'
             USING ERRCODE = 'foreign_key_violation';
     END IF;
 
@@ -81,8 +80,9 @@ SET search_path = public AS $$
 DECLARE
     v_company uuid;
     v_status  public.movement_status;
+    v_product uuid;
 BEGIN
-    SELECT company_id, status INTO v_company, v_status
+    SELECT company_id, product_id INTO v_company, v_product
       FROM public.stock_movements WHERE id = p_movement_id;
 
     -- Mensagem única para inexistente e sem permissão: não vaza a existência
@@ -93,6 +93,12 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    PERFORM 1 FROM public.products WHERE id = v_product AND active FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Produto inativo não pode ser movimentado' USING ERRCODE = 'check_violation';
+    END IF;
+    SELECT status INTO v_status FROM public.stock_movements
+     WHERE id = p_movement_id FOR UPDATE;
     IF v_status <> 'PENDENTE' THEN
         RAISE EXCEPTION 'Só movimentação pendente pode ser confirmada (situação atual: %)', v_status
             USING ERRCODE = 'check_violation';
@@ -112,8 +118,9 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
     v_company uuid;
+    v_product uuid;
 BEGIN
-    SELECT company_id INTO v_company
+    SELECT company_id, product_id INTO v_company, v_product
       FROM public.stock_movements WHERE id = p_movement_id;
 
     IF v_company IS NULL
@@ -122,6 +129,7 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    PERFORM 1 FROM public.products WHERE id = v_product FOR UPDATE;
     UPDATE public.stock_movements
        SET status = 'CANCELADA'
      WHERE id = p_movement_id;

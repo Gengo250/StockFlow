@@ -441,17 +441,14 @@ def test_confirmar_duas_vezes_e_recusado():
     assert produtos["PRD-009"].stock == "30"
 
 
-def test_saldo_pode_ficar_negativo():
-    """O banco também não trava em zero.
-
-    Travar esconderia o erro de lançamento justamente de quem precisa vê-lo.
-    """
+def test_saida_sem_saldo_e_recusada_sem_alterar_historico():
+    """Espelha CHECK products.stock >= 0, sem truncar saldo nem gravar a saída."""
     produtos = catalogo_demo(stock="2")
     repo = DemoMovementRepository(produtos, agora=AGORA)
-
-    repo.register(entrada(kind=MovementKind.SAIDA, quantity=5, confirm=True))
-
-    assert produtos["PRD-009"].stock == "-3"
+    with pytest.raises(ValueError, match="Saldo insuficiente"):
+        repo.register(entrada(kind=MovementKind.SAIDA, quantity=5, confirm=True))
+    assert produtos["PRD-009"].stock == "2"
+    assert repo.list_movements() == ()
 
 
 # ======================================================

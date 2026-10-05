@@ -57,11 +57,13 @@ PERMISSION_HINTS = (
 # o banco recusa algo que a aplicação deixou passar, as duas mensagens
 # coincidem e a divergência fica visível em vez de parecer outro erro.
 ACTION_BY_RPC = {
+    "fn_save_product": "salvar produtos",
     "fn_create_products": "cadastrar produtos",
     "fn_update_products": "editar produtos",
     "fn_set_product_active": "ativar ou desativar produtos",
     "fn_set_min_stock": "configurar o estoque mínimo",
     "fn_set_product_supplier": "associar fornecedor ao produto",
+    "fn_create_categories": "cadastrar categorias",
 }
 
 
@@ -96,7 +98,7 @@ class SupabaseProductRepository:
     def _products_query(self):
         return (
             self._client.table("products")
-            .select("id,barcode,name,sell_price,buy_price,unit,stock,item_category,supplier_id,active")
+            .select("id,barcode,name,sell_price,buy_price,unit,stock,item_category,supplier_id,active,description,ncm,ean,location,low_stock_alert,image_data")
             .eq("company_id", self._company_id)
         )
 
@@ -218,6 +220,17 @@ class SupabaseProductRepository:
     def list_active_categories(self) -> tuple[str, ...]:
         return tuple(sorted(self._category_names().values()))
 
+    def create_category(self, name: str) -> None:
+        """Cadastra a categoria na empresa da sessão.
+
+        Não há cache a invalidar: `_category_names()` consulta a cada
+        chamada, então a categoria nova já aparece na próxima leitura do
+        combo.
+        """
+        self._rpc("fn_create_categories", {
+            "p_company_id": self._company_id, "p_name": name,
+        })
+
     def is_category_active(self, category: str) -> bool:
         """A categoria existe NESTA empresa.
 
@@ -253,23 +266,19 @@ class SupabaseProductRepository:
     # ESCRITA
     # ======================================================
 
+    def _save(self, data, product_id=None):
+        from stockflow.infrastructure.repositories.product_mapper import money_to_db, unit_to_db
+        payload = dataclasses.asdict(data)
+        payload.update(sale_price=str(money_to_db(data.sale_price)),
+                       cost=str(money_to_db(data.cost)), unit=unit_to_db(data.unit))
+        return self._rpc("fn_save_product", {
+            "p_company_id": self._company_id, "p_product_id": product_id,
+            "p_data": payload,
+        })
+
     def create(self, data: ProductInput) -> str:
-        product_id = self._rpc(
-            "fn_create_products", product_input_to_create_args(data, self._company_id)
-        )
+        product_id = self._save(data)
         self._ids[data.code] = product_id
-        self._rpc(
-        "fn_set_product_supplier",
-        {"p_product_id": product_id, "p_supplier_id": data.supplier_id},
-        )
-        self._aplicar_minimo(product_id, data)
-        # `fn_create_products` não recebe `active`: a coluna nasce `true`.
-        # Só vale uma chamada extra quando o formulário pediu inativo.
-        if not data.active:
-            self._rpc(
-                "fn_set_product_active",
-                {"p_product_id": product_id, "p_active": False},
-            )
         self._publicar(data.code, data)
         return data.code
 
@@ -277,26 +286,10 @@ class SupabaseProductRepository:
         product_id = self._product_id(code)
         if product_id is None:
             raise LookupError(f"Produto {code} não encontrado.")
-
-        self._rpc("fn_update_products", product_input_to_update_args(data, product_id))
-        self._rpc(
-            "fn_set_product_supplier",
-            {"p_product_id": product_id, "p_supplier_id": data.supplier_id},
-        )
-        self._aplicar_minimo(product_id, data)
-        # Situação de cadastro tem função própria; ver a nota em
-        # `product_input_to_update_args`.
-        self._rpc(
-            "fn_set_product_active",
-            {"p_product_id": product_id, "p_active": bool(data.active)},
-        )
-
-        # O código é somente leitura na tela, mas se deixar de ser, a chave do
-        # cache precisa acompanhar — senão a próxima gravação resolveria o
-        # uuid pelo código antigo.
+        self._save(data, product_id)
         if data.code != code:
             self._ids.pop(code, None)
-            self._ids[data.code] = product_id
+        self._ids[data.code] = product_id
         self._publicar(data.code, data, remover=code)
         return data.code
 
@@ -391,6 +384,13 @@ class SupabaseProductRepository:
             stock_status=derive_stock_status(estoque, minimo),
             minimum_stock=to_min(minimo),
             supplier_id=getattr(data, "supplier_id", None),
+            description=getattr(data, "description", ""),
+            ncm=getattr(data, "ncm", ""),
+            ean=getattr(data, "ean", ""),
+            location=getattr(data, "location", ""),
+            low_stock_alert=getattr(data, "low_stock_alert", True),
+            image_data=getattr(data, "image_data", ""),
+
         )
 
     def _aplicar_minimo(self, product_id, data) -> None:

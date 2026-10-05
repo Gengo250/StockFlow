@@ -73,12 +73,10 @@ def test_cliente_desconhecido_recebe_mensagem_correta(vendas_page):
     assert "não existe" in aviso
 
 
-def test_cliente_pendente_nao_e_relatado_como_inativo(vendas_page):
-    """Mariana Costa está pendente, não inativa - o aviso precisa distinguir."""
-    assert vendas_page.selecionar_cliente_externo("Mariana Costa") is False
-    aviso = vendas_page.warning_label.text().lower()
-    assert "pendente" in aviso
-    assert "inativo" not in aviso
+def test_cliente_independe_do_status_de_login_da_pessoa(vendas_page):
+    """Cliente comercial usa active; não herda a pendência da conta de usuário."""
+    assert vendas_page.selecionar_cliente_externo("Mariana Costa") is True
+    assert vendas_page.warning_label.text() == ""
 
 
 def test_aviso_antigo_some_ao_associar_cliente_ativo(vendas_page):

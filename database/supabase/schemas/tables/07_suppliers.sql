@@ -26,8 +26,10 @@ CREATE UNIQUE INDEX uq_suppliers_company_document
 CREATE INDEX idx_suppliers_company_name
     ON public.suppliers (company_id, lower(name));
 
-ALTER TABLE public.products
-    ADD COLUMN supplier_id uuid;
+-- `products.supplier_id` é declarada no CREATE TABLE de 03_catalog.sql; aqui
+-- entra só a chave estrangeira, que depende de `suppliers` existir. Repetir
+-- a coluna com ALTER quebrava a construção do schema declarativo em banco
+-- limpo com "column supplier_id already exists".
 ALTER TABLE public.products
     ADD CONSTRAINT fk_products_supplier_company
     FOREIGN KEY (company_id, supplier_id)

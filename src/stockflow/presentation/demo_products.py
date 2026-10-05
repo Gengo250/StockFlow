@@ -29,6 +29,12 @@ class Product:
     # coisa — é o limiar "me avise quando acabar".
     minimum_stock: int | None = NOT_CONFIGURED
     supplier_id: str | None = None
+    description: str = ""
+    ncm: str = ""
+    ean: str = ""
+    location: str = ""
+    low_stock_alert: bool = True
+    image_data: str = ""
 
 
 # Catálogo de demonstração, montado para cobrir TODAS as faixas de

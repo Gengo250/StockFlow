@@ -70,6 +70,17 @@ def validate_product(
     _valor_monetario(data.sale_price, "Preço de venda")
     _valor_monetario(data.cost, "Custo")
     _validar_estoque(data.stock)
+    import re
+    for field, size in (("ncm", 8),):
+        value = getattr(data, field, "")
+        if value and not re.fullmatch(r"[0-9]{" + str(size) + "}", value):
+            raise ValueError("NCM deve conter 8 dígitos.")
+    ean = getattr(data, "ean", "")
+    if ean and not re.fullmatch(r"(?:[0-9]{8}|[0-9]{12,14})", ean):
+        raise ValueError("EAN deve conter 8, 12, 13 ou 14 dígitos.")
+    for field, limit in (("description", 2000), ("location", 200), ("image_data", 350000)):
+        if len(getattr(data, field, "")) > limit:
+            raise ValueError(f"O campo {field} excede o tamanho permitido.")
 
     if not category_is_active(category):
         raise ValueError(f"A categoria '{category}' está inativa ou indisponível.")

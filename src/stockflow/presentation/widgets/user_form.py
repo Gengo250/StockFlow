@@ -7,7 +7,7 @@ from stockflow.presentation.demo_users import USER_ROLES
 
 
 class UserForm(QDialog):
-    def __init__(self, user=None, parent=None, pode_gerenciar=False):
+    def __init__(self, user=None, parent=None, pode_gerenciar=False, on_save=None):
         """Formulário de usuário.
 
         `pode_gerenciar` nasce `False` de propósito. O diálogo é construído
@@ -35,9 +35,20 @@ class UserForm(QDialog):
         self.login_input = QLineEdit()
         self.login_input.setPlaceholderText("E-mail do usuário")
         self.role_input = QComboBox()
-        self.role_input.addItems(USER_ROLES)
+        from stockflow.presentation.roles import ROLE_LABELS
+        for role, label in ROLE_LABELS.items():
+            self.role_input.addItem(label, role.value)
+        self.department_input = QLineEdit(user[2] if user and user[2] != "—" else "")
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setPlaceholderText("Senha inicial (somente para nova conta)")
+        self.password_input.setVisible(not bool(user))
+        self.login_input.setReadOnly(bool(user))
         for label, field in (("Nome", self.name_input), ("E-mail", self.login_input), ("Perfil", self.role_input)):
             fields.addRow(label, field)
+        fields.addRow("Departamento", self.department_input)
+        if not user:
+            fields.addRow("Senha inicial", self.password_input)
         if user:
             # Linha de demo_data:
             # (nome, login, departamento, perfil, status, último acesso, cor).
@@ -54,16 +65,31 @@ class UserForm(QDialog):
         cancel.clicked.connect(self.reject)
         save = QPushButton("Salvar alterações" if user else "Cadastrar usuário")
         save.setObjectName("primaryButton")
-        # Continua desabilitado para TODO mundo: não existe caminho de
-        # gravação de usuário ainda (`fn_create_company_user` não está ligada
-        # à tela). O papel só muda o motivo que o usuário lê — prometer
-        # "em breve" a quem nunca vai poder salvar seria mentira.
-        save.setEnabled(False)
-        save.setToolTip(
-            "Disponível após integração das operações administrativas"
-            if pode_gerenciar
-            else "Somente administradores podem gerenciar usuários"
-        )
+        self.save_button = save
+        self.error_label = QLabel("")
+        self.error_label.setWordWrap(True)
+        layout.addWidget(self.error_label)
+        save.setEnabled(pode_gerenciar)
+        self._on_save = on_save
+        self._user = user
+        save.clicked.connect(self._save)
         actions.addWidget(cancel)
         actions.addWidget(save)
         layout.addLayout(actions)
+
+    def _save(self):
+        if not self.save_button.isEnabled():
+            return
+        if self._on_save is None:
+            self.error_label.setText("Abra este cadastro pela Administração de Usuários.")
+            return
+        try:
+            self._on_save(user_id=getattr(self._user, "user_id", None),
+                          name=self.name_input.text(), email=self.login_input.text(),
+                          role=self.role_input.currentData(), department=self.department_input.text(),
+                          password=self.password_input.text())
+        except Exception as error:
+            self.error_label.setText(str(error))
+            return
+        self.password_input.clear()
+        self.accept()

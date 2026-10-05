@@ -45,7 +45,9 @@ NATIVAS = {
 def objetos(arquivos):
     achados = set()
     for arquivo in arquivos:
-        texto = arquivo.read_text(encoding="utf-8")
+        # Comentário não cria objeto: um `-- ... CREATE TABLE de 03_catalog`
+        # explicando onde a coluna nasce virava a "tabela de".
+        texto = re.sub(r"--[^\n]*", "", arquivo.read_text(encoding="utf-8"))
         for padrao, tipo in PADROES:
             for nome in re.findall(padrao, texto, re.I):
                 achados.add((tipo, nome.lower()))
