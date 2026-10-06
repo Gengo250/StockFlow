@@ -43,6 +43,7 @@ class AuthFalso:
         self._user = user
         self._erro = erro
         self.credenciais = None
+        self.saidas = 0
 
     def sign_in_with_password(self, credenciais):
         self.credenciais = credenciais
@@ -53,6 +54,9 @@ class AuthFalso:
             user = self._user
 
         return _Resposta()
+
+    def sign_out(self):
+        self.saidas += 1
 
 
 class ClienteFalso:
@@ -171,3 +175,59 @@ def test_sessao_so_e_montada_depois_das_tres_etapas():
 
     assert cliente.auth.credenciais is not None
     assert cliente.chamadas_rpc == ["fn_current_user_id", "fn_my_companies"]
+
+
+# ------------------------------------- recusa nao pode deixar sessao aberta
+#
+# `sign_in_with_password` ja devolveu um JWT quando as etapas 2 e 3 recusam.
+# Sem encerrar, o cliente COMPARTILHADO do processo fica autenticado como um
+# usuario a quem o login foi negado: `fn_current_user_id()` passa a resolver
+# e a RLS passa a liberar as linhas dele. A tela mostra a recusa, e por baixo
+# existe sessao valida. US05: sessao so depois de autenticacao valida.
+
+
+def test_recusa_por_falta_de_vinculo_encerra_a_sessao_aberta_no_auth():
+    cliente = cliente_ok(fn_current_user_id=None)
+
+    with pytest.raises(AuthenticationError):
+        authenticate(cliente, "nova@example.com", "senha")
+
+    assert cliente.auth.saidas == 1, "JWT continuou valido depois da recusa"
+
+
+def test_conta_inativa_encerra_a_sessao_aberta_no_auth():
+    """Caso do criterio: conta inativa tem acesso negado.
+
+    Inativar o vinculo faz `fn_my_companies` devolver vazio, porque ela
+    filtra `cd.active AND c.active`. A senha continua correta, entao o Auth
+    aceita: quem recusa e esta funcao, e por isso e ela que precisa desfazer
+    a sessao.
+    """
+    cliente = cliente_ok(fn_my_companies=[])
+
+    with pytest.raises(AuthenticationError):
+        authenticate(cliente, "inativo@example.com", "senha")
+
+    assert cliente.auth.saidas == 1, "conta inativa ficou com sessao aberta no Auth"
+
+
+def test_login_valido_nao_encerra_a_propria_sessao():
+    """Guarda do oposto: a limpeza nao pode derrubar quem entrou."""
+    cliente = cliente_ok()
+
+    authenticate(cliente, "ana.ferreira@example.com", "senha")
+
+    assert cliente.auth.saidas == 0
+
+
+def test_falha_ao_encerrar_nao_vira_erro_diferente_para_o_usuario():
+    """Se o `sign_out` falhar, a recusa original e que precisa chegar a tela."""
+    cliente = cliente_ok(fn_my_companies=[])
+
+    def explode():
+        raise RuntimeError("rede caiu no sign_out")
+
+    cliente.auth.sign_out = explode
+
+    with pytest.raises(AuthenticationError, match=SEM_EMPRESA):
+        authenticate(cliente, "inativo@example.com", "senha")

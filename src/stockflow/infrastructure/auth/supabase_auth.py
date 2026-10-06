@@ -43,6 +43,28 @@ def _dados(resposta):
     return getattr(resposta, "data", None)
 
 
+def _recusar(client, mensagem):
+    """Desfaz a sessão aberta no Auth e levanta a recusa.
+
+    `sign_in_with_password` já devolveu um JWT quando as etapas 2 e 3
+    recusam: a senha estava certa, o que falta é vínculo ou empresa ativa.
+    Sem desfazer, o cliente COMPARTILHADO do processo fica autenticado como
+    alguém a quem o login foi negado — `fn_current_user_id()` passa a
+    resolver e a RLS passa a liberar as linhas dele, com a tela exibindo a
+    recusa. US05 pede sessão só depois de autenticação válida, e uma recusa
+    não é autenticação válida.
+
+    Falha ao encerrar é engolida de propósito: a recusa original é o que o
+    usuário precisa ler, e trocá-la por um erro de rede esconderia o motivo
+    real de ele não ter entrado.
+    """
+    try:
+        client.auth.sign_out()
+    except Exception:
+        pass
+    raise AuthenticationError(mensagem)
+
+
 def _nome_do_usuario(user, email: str) -> str:
     """Nome de exibição, com o e-mail como último recurso.
 
@@ -78,11 +100,11 @@ def authenticate(client, email: str, password: str) -> Session:
 
     user_id = _dados(client.rpc("fn_current_user_id", {}).execute())
     if not user_id:
-        raise AuthenticationError(SEM_VINCULO)
+        _recusar(client, SEM_VINCULO)
 
     empresas = _dados(client.rpc("fn_my_companies", {}).execute()) or []
     if not empresas:
-        raise AuthenticationError(SEM_EMPRESA)
+        _recusar(client, SEM_EMPRESA)
 
     # A primeira da lista: `fn_my_companies` já ordena por nome e a tela não
     # tem seletor de empresa. Um usuário em mais de uma empresa entra na

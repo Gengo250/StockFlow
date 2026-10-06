@@ -170,6 +170,21 @@ def exercise(dsn):
         results=list(pool.map(withdraw,range(2)))
     check(sorted(results)==['23514','ok'],'Concurrent withdrawals serialize; only one fits balance')
     check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==1,'Concurrent final stock remains consistent')
+
+    # US05: login resolves company and role only for an ACTIVE link. The app
+    # denies the account here, not in the screens: fn_my_companies feeds the
+    # session, so an empty result is what stops an inactive account.
+    with connect('seller_auth') as seller:
+        check(len(PostgresAPI(seller).rpc('fn_my_companies',{}).execute().data)==1,'Active account resolves its company at login')
+    admin.execute('UPDATE company_users SET active=false WHERE company_id=%s AND user_account_id=%s',(company,ids['seller']))
+    with connect('seller_auth') as seller:
+        check(PostgresAPI(seller).rpc('fn_current_user_id',{}).execute().data is not None,'Deactivated account still resolves its identity')
+        check(len(PostgresAPI(seller).rpc('fn_my_companies',{}).execute().data)==0,'Deactivated account gets no company: login denied')
+        rejects(lambda:PostgresAPI(seller).rpc('fn_register_sale',{'p_company_id':company,'p_client_id':client.client_id,'p_product_id':product_id,'p_total':'1'}).execute(),'42501','Deactivated account cannot operate')
+    admin.execute('UPDATE company_users SET active=true WHERE company_id=%s AND user_account_id=%s',(company,ids['seller']))
+    with connect('seller_auth') as seller:
+        check(len(PostgresAPI(seller).rpc('fn_my_companies',{}).execute().data)==1,'Reactivated account logs in again')
+
     window.close()
     connection.close()
     admin.close()
