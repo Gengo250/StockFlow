@@ -18,6 +18,7 @@ from stockflow.presentation.widgets.menu_button import create_menu_button
 MENU_ITEMS = [
     ("dashboard", "Dashboard", "fa5s.home"),
     ("estoque", "Estoque", "fa5s.cube"),
+    ("movimentacoes", "Movimentações", "fa5s.exchange-alt"),
     ("vendas", "Vendas", "fa5s.chart-bar"),
     ("produtos", "Produtos", "fa5s.box"),
     ("relatorios", "Relatórios", "fa5s.file-alt"),

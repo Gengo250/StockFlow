@@ -1,8 +1,9 @@
 import qtawesome as qta
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QRegularExpression, Qt
+from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel,
-    QLineEdit, QSpinBox, QVBoxLayout, QWidget,
+    QLineEdit, QVBoxLayout, QWidget,
 )
 
 
@@ -136,15 +137,35 @@ def _money_input():
     return widget
 
 
+SEM_MINIMO = -1
+
+
+class StockInput(QLineEdit):
+    def __init__(self, empty_value=0):
+        super().__init__()
+        self.empty_value = empty_value
+        self.setValidator(QRegularExpressionValidator(QRegularExpression("[0-9]{0,6}"), self))
+        self.setFixedHeight(42)
+        self.setStyleSheet(FIELD_QSS.format(widget="QLineEdit"))
+        self.setValue(empty_value)
+
+    def value(self):
+        return int(self.text()) if self.text() else self.empty_value
+
+    def setValue(self, value):
+        self.setText("" if value == SEM_MINIMO else str(max(0, min(value, 999999))))
+
+
 def _stock_input():
-    widget = QSpinBox()
-    widget.setRange(0, 999999)
-    widget.setSingleStep(1)
-    widget.setFixedHeight(42)
-    widget.setStyleSheet(
-        FIELD_QSS.format(widget="QSpinBox")
-        + "QSpinBox::up-button, QSpinBox::down-button "
-          "{ width: 20px; border: none; background-color: transparent; }"
+    return StockInput()
+
+
+def _minimum_stock_input():
+    widget = StockInput(empty_value=SEM_MINIMO)
+    widget.setPlaceholderText("Sem mínimo")
+    widget.setToolTip(
+        "Deixe vazio para não receber alerta deste produto. "
+        "Zero significa avisar quando o estoque acabar."
     )
     return widget
 

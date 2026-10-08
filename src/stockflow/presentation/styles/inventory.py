@@ -127,3 +127,19 @@ TABLE_QSS = """
         font-weight: 600;
     }
 """
+
+
+LIST_STATE_QSS = """
+    color: #64748B;
+    font-size: 14px;
+    padding: 24px 2px;
+"""
+
+LOAD_ERROR_QSS = """
+    background: #FFF7ED;
+    color: #9A3412;
+    border: 1px solid #FED7AA;
+    border-radius: 12px;
+    padding: 20px;
+    font-size: 14px;
+"""

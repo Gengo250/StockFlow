@@ -11,6 +11,7 @@ from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
 from stockflow.presentation.widgets.top_bar import TopBar
 from stockflow.presentation.pages.coming_soon import ComingSoonPage
 from stockflow.presentation.pages.estoque import EstoquePage
+from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.users import UsersPage
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
@@ -87,6 +88,7 @@ class MainWindow(QMainWindow):
         self.editar_produto_page = NovoProdutoPage(edit_mode=True)
 
         self.products = dict(DEMO_PRODUCTS)
+        self.movimentacoes_page = MovimentacoesPage(self.products)
         self.products_page = ProductsPage(self.products)
         self.product_details_page = ProductDetailsPage()
 
@@ -94,6 +96,7 @@ class MainWindow(QMainWindow):
         self.page_widgets = {
             "dashboard": dashboard_page,
             "estoque": self.estoque_page,
+            "movimentacoes": self.movimentacoes_page,
             "vendas": ComingSoonPage("Vendas"),
             "produtos": self.products_page,
             "relatorios": ComingSoonPage("Relatórios"),

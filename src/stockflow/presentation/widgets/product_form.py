@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from stockflow.presentation.widgets.form_fields import (
     FormCard, LABEL_QSS, _card_header, _combo, _divider, _field,
-    _line_edit, _money_input, _stock_input,
+    _line_edit, _money_input, _stock_input, _minimum_stock_input,
 )
 
 
@@ -174,7 +174,7 @@ class StockControlCard(FormCard):
         self.initial_stock_input = _stock_input()
         initial.layout().addWidget(self.initial_stock_input)
         minimum = _field("Estoque mínimo")
-        self.minimum_stock_input = _stock_input()
+        self.minimum_stock_input = _minimum_stock_input()
         minimum.layout().addWidget(self.minimum_stock_input)
         location = _field("Localização", optional=True)
         self.location_input = _line_edit("Ex.: Corredor A - Prateleira 3")
@@ -350,22 +350,45 @@ class BeforeRegisterCard(QFrame):
 
 
 class ProductImageCard(QFrame):
+    """Miniatura JPEG limitada, persistida junto ao produto."""
     def __init__(self):
         super().__init__()
-        self.setMinimumHeight(170)
+        self.image_data = ""
+        self.setObjectName("productImageCard")
         self.setStyleSheet("""
-            ProductImageCard {
-                background-color: #FFFFFF;
-                border: 1px solid #DBEAFE;
-                border-radius: 16px;
-            }
-            ProductImageCard QLabel { background-color: transparent; }
+            QFrame#productImageCard { background: white; border: 1px solid #DBEAFE; border-radius: 16px; }
+            QFrame#imagePlaceholder { background: #F8FBFF; border: 1px dashed #BFDBFE; border-radius: 14px; }
+            QLabel { background: transparent; border: none; }
         """)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 22, 22, 22)
-        label = QLabel("Imagem do produto")
-        label.setStyleSheet(
-            f"{LABEL_QSS} color: #0F172A; font-size: 16px; font-weight: 600; border: none;"
-        )
-        layout.addWidget(label)
-        layout.addStretch()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(8)
+        title = QLabel("Imagem do produto")
+        title.setStyleSheet("color: #0F172A; font-size: 14px; font-weight: 600;")
+        layout.addWidget(title)
+        subtitle = QLabel("Use uma imagem quadrada com boa resolução.")
+        subtitle.setWordWrap(True)
+        subtitle.setStyleSheet("color: #8DA2C4; font-size: 11px;")
+        layout.addWidget(subtitle)
+        layout.addSpacing(8)
+        placeholder = QFrame()
+        placeholder.setObjectName("imagePlaceholder")
+        placeholder.setMinimumHeight(300)
+        center = QVBoxLayout(placeholder)
+        center.setAlignment(Qt.AlignCenter)
+        icon = QLabel()
+        icon.setFixedSize(44, 44)
+        icon.setAlignment(Qt.AlignCenter)
+        icon.setPixmap(qta.icon("fa5s.image", color="#2563EB").pixmap(16, 16))
+        icon.setStyleSheet("background: white; border: 1px solid #DBEAFE; border-radius: 14px;")
+        center.addWidget(icon, 0, Qt.AlignHCenter)
+        center.addSpacing(6)
+        self.choose_button = QPushButton("Em desenvolvimento")
+        self.choose_button.setEnabled(False)
+        self.choose_button.setStyleSheet("background: transparent; border: none; color: #334155; font-size: 13px; font-weight: 600;")
+        center.addWidget(self.choose_button)
+        layout.addWidget(placeholder)
+        self.preview = QLabel(self)
+        self.preview.hide()
+        self.remove_button = QPushButton("Remover imagem", self)
+        self.remove_button.hide()
