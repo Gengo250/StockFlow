@@ -189,10 +189,21 @@ class MainWindow(QMainWindow):
             self.movement_repository, self.supplier_repository, self.product_repository
         )
         self.movimentacoes_page = MovimentacoesPage(self.products)
-        self.movimentacoes_page.set_suppliers(
-            self.supplier_service.list_suppliers(self.session)
-            if can_manage_suppliers(self.session) else ()
-        )
+        # Consulta de rede no caminho de CONSTRUÇÃO: uma falha aqui subiria
+        # até `__init__` e derrubaria a janela inteira, pelo mesmo motivo que
+        # a carga de vendas derrubava. O combo de fornecedores vazio degrada
+        # Movimentações; perder a janela tira o usuário do sistema todo.
+        try:
+            fornecedores = (
+                self.supplier_service.list_suppliers(self.session)
+                if can_manage_suppliers(self.session) else ()
+            )
+        except Exception as erro:
+            self.supplier_load_error = erro
+            fornecedores = ()
+        else:
+            self.supplier_load_error = None
+        self.movimentacoes_page.set_suppliers(fornecedores)
 
         self.dashboard_page = DashboardPage(self.product_repository, self.sale_repository, self.client_repository)
         self.reports_page = ReportsPage(self.product_repository, self.sale_repository)
