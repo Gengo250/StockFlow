@@ -368,3 +368,98 @@ def test_login_e_empresa_atual_exigem_vinculo_ativo():
 
     assert re.search(r"cd\.active\s+AND\s+c\.active", credenciais, re.I)
     assert re.search(r"cd\.active\s+AND\s+c\.active", empresas, re.I)
+
+
+# ---------------------------------------------------------------------- H14
+
+
+AUTORIA = ("products", "categories", "clients", "suppliers")
+
+
+@pytest.mark.parametrize("tabela", AUTORIA + ("stock_movements", "sales"))
+def test_tabela_de_escrita_tem_coluna_de_autoria(tabela):
+    """O critério "registrar o usuário autenticado" exige onde registrar."""
+    assert "created_by" in colunas_da_tabela(tabela, sql_do_code()), (
+        f"{tabela} não tem created_by"
+    )
+
+
+@pytest.mark.parametrize(
+    "rotina,tabela",
+    [
+        ("fn_create_products", "products"),
+        ("fn_create_categories", "categories"),
+        ("fn_create_client", "clients"),
+        ("fn_create_supplier", "suppliers"),
+    ],
+)
+def test_criacao_grava_o_usuario_autenticado(rotina, tabela):
+    """A coluna existir não basta: a função precisa preenchê-la.
+
+    `fn_current_user_id()` é a única fonte aceitável aqui. Receber o autor por
+    parâmetro deixaria o chamador escolher em nome de quem agiu.
+    """
+    corpo = sem_comentarios(corpo_da_rotina_no_code(rotina))
+    # Ancorado em RETURNING, e não no primeiro `)`: a lista de VALUES tem
+    # parênteses aninhados (`btrim(p_name)`), que fechariam a captura cedo.
+    insercao = re.search(
+        rf"INSERT INTO public\.{tabela}\s*\((.*?)\)\s*VALUES\s*\((.*)\)\s*RETURNING",
+        corpo,
+        re.S | re.I,
+    )
+
+    assert insercao, f"{rotina} não insere em {tabela}"
+    assert "created_by" in insercao.group(1)
+    assert "fn_current_user_id()" in insercao.group(2)
+
+
+def test_auditoria_de_perfil_e_escrita_por_trigger():
+    """A auditoria mora num trigger, e não dentro de cada função.
+
+    Cinco caminhos escrevem em company_users. Se o registro morasse em cada
+    um, o sexto nasceria sem auditoria — foi esse o raciocínio que já tinha
+    posto `keep_admin` num trigger.
+    """
+    code = sem_comentarios(sql_do_code())
+
+    assert re.search(
+        r"CREATE TRIGGER trg_company_users_log_role\s+AFTER INSERT OR UPDATE\s+"
+        r"ON public\.company_users",
+        code,
+        re.I,
+    )
+    corpo = sem_comentarios(corpo_da_rotina_no_code("trg_company_users_log_role"))
+    assert "INSERT INTO public.role_change_log" in corpo
+    assert "fn_current_user_id()" in corpo
+
+
+def test_auditoria_guarda_papel_anterior_e_novo():
+    """Sem o papel anterior, o log não responde "o que mudou"."""
+    colunas = colunas_da_tabela("role_change_log", sql_do_code())
+
+    assert {"actor_id", "target_user_id", "role_before", "role_after",
+            "active_before", "active_after", "changed_on"} <= set(colunas)
+
+
+def test_aplicacao_nao_escreve_na_auditoria():
+    """Só SELECT é concedido: log reescrevível não é evidência de nada."""
+    seguranca = sem_comentarios(SEGURANCA_SQL.read_text(encoding="utf-8"))
+
+    assert re.search(r"GRANT SELECT ON[^;]*role_change_log", seguranca, re.S | re.I)
+    assert not re.search(
+        r"GRANT\s+(?:ALL|INSERT|UPDATE|DELETE)[^;]*role_change_log", seguranca, re.S | re.I
+    )
+
+
+def test_auditoria_so_e_lida_pelo_admin_da_empresa():
+    """O log diz quem recebeu qual acesso: mesma alçada de listar usuários."""
+    seguranca = sem_comentarios(SEGURANCA_SQL.read_text(encoding="utf-8"))
+    policy = re.search(
+        r"CREATE POLICY role_change_log_select.*?;", seguranca, re.S | re.I
+    )
+
+    assert policy, "policy de leitura do role_change_log não encontrada"
+    assert re.search(r"fn_has_role\s*\(\s*company_id\s*,\s*ARRAY\s*\[\s*'ADMIN'\s*\]",
+                     policy.group(0), re.I)
+    assert re.search(r"ALTER TABLE public\.role_change_log\s+ENABLE ROW LEVEL SECURITY",
+                     seguranca, re.I)

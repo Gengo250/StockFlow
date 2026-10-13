@@ -11,13 +11,12 @@ from stockflow.application.services.movement_service import MovementService
 from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.domain.permissions import (
-    can_manage_products,
+    PERMISSION_MATRIX,
+    TODOS_OS_PAPEIS,
     can_manage_suppliers,
-    can_manage_users,
-    can_move_stock,
-    ensure_can_manage_suppliers,
-    ensure_can_manage_users,
-    ensure_can_move_stock,
+    exigir_ver,
+    pode_gravar,
+    pode_ver,
 )
 from stockflow.presentation.backend import (
     build_catalog,
@@ -33,7 +32,12 @@ from stockflow.presentation.backend import (
 )
 from stockflow.presentation.workers import executar_em_segundo_plano
 from stockflow.presentation.styles import theme
-from stockflow.presentation.widgets.sidebar import Sidebar, DEFAULT_KEY
+from stockflow.presentation.widgets.sidebar import (
+    MENU_ITEMS,
+    SYSTEM_ITEMS,
+    Sidebar,
+    DEFAULT_KEY,
+)
 from stockflow.presentation.widgets.top_bar import TopBar
 from stockflow.presentation.pages.clientes import ClientesPage
 from stockflow.presentation.pages.overview import DashboardPage, ReportsPage, SettingsPage, preference_prefix
@@ -282,15 +286,22 @@ class MainWindow(QMainWindow):
 
     # Telas que exigem permissão para serem ABERTAS, não só para gravar.
     # Usuários entra aqui porque `fn_list_company_users` recusa o não-admin:
-    # pelo banco, nem a listagem é dele.
-    RESTRICTED_PAGES = {
-        "usuarios": ensure_can_manage_users,
-        # Movimentar altera saldo, e saldo decide reposição e venda.
-        # `fn_register_movement` recusa quem não é ADMIN/STOCK, então nem a
-        # consulta do histórico é do vendedor.
-        "movimentacoes": ensure_can_move_stock,
-        "fornecedores": ensure_can_manage_suppliers,
-    }
+    # pelo banco, nem a listagem é dele; Movimentações, porque o saldo decide
+    # reposição e venda e `fn_register_movement` recusa o vendedor.
+    #
+    # Derivado da matriz, e não escrito à mão: área cujo `ver` não cobre os
+    # três papéis entra aqui sozinha. A lista literal anterior precisava ser
+    # lembrada a cada área nova — foi assim que `clientes` e `vendas` ficaram
+    # de fora sem ninguém decidir isso.
+    RESTRICTED_PAGES = frozenset(
+        nome for nome, area in PERMISSION_MATRIX.items() if area.ver != TODOS_OS_PAPEIS
+    )
+
+    #: Nome da área como o usuário a vê no menu, para a mensagem de recusa.
+    #: Antes, um ternário escolhia entre dois rótulos fixos e o vendedor
+    #: barrado em Movimentações era informado de que não podia abrir a
+    #: administração de usuários — uma tela que ele nem tinha pedido.
+    AREA_LABELS = {chave: nome for chave, nome, _ in MENU_ITEMS + SYSTEM_ITEMS}
 
     def show_page(self, key):
         """Navega para uma página. Devolve `False` quando a recusa acontece.
@@ -301,16 +312,12 @@ class MainWindow(QMainWindow):
         tela — o mesmo motivo pelo qual a gravação de produto é verificada
         no serviço e não no handler do botão.
         """
-        guarda = self.RESTRICTED_PAGES.get(key)
-        if guarda is not None:
+        if key in self.RESTRICTED_PAGES:
             try:
-                guarda(
+                exigir_ver(
                     self.session,
-                    action=(
-                        "abrir a gestão de fornecedores"
-                        if key == "fornecedores"
-                        else "abrir a administração de usuários"
-                    ),
+                    key,
+                    action=f"abrir a tela de {self.AREA_LABELS.get(key, key)}",
                 )
             except PermissionDeniedError as erro:
                 # A janela não pode ficar meio-navegada: nem troca a página,
@@ -703,41 +710,35 @@ class MainWindow(QMainWindow):
         # em que a janela sem login apareça com os controles liberados.
         self.clientes_page.apply_session(self.session)
         self.vendas_page.apply_session(self.session)
-        pode_escrever = can_manage_products(self.session)
-
+        # Escrita: cada área habilita os widgets que ela controla. As alçadas
+        # continuam SEPARADAS de propósito — administrar usuário é só do
+        # ADMIN, como `fn_is_admin`, e reaproveitar a permissão de produto
+        # aqui entregaria a tela de usuários ao estoquista.
+        pode_escrever = pode_gravar(self.session, "produtos")
         self.novo_produto_page.apply_permission(pode_escrever)
         self.editar_produto_page.apply_permission(pode_escrever)
         self.estoque_page.new_product_button.setEnabled(pode_escrever)
         self.products_page.new_product_button.setEnabled(pode_escrever)
         self.estoque_page.stock_table.set_actions_enabled(pode_escrever)
+        self.users_page.apply_permission(pode_gravar(self.session, "usuarios"))
+        self.movimentacoes_page.apply_permission(
+            pode_gravar(self.session, "movimentacoes")
+        )
 
-        # Regra diferente da de produto: administrar usuário é só do ADMIN,
-        # como `fn_is_admin`. Reaproveitar `pode_escrever` aqui entregaria a
-        # tela de usuários ao estoquista.
-        pode_gerenciar_usuarios = can_manage_users(self.session)
-
-        self.users_page.apply_permission(pode_gerenciar_usuarios)
-        self.sidebar.set_item_visible("usuarios", pode_gerenciar_usuarios)
-
-        pode_movimentar = can_move_stock(self.session)
-        self.movimentacoes_page.apply_permission(pode_movimentar)
-        self.sidebar.set_item_visible("movimentacoes", pode_movimentar)
-        pode_gerenciar_fornecedores = can_manage_suppliers(self.session)
-        self.sidebar.set_item_visible("fornecedores", pode_gerenciar_fornecedores)
-
-        if not pode_movimentar and self.pages.currentWidget() is self.movimentacoes_page:
-            self.show_page(DEFAULT_KEY)
-        if (
-            not pode_gerenciar_fornecedores
-            and self.pages.currentWidget() is self.suppliers_page
-        ):
-            self.show_page(DEFAULT_KEY)
+        # Menu: um laço sobre a matriz, não uma chamada por área. Área nova
+        # aparece ou some sozinha, conforme o `ver` que ela declarou.
+        for chave in self.sidebar.buttons:
+            self.sidebar.set_item_visible(chave, pode_ver(self.session, chave))
 
         # Relogin: a janela sobrevive ao logout, então o ADMIN pode ter
-        # deixado a tela de usuários na frente. Sem isto, o próximo usuário
-        # entraria já olhando para ela.
-        if not pode_gerenciar_usuarios and self.pages.currentWidget() is self.users_page:
-            self.show_page(DEFAULT_KEY)
+        # deixado uma tela restrita na frente. Sem isto, o próximo usuário
+        # entraria já olhando para ela. Vale para toda área, e não só para as
+        # três que alguém lembrou de listar.
+        atual = self.pages.currentWidget()
+        for chave, widget in self.page_widgets.items():
+            if widget is atual and not pode_ver(self.session, chave):
+                self.show_page(DEFAULT_KEY)
+                break
 
         self.sidebar.set_user(self.session)
         self.top_bar.set_user(self.session)

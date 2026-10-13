@@ -27,6 +27,7 @@ ALTER TABLE public.stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.role_change_log ENABLE ROW LEVEL SECURITY;
 
 -- register não tem coluna de empresa (tables/02_cash_register.sql: "Caixa.
 -- Independente das demais tabelas."), então não há como escopar por tenant.
@@ -61,9 +62,15 @@ GRANT SELECT ON public.company,
                 public.clients,
                 public.suppliers,
                 public.sales,
+                public.role_change_log,
                 public.vw_stock_situation,
                 public.vw_stock_alerts
   TO app_backend, authenticated;
+
+-- SELECT, e só. O log de permissões (H14) é escrito exclusivamente pelo
+-- trigger `trg_company_users_log_role`, que é SECURITY DEFINER e alcança a
+-- tabela como dono. Dar INSERT/UPDATE/DELETE aqui permitiria ao sistema
+-- auditado reescrever a própria auditoria.
 
 -- ----------------------------------------------------------------- policies
 
@@ -75,6 +82,7 @@ DROP POLICY IF EXISTS stock_movements_select ON public.stock_movements;
 DROP POLICY IF EXISTS clients_select          ON public.clients;
 DROP POLICY IF EXISTS sales_select            ON public.sales;
 DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
+DROP POLICY IF EXISTS role_change_log_select  ON public.role_change_log;
 
 -- Policy é por role: o GRANT acima deixa `authenticated` chegar à tabela, mas
 -- sem aparecer no TO da policy ela veria zero linha. O predicado é o MESMO
@@ -107,6 +115,13 @@ CREATE POLICY sales_select ON public.sales
 CREATE POLICY suppliers_select ON public.suppliers
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_has_role(company_id, ARRAY['ADMIN','STOCK']::public.user_role[]));
+
+-- Quem lê a auditoria de permissões é só o ADMIN da própria empresa — a
+-- mesma alçada de `fn_list_company_users`, porque o log diz exatamente quem
+-- recebeu qual acesso e quando.
+CREATE POLICY role_change_log_select ON public.role_change_log
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_has_role(company_id, ARRAY['ADMIN']::public.user_role[]));
 
 CREATE POLICY product_stock_select ON public.product_stock
   FOR SELECT TO app_backend, authenticated

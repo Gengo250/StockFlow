@@ -6,6 +6,10 @@ CREATE TABLE public.categories (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id  uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
     name        text NOT NULL CHECK (btrim(name) <> ''),
+    -- Autor da criação (H14), por fn_current_user_id(). Sem FK, como
+    -- stock_movements.created_by e sales.created_by: a autoria registra quem
+    -- agiu e precisa sobreviver à remoção da conta.
+    created_by  uuid,
     -- Escopado por empresa: duas empresas podem ter "Periféricos".
     UNIQUE (company_id, name),
     -- Alvo da FK composta de products, que garante que produto e categoria
@@ -31,6 +35,9 @@ CREATE TABLE public.products (
     low_stock_alert boolean NOT NULL DEFAULT true,
     image_data     text NOT NULL DEFAULT '' CHECK (length(image_data) <= 350000),
     active         boolean NOT NULL DEFAULT true,
+    -- Autor do cadastro (H14), por fn_current_user_id(). Ver nota em
+    -- categories.created_by sobre a ausência de FK.
+    created_by     uuid,
     created_on     timestamptz NOT NULL DEFAULT now(),
     UNIQUE (company_id, barcode),
     FOREIGN KEY (company_id, item_category)
