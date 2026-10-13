@@ -77,6 +77,9 @@ CREATE TABLE public.clients (
                         length(regexp_replace(phone, '\D', '', 'g')) IN (10, 11))),
     notes        text NOT NULL DEFAULT '',
     active       boolean NOT NULL DEFAULT true,
+    -- Autor do cadastro (H14), por fn_current_user_id(). Mesma ausência de FK
+    -- de sales.created_by, logo abaixo.
+    created_by   uuid,
     created_on   timestamptz NOT NULL DEFAULT now(),
     updated_on   timestamptz NOT NULL DEFAULT now(),
     CHECK (document IS NULL OR

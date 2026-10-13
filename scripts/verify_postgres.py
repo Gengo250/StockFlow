@@ -185,6 +185,45 @@ def exercise(dsn):
     with connect('seller_auth') as seller:
         check(len(PostgresAPI(seller).rpc('fn_my_companies',{}).execute().data)==1,'Reactivated account logs in again')
 
+    # H14: profiles and permissions. Authorship on business writes, and a
+    # history for every permission event. These run LAST because they change
+    # roles, and an earlier check reading a mutated role would measure
+    # something else.
+    rpc('fn_create_supplier',p_company_id=company,p_name='Fornecedor integração')
+    for table in ('products','categories','clients','suppliers'):
+        author=admin.execute(f'SELECT count(*) FROM {table} WHERE created_by=%s',(ids['user'],)).fetchone()[0]
+        check(author>0,f'{table} records the authenticated user who created the row')
+    # role_before IS NULL marks the creation of a link, so this counts links
+    # and not total events: the US05 section above already deactivated and
+    # reactivated the seller, and the trigger recorded both.
+    check(admin.execute('SELECT count(*) FROM role_change_log WHERE company_id=%s AND role_before IS NULL',
+                        (company,)).fetchone()[0]==3,'Every company link was recorded when created')
+    # Those US05 rows are the proof that the audit does not depend on going
+    # through a function: a plain UPDATE on company_users is recorded too.
+    check(admin.execute('SELECT count(*) FROM role_change_log WHERE target_user_id=%s AND role_before IS NOT NULL',
+                        (ids['seller'],)).fetchone()[0]==2,'A direct UPDATE on the link is audited as well')
+    # Promoting someone is the operation this story is about. The target is
+    # the STOCK account, never the last ADMIN: keep_admin would abort instead.
+    rpc('fn_save_company_member',p_company_id=company,p_user_id=str(ids['stock']),
+        p_email='stock@local.invalid',p_name='Estoquista',p_role='ADMIN',p_department='')
+    check(admin.execute('SELECT actor_id,role_before,role_after FROM role_change_log WHERE target_user_id=%s '
+                        'ORDER BY changed_on DESC LIMIT 1',(ids['stock'],)).fetchone()==(ids['user'],'STOCK','ADMIN'),
+          'Role assignment records actor, previous role and new role')
+    rpc('fn_toggle_company_user',p_user_id=str(ids['seller']),p_company_id=company,p_active=False)
+    check(admin.execute('SELECT actor_id,active_before,active_after FROM role_change_log WHERE target_user_id=%s '
+                        'ORDER BY changed_on DESC LIMIT 1',(ids['seller'],)).fetchone()==(ids['user'],True,False),
+          'Deactivating through another door is recorded too')
+    before=admin.execute('SELECT count(*) FROM role_change_log').fetchone()[0]
+    rpc('fn_set_company_user_department',p_company_id=company,p_user_id=str(ids['stock']),p_department='Compras')
+    check(admin.execute('SELECT count(*) FROM role_change_log').fetchone()[0]==before,
+          'Changing only the department is not a permission event')
+    check(connection.execute('SELECT count(*) FROM role_change_log').fetchone()[0]>0,'ADMIN reads its own company audit')
+    with connect('seller_auth') as seller:
+        check(seller.execute('SELECT count(*) FROM role_change_log').fetchone()[0]==0,'Non-admin cannot read the audit')
+    rejects(lambda:connection.execute('INSERT INTO role_change_log(company_id,target_user_id,role_after,active_after) '
+                                      'VALUES (%s,%s,%s,%s)',(company,ids['user'],'ADMIN',True)),
+            '42501','Not even an ADMIN writes the audit by hand')
+
     window.close()
     connection.close()
     admin.close()
