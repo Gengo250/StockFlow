@@ -23,6 +23,7 @@ from stockflow.domain.exceptions.product_not_found import ProductNotFoundError
 from stockflow.infrastructure.repositories.demo_product_repository import (
     DemoProductRepository,
 )
+from stockflow.presentation.styles import inventory
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.application.services.sale_service import SaleService
@@ -108,9 +109,20 @@ class VendasPage(QWidget):
         self.service = service or SaleService(
             DemoSaleRepository(), DemoClientRepository(), DemoProductRepository(self.products)
         )
-        self.clientes = [{"id": c.client_id, "nome": c.name, "status": c.status}
-                         for c in self.service.clients.list_all()]
-        self.historico_vendas = self.service.list_sales()
+        # A carga fica ISOLADA porque acontece dentro do construtor, e o
+        # construtor roda durante `MainWindow._create_pages`. Sem o try, uma
+        # consulta que falha aqui sobe até `MainWindow.__init__` e derruba a
+        # JANELA INTEIRA: o usuário autentica e recebe "Não foi possível abrir
+        # o StockFlow", sem Estoque, Produtos, Clientes nem Usuários — nenhum
+        # dos quais depende de vendas. Foi exatamente o que um banco sem a
+        # coluna `sales.client_name` provocou.
+        #
+        # Mesmo contrato de `SuppliersPage.reload_table`: guarda o erro, deixa
+        # as listas vazias e segue construindo a tela.
+        self.last_error = None
+        self.clientes = []
+        self.historico_vendas = []
+        self._carregar_dados()
 
 
         layout = QVBoxLayout(self)
@@ -190,19 +202,70 @@ class VendasPage(QWidget):
         self.table.setShowGrid(False)
         self.table.verticalHeader().hide()
 
+        # Mesma estratégia de `MovimentacoesPage`: o aviso ocupa o lugar da
+        # lista, e não um diálogo. Fechado o diálogo, o usuário ficaria diante
+        # de uma tabela vazia e concluiria que não há vendas.
+        self.load_error_label = QLabel()
+        self.load_error_label.setWordWrap(True)
+        self.load_error_label.setAccessibleName("Erro ao carregar vendas")
+        self.load_error_label.setStyleSheet(inventory.LOAD_ERROR_QSS)
+        self.load_error_label.setVisible(False)
+        table_layout.addWidget(self.load_error_label)
+
         table_layout.addWidget(self.table)
         layout.addWidget(table_card, 1)
 
         self.atualizar_tabela_historico()
+        self._mostrar_estado_da_carga()
         self.apply_session(session)
 
     def apply_session(self, session):
         self.session = session
         self.save_button.setEnabled(can_manage_clients(session))
 
+    def _carregar_dados(self):
+        """Lê clientes e histórico, registrando a falha em vez de propagá-la.
+
+        Devolve `True` quando as duas leituras passaram. Zera `last_error` no
+        sucesso: falha transitória não pode deixar a tela marcada como
+        quebrada para sempre.
+        """
+        try:
+            self.clientes = [
+                {"id": c.client_id, "nome": c.name, "status": c.status}
+                for c in self.service.clients.list_all()
+            ]
+            self.historico_vendas = self.service.list_sales()
+        except Exception as erro:
+            self.last_error = erro
+            # Listas vazias mantêm a tela utilizável; o aviso é que diz ao
+            # usuário que o vazio não é "não há vendas".
+            self.clientes = []
+            self.historico_vendas = []
+            return False
+        self.last_error = None
+        return True
+
+    def _mostrar_estado_da_carga(self):
+        """Falha fica NA ÁREA DA LISTA, como em Estoque e Movimentações.
+
+        Diálogo some ao ser fechado e deixa uma tabela vazia indistinguível de
+        "nenhuma venda registrada" — que é a leitura errada e a mais cara.
+        """
+        if self.last_error is None:
+            self.load_error_label.setVisible(False)
+            self.table.setVisible(True)
+            return
+        self.load_error_label.setText(
+            f"Não foi possível carregar o histórico de vendas.\n\n{self.last_error}"
+        )
+        self.load_error_label.setVisible(True)
+        self.table.setVisible(False)
+
     def reload_sales(self):
-        self.historico_vendas = self.service.list_sales()
+        self._carregar_dados()
         self.atualizar_tabela_historico()
+        self._mostrar_estado_da_carga()
 
     def recarregar_clientes_disponiveis(self):
         """Preenche o combo apenas com clientes ativos para novas associações.
