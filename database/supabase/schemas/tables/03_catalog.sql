@@ -39,6 +39,11 @@ CREATE TABLE public.products (
     -- categories.created_by sobre a ausência de FK.
     created_by     uuid,
     created_on     timestamptz NOT NULL DEFAULT now(),
+    -- Última edição (US09). `updated_on` é mantido pelo trigger de
+    -- triggers/01; `last_updated_by` é gravado por quem altera, e segue sem
+    -- FK pela mesma razão de created_by.
+    updated_on     timestamptz NOT NULL DEFAULT now(),
+    last_updated_by uuid,
     UNIQUE (company_id, barcode),
     FOREIGN KEY (company_id, item_category)
         REFERENCES public.categories (company_id, id)

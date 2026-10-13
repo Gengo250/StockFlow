@@ -68,7 +68,10 @@ class RPC:
 
     def execute(self):
         arguments = sql.SQL(',').join(sql.SQL('{} => %s').format(sql.Identifier(k)) for k in self.args)
-        values = [Jsonb(v) if isinstance(v, dict) else v for v in self.args.values()]
+        # list entra junto com dict: `fn_create_complete_sale` recebe os itens
+        # como ARRAY jsonb, e o PostgREST manda array JSON do mesmo jeito que
+        # manda objeto. Sem isto a chamada morre em 'cannot adapt type list'.
+        values = [Jsonb(v) if isinstance(v, (dict, list)) else v for v in self.args.values()]
         query = sql.SQL('SELECT * FROM public.{}({})').format(sql.Identifier(self.name), arguments)
         with self.connection.cursor(row_factory=dict_row) as cursor:
             cursor.execute(query, values)

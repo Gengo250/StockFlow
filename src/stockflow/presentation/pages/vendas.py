@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -26,11 +28,23 @@ from stockflow.infrastructure.repositories.demo_product_repository import (
 from stockflow.presentation.styles import inventory
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
-from stockflow.application.services.sale_service import SaleService
+from stockflow.application.services.sale_service import (
+    FORMAS_DE_PAGAMENTO,
+    SaleService,
+    parse_price,
+    parse_quantity,
+    parse_total,
+)
 from stockflow.infrastructure.repositories.demo_client_repository import DemoClientRepository
 from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
 from stockflow.domain.permissions import can_manage_clients
 
+
+
+def _em_reais(valor):
+    """Decimal -> "R$ 1.234,56", mesma grafia das linhas do histórico."""
+    texto = f"{valor:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    return f"R$ {texto}"
 
 
 class VendasPage(QWidget):
@@ -122,6 +136,10 @@ class VendasPage(QWidget):
         self.last_error = None
         self.clientes = []
         self.historico_vendas = []
+        # Carrinho da venda em montagem (US10). Vazio é o estado normal: a
+        # venda de um produto só continua sendo feita direto no formulário,
+        # sem obrigar a passar pelo carrinho para vender uma coisa.
+        self.itens = []
         self._carregar_dados()
 
 
@@ -164,9 +182,21 @@ class VendasPage(QWidget):
         self.recarregar_produtos_disponiveis()
         self.produto_combo.currentIndexChanged.connect(self._ao_selecionar_produto)
 
+        self.qtd_input = QLineEdit()
+        self.qtd_input.setPlaceholderText("Qtd")
+        self.qtd_input.setFixedHeight(42)
+
         self.val_input = QLineEdit()
         self.val_input.setPlaceholderText("Valor (R$)")
         self.val_input.setFixedHeight(42)
+
+        # Adicionar item é o que transforma a venda em multi-produto. Enquanto
+        # ninguém clica aqui, a tela se comporta como sempre se comportou.
+        self.add_button = btn_item = QPushButton(" Adicionar item")
+        btn_item.setObjectName("primaryButton")
+        btn_item.setFixedHeight(42)
+        btn_item.setIcon(qta.icon("fa5s.plus", color="white"))
+        btn_item.clicked.connect(self._adicionar_item)
 
         self.save_button = btn_salvar = QPushButton(" Finalizar Venda")
         btn_salvar.setObjectName("primaryButton")
@@ -176,9 +206,58 @@ class VendasPage(QWidget):
 
         row.addWidget(self.cliente_combo, 2)
         row.addWidget(self.produto_combo, 2)
+        row.addWidget(self.qtd_input, 1)
         row.addWidget(self.val_input, 1)
+        row.addWidget(btn_item, 1)
         row.addWidget(btn_salvar, 1)
         form_layout.addLayout(row)
+
+        # ------------------------------------------------------- carrinho
+        #
+        # Fica escondido enquanto está vazio: uma tabela vazia permanente
+        # sugere que a venda exige montar carrinho, e ela não exige.
+        self.itens_table = QTableWidget()
+        self.itens_table.setColumnCount(4)
+        self.itens_table.setHorizontalHeaderLabels(
+            ["Produto", "Qtd", "Preço unit.", "Subtotal"]
+        )
+        self.itens_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.itens_table.setShowGrid(False)
+        self.itens_table.verticalHeader().hide()
+        self.itens_table.setFixedHeight(140)
+        self.itens_table.setVisible(False)
+        form_layout.addWidget(self.itens_table)
+
+        fecho = QHBoxLayout()
+        fecho.setSpacing(12)
+
+        self.pagamento_combo = QComboBox()
+        self.pagamento_combo.setFixedHeight(42)
+        for forma in FORMAS_DE_PAGAMENTO:
+            self.pagamento_combo.addItem(forma.capitalize(), forma)
+
+        self.desconto_input = QLineEdit()
+        self.desconto_input.setPlaceholderText("Desconto (R$)")
+        self.desconto_input.setFixedHeight(42)
+
+        self.remove_button = btn_remover = QPushButton(" Remover último item")
+        btn_remover.setFixedHeight(42)
+        btn_remover.clicked.connect(self._remover_ultimo_item)
+
+        self.total_label = QLabel("")
+        self.total_label.setStyleSheet(
+            "color: #0F172A; font-size: 14px; font-weight: 600;"
+        )
+
+        fecho.addWidget(self.pagamento_combo, 1)
+        fecho.addWidget(self.desconto_input, 1)
+        fecho.addWidget(btn_remover, 1)
+        fecho.addWidget(self.total_label, 2)
+        self.fecho_widget = QWidget()
+        self.fecho_widget.setLayout(fecho)
+        self.fecho_widget.setVisible(False)
+        form_layout.addWidget(self.fecho_widget)
+
         form_layout.addWidget(self.warning_label)
 
         layout.addWidget(form_card)
@@ -221,7 +300,9 @@ class VendasPage(QWidget):
 
     def apply_session(self, session):
         self.session = session
-        self.save_button.setEnabled(can_manage_clients(session))
+        pode = can_manage_clients(session)
+        self.save_button.setEnabled(pode)
+        self.add_button.setEnabled(pode)
 
     def _carregar_dados(self):
         """Lê clientes e histórico, registrando a falha em vez de propagá-la.
@@ -411,6 +492,120 @@ class VendasPage(QWidget):
     def _ao_selecionar_cliente(self, index):
         self.warning_label.setText("")
 
+    def _produto_revalidado(self, escolhido):
+        """Revalida contra o catálogo mesmo vindo de um combo só de ativos.
+
+        O combo é uma foto do catálogo no momento da montagem, e a tela de
+        Estoque pode desativar o produto com a tela de Vendas aberta — sem
+        esta checagem a venda passaria assim mesmo.
+        """
+        try:
+            return self.product_selection.ensure_selectable(
+                escolhido["codigo"], OperationKind.VENDA
+            )
+        except (InactiveProductError, ProductNotFoundError) as erro:
+            # Recarregar primeiro: a recarga mexe no combo e o sinal de
+            # mudança limpa o aviso. Invertido, a mensagem sumiria na hora.
+            self.recarregar_produtos_disponiveis()
+            self.warning_label.setText(str(erro))
+            return None
+
+    def _adicionar_item(self):
+        escolhido = self.produto_combo.currentData()
+        if not escolhido:
+            self.warning_label.setText("Selecione um produto ativo válido.")
+            return
+
+        produto = self._produto_revalidado(escolhido)
+        if produto is None:
+            return
+
+        try:
+            quantidade = parse_quantity(self.qtd_input.text().strip() or "1")
+        except ValueError as erro:
+            self.warning_label.setText(str(erro))
+            return
+
+        # Mesmo produto duas vezes vira uma linha só: duas linhas do mesmo
+        # item somam igual no total, mas a conferência na tela fica pior.
+        for item in self.itens:
+            if item["codigo"] == produto.code:
+                item["quantidade"] += quantidade
+                break
+        else:
+            self.itens.append({
+                "codigo": produto.code,
+                "nome": produto.name,
+                "preco": produto.sale_price,
+                "quantidade": quantidade,
+            })
+
+        self.qtd_input.clear()
+        self.produto_combo.setCurrentIndex(0)
+        self.warning_label.setText("")
+        self._atualizar_carrinho()
+
+    def _remover_ultimo_item(self):
+        if self.itens:
+            self.itens.pop()
+            self._atualizar_carrinho()
+
+    def _atualizar_carrinho(self):
+        tem_itens = bool(self.itens)
+        self.itens_table.setVisible(tem_itens)
+        self.fecho_widget.setVisible(tem_itens)
+
+        self.itens_table.setRowCount(len(self.itens))
+        bruto = Decimal("0")
+        for linha, item in enumerate(self.itens):
+            preco = parse_price(item["preco"])
+            subtotal = preco * item["quantidade"]
+            bruto += subtotal
+            self.itens_table.setItem(linha, 0, QTableWidgetItem(item["nome"]))
+            self.itens_table.setItem(linha, 1, QTableWidgetItem(str(item["quantidade"])))
+            self.itens_table.setItem(linha, 2, QTableWidgetItem(_em_reais(preco)))
+            self.itens_table.setItem(linha, 3, QTableWidgetItem(_em_reais(subtotal)))
+
+        if not tem_itens:
+            self.total_label.setText("")
+            return
+
+        try:
+            desconto = parse_total(self.desconto_input.text().strip() or "0")
+        except ValueError:
+            # Desconto meio digitado não pode apagar o total: o valor some da
+            # tela justo enquanto o operador olha para ele.
+            desconto = Decimal("0")
+        total = bruto - desconto if desconto <= bruto else bruto
+        self.total_label.setText(f"Total: {_em_reais(total)}")
+
+    def _limpar_venda(self):
+        self.itens = []
+        self.val_input.clear()
+        self.qtd_input.clear()
+        self.desconto_input.clear()
+        self.cliente_combo.setCurrentIndex(0)
+        self.produto_combo.setCurrentIndex(0)
+        self.warning_label.setText("")
+        self._atualizar_carrinho()
+
+    def _registrar_venda_com_itens(self, client_id):
+        try:
+            nova_venda = self.service.register_sale(
+                self.session,
+                client_id,
+                [{"codigo": i["codigo"], "quantidade": i["quantidade"]}
+                 for i in self.itens],
+                self.pagamento_combo.currentData(),
+                self.desconto_input.text().strip() or "0",
+            )
+        except Exception as erro:
+            self.warning_label.setText(str(erro))
+            return
+        self.historico_vendas.insert(0, nova_venda)
+        self._limpar_venda()
+        self.atualizar_tabela_historico()
+
     def _registrar_venda(self):
         data = self.cliente_combo.currentData()
         escolhido = self.produto_combo.currentData()
@@ -423,23 +618,18 @@ class VendasPage(QWidget):
             self.warning_label.setText("Selecione um cliente ativo válido.")
             return
 
+        # Carrinho montado manda: a venda é a soma dos itens, com forma de
+        # pagamento e desconto, e o que estiver solto nos combos é ignorado.
+        if self.itens:
+            self._registrar_venda_com_itens(data["id"])
+            return
+
         if not escolhido:
             self.warning_label.setText("Selecione um produto ativo válido.")
             return
 
-        # Revalida contra o catálogo mesmo o produto tendo saído de um combo
-        # que só lista ativos. O combo é uma foto do catálogo no momento da
-        # montagem, e a tela de Estoque pode desativar o produto com a tela
-        # de Vendas aberta — sem esta checagem a venda passaria assim mesmo.
-        try:
-            produto = self.product_selection.ensure_selectable(
-                escolhido["codigo"], OperationKind.VENDA
-            )
-        except (InactiveProductError, ProductNotFoundError) as erro:
-            # Recarregar primeiro: a recarga mexe no combo e o sinal de
-            # mudança limpa o aviso. Invertido, a mensagem sumiria na hora.
-            self.recarregar_produtos_disponiveis()
-            self.warning_label.setText(str(erro))
+        produto = self._produto_revalidado(escolhido)
+        if produto is None:
             return
 
         if not valor:
@@ -454,10 +644,7 @@ class VendasPage(QWidget):
             self.warning_label.setText(str(erro))
             return
         self.historico_vendas.insert(0, nova_venda)
-        self.val_input.clear()
-        self.cliente_combo.setCurrentIndex(0)
-        self.produto_combo.setCurrentIndex(0)
-        self.warning_label.setText("")
+        self._limpar_venda()
         self.atualizar_tabela_historico()
 
     def atualizar_tabela_historico(self):

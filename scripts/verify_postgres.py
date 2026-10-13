@@ -128,19 +128,32 @@ def exercise(dsn):
     sale.val_input.setText('25,90')
     sale.save_button.click()
     check(admin.execute('SELECT count(*),sum(total) FROM sales').fetchone()==(1,__import__('decimal').Decimal('25.90')),'Qt sale persisted and reread independently')
+    # US10: venda virou cabeçalho + itens, e concluí-la baixa o estoque por
+    # movimentação. As duas coisas são conferidas por conexão independente
+    # porque é justamente o que um teste com cliente falso não alcança.
+    sale_id=admin.execute('SELECT id FROM sales').fetchone()[0]
+    check(admin.execute('SELECT count(*),sum(subtotal) FROM sale_items WHERE sale_id=%s',(sale_id,)).fetchone()==(1,__import__('decimal').Decimal('25.90')),'Sale header carries its item')
+    check(admin.execute("SELECT status FROM sales WHERE id=%s",(sale_id,)).fetchone()[0]=='CONCLUIDA','Sale is closed by fn_register_sale')
+    check(admin.execute('SELECT count(*) FROM sales_log WHERE sale_id=%s',(sale_id,)).fetchone()[0]==1,'Closing the sale stamps sales_log')
+    check(admin.execute("SELECT kind,quantity,status FROM stock_movements WHERE sale_id=%s",(sale_id,)).fetchone()==('SAIDA',1,'CONFIRMADA'),'Closing the sale registers a confirmed outflow linked to it')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Sale reduced the balance through the movement')
     client=clients[0]
     window.clientes_page.service.set_active(client.client_id,False)
     rejects(lambda:rpc('fn_register_sale',p_company_id=company,p_client_id=client.client_id,p_product_id=product_id,p_total='1'),'23503','SQL refuses inactive client')
     window.clientes_page.service.set_active(client.client_id,True)
     rejects(lambda:rpc('fn_register_sale',p_company_id=company,p_client_id=client.client_id,p_product_id=product_id,p_total='NaN'),'23514','SQL refuses NaN total')
+    # US10: vender exige ter o que entregar. A conferência é do gatilho de
+    # conclusão, e a venda inteira volta atrás.
+    rejects(lambda:rpc('fn_create_complete_sale',p_company_id=company,p_client_id=client.client_id,p_items=[{'product_id':product_id,'quantity':999}]),'23514','SQL refuses a sale larger than the balance')
+    check(admin.execute('SELECT count(*) FROM sales').fetchone()[0]==1,'Refused sale leaves no header behind')
     movement=window.movement_service.register(session,MovementInput(code,MovementKind.SAIDA,1))
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==3,'Pending movement does not change stock')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Pending movement does not change stock')
     window._confirmar_movimentacao(movement)
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Qt confirmation changes balance')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==1,'Qt confirmation changes balance')
     window._cancelar_movimentacao(movement)
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==3,'Qt cancellation restores balance')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Qt cancellation restores balance')
     rejects(lambda:rpc('fn_register_movement',p_company_id=company,p_product_id=product_id,p_kind='SAIDA',p_quantity=4,p_confirm=True),'23514','SQL refuses negative balance atomically')
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==3,'Rejected movement leaves balance intact')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Rejected movement leaves balance intact')
     window.product_repository.set_active(code,False)
     rejects(lambda:rpc('fn_register_movement',p_company_id=company,p_product_id=product_id,p_kind='ENTRADA',p_quantity=1),'23503','SQL refuses inactive product')
     window.product_repository.set_active(code,True)
@@ -169,7 +182,7 @@ def exercise(dsn):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results=list(pool.map(withdraw,range(2)))
     check(sorted(results)==['23514','ok'],'Concurrent withdrawals serialize; only one fits balance')
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==1,'Concurrent final stock remains consistent')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==0,'Concurrent final stock remains consistent')
 
     # US05: login resolves company and role only for an ACTIVE link. The app
     # denies the account here, not in the screens: fn_my_companies feeds the

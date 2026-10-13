@@ -9,6 +9,26 @@ def sale_row(sale_id, client_name, product_code, product_name, total, created_on
             "total": str(total)}
 
 
+def resumo_dos_itens(itens):
+    """Reduz os itens de uma venda ao par (código, descrição) da listagem.
+
+    O histórico tem uma linha por VENDA, não por item, e a coluna "Produto"
+    tem largura de nome de produto. Com um item só a linha continua idêntica
+    ao que a tela mostrava quando venda era sinônimo de produto; com vários,
+    o código perde sentido e sai de cena, porque não existe "o" código de uma
+    venda de três produtos.
+    """
+    if not itens:
+        return "", "—"
+    if len(itens) == 1:
+        item = itens[0]
+        nome = item["product_name"]
+        if int(item.get("quantity", 1)) > 1:
+            nome = f"{int(item['quantity'])}x {nome}"
+        return item["product_code"], nome
+    return "", f"{len(itens)} itens"
+
+
 class DemoSaleRepository:
     def __init__(self):
         self.rows = [
@@ -21,6 +41,17 @@ class DemoSaleRepository:
 
     def register(self, client, product, total):
         row = sale_row(uuid4(), client.name, product.code, product.name, total,
+                       datetime.now().strftime("%d/%m/%Y %H:%M"))
+        self.rows.insert(0, row)
+        return row
+
+    def register_items(self, client, itens, payment_method, discount, total):
+        codigo, descricao = resumo_dos_itens([
+            {"product_name": i["product"].name, "product_code": i["product"].code,
+             "quantity": i["quantity"]}
+            for i in itens
+        ])
+        row = sale_row(uuid4(), client.name, codigo, descricao, total,
                        datetime.now().strftime("%d/%m/%Y %H:%M"))
         self.rows.insert(0, row)
         return row
