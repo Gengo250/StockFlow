@@ -135,3 +135,56 @@ BEGIN
      WHERE id = p_movement_id;
 END;
 $$;
+
+-- Edição de estoque pelo código de barras (US09).
+--
+-- É um ATALHO sobre fn_register_movement, não um caminho paralelo: escrever
+-- `products.stock` aqui seria desfeito pelo recálculo do trigger de
+-- triggers/04 na movimentação seguinte, e o saldo passaria a depender de qual
+-- caminho foi usado por último.
+--
+-- Não recebe o usuário por parâmetro de propósito: a autoria sai de
+-- fn_current_user_id(), como em todo o resto desta árvore. Recebê-lo deixaria
+-- o chamador registrar a alteração em nome de outra pessoa.
+--
+-- `p_company_id` é obrigatório porque barcode só é único DENTRO da empresa
+-- (UNIQUE (company_id, barcode) em tables/03_catalog.sql).
+CREATE OR REPLACE FUNCTION public.fn_edit_product_stock(
+    p_company_id uuid,
+    p_barcode    text,
+    p_quantity   integer,
+    p_note       text DEFAULT NULL
+) RETURNS uuid
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_product_id uuid;
+    v_movement   uuid;
+BEGIN
+    IF p_quantity IS NULL OR p_quantity <= 0 THEN
+        RAISE EXCEPTION 'Quantidade deve ser maior que zero (recebida: %)', p_quantity
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    SELECT id INTO v_product_id
+      FROM public.products
+     WHERE company_id = p_company_id AND barcode = p_barcode AND active;
+    IF v_product_id IS NULL THEN
+        RAISE EXCEPTION 'Produto não encontrado ou inativo nesta empresa: %', p_barcode
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+
+    -- A permissão (ADMIN/STOCK) e o vínculo produto-empresa são conferidos
+    -- aqui dentro; repetir a checagem antes seria uma segunda regra para
+    -- manter em dia.
+    v_movement := public.fn_register_movement(
+        p_company_id, v_product_id, 'ENTRADA', p_quantity,
+        COALESCE(p_note, 'Entrada manual de estoque'), true);
+
+    UPDATE public.products
+       SET last_updated_by = public.fn_current_user_id()
+     WHERE id = v_product_id;
+
+    RETURN v_movement;
+END;
+$$;

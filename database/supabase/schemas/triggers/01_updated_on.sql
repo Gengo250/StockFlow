@@ -14,3 +14,5 @@ CREATE TRIGGER trg_product_stock_updated BEFORE UPDATE ON public.product_stock
     FOR EACH ROW EXECUTE FUNCTION public.trg_set_updated_on();
 CREATE TRIGGER trg_clients_updated BEFORE UPDATE ON public.clients
     FOR EACH ROW EXECUTE FUNCTION public.trg_set_updated_on();
+CREATE TRIGGER trg_products_updated BEFORE UPDATE ON public.products
+    FOR EACH ROW EXECUTE FUNCTION public.trg_set_updated_on();
