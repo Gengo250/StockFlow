@@ -78,10 +78,11 @@ BEGIN
             USING ERRCODE = 'check_violation';
     END IF;
 
-    INSERT INTO public.suppliers (company_id, name, document, phone, email, address)
+    INSERT INTO public.suppliers (company_id, name, document, phone, email, address,
+                                  created_by)
     VALUES (p_company_id, btrim(p_name), v_document,
             btrim(COALESCE(p_phone, '')), btrim(COALESCE(p_email, '')),
-            btrim(COALESCE(p_address, '')))
+            btrim(COALESCE(p_address, '')), public.fn_current_user_id())
     RETURNING id INTO v_id;
     RETURN v_id;
 END;

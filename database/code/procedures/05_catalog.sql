@@ -26,11 +26,13 @@ BEGIN
 
   INSERT INTO public.categories (
     company_id,
-    name
+    name,
+    created_by
   )
   VALUES (
     p_company_id,
-    p_name
+    p_name,
+    public.fn_current_user_id()
   )
   RETURNING id INTO v_new_id;
 
@@ -72,10 +74,12 @@ BEGIN
 
   -- Nasce com saldo zero; o saldo informado vira a primeira movimentação.
   INSERT INTO public.products (
-    company_id, barcode, name, buy_price, sell_price, unit, stock, item_category
+    company_id, barcode, name, buy_price, sell_price, unit, stock, item_category,
+    created_by
   )
   VALUES (
-    p_company_id, p_barcode, p_name, p_buy_price, p_sell_price, p_unit, 0, v_category_id
+    p_company_id, p_barcode, p_name, p_buy_price, p_sell_price, p_unit, 0, v_category_id,
+    public.fn_current_user_id()
   )
   RETURNING id into v_new_id;
 

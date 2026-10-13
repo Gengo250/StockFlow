@@ -9,6 +9,9 @@ CREATE TABLE public.suppliers (
     email       text NOT NULL DEFAULT '',
     address     text NOT NULL DEFAULT '',
     active      boolean NOT NULL DEFAULT true,
+    -- Autor do cadastro (H14), por fn_current_user_id(). Sem FK, como as
+    -- demais colunas de autoria do projeto.
+    created_by  uuid,
     created_on  timestamptz NOT NULL DEFAULT now(),
     updated_on  timestamptz NOT NULL DEFAULT now(),
     CHECK (document IS NULL OR
