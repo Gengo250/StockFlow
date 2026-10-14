@@ -14,6 +14,7 @@ aconteceu. Para o caso comum, lançar algo que já ocorreu, há o atalho
 
 import qtawesome as qta
 from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
@@ -24,6 +25,7 @@ from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.enums.movement_status import MovementStatus
 from stockflow.domain.product_status import selectable_products
 from stockflow.presentation.styles import inventory
+from stockflow.presentation.widgets.form_fields import _card, _card_header, _field, FIELD_QSS
 
 COLUMNS = ("Produto", "Espécie", "Quantidade", "Situação", "Observação",
            "Quando", "Fornecedor", "Ações")
@@ -55,7 +57,7 @@ class MovimentacoesPage(QWidget):
     def __init__(self, products=None):
         super().__init__()
         self.setObjectName("movimentacoesPage")
-        self.setStyleSheet(inventory.PAGE_QSS)
+        self.setStyleSheet("QWidget#movimentacoesPage { background: #F0F5FF; } QLabel { background: transparent; border: none; }")
 
         # O MESMO dict da janela, nunca uma cópia. É essa identidade que faz
         # um produto desativado no Estoque sair da oferta aqui na hora — a
@@ -67,7 +69,7 @@ class MovimentacoesPage(QWidget):
         self._suppliers = ()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setContentsMargins(26, 24, 26, 24)
         layout.setSpacing(18)
         layout.addLayout(self._create_header())
         layout.addWidget(self._create_form())
@@ -76,14 +78,14 @@ class MovimentacoesPage(QWidget):
         self.list_state_label = QLabel()
         self.list_state_label.setWordWrap(True)
         self.list_state_label.setStyleSheet(inventory.LIST_STATE_QSS)
-        layout.addWidget(self.list_state_label)
+        self.table.parentWidget().layout().insertWidget(3, self.list_state_label)
 
         self.load_error_label = QLabel()
         self.load_error_label.setWordWrap(True)
         self.load_error_label.setAccessibleName("Erro ao carregar movimentações")
         self.load_error_label.setStyleSheet(inventory.LOAD_ERROR_QSS)
         self.load_error_label.setVisible(False)
-        layout.addWidget(self.load_error_label)
+        self.table.parentWidget().layout().insertWidget(3, self.load_error_label)
 
         self.reload_products(self.products)
         self.set_movements(())
@@ -95,27 +97,27 @@ class MovimentacoesPage(QWidget):
     def _create_header(self):
         layout = QHBoxLayout()
         textos = QVBoxLayout()
-        textos.setSpacing(2)
-        titulo = QLabel("Movimentações de Estoque")
+        textos.setSpacing(4)
+        textos.setContentsMargins(0, 0, 0, 0)
+        titulo = QLabel("Movimentações")
         titulo.setStyleSheet(inventory.TITLE_QSS)
         self.subtitle = QLabel("Entradas e saídas que compõem o saldo")
         self.subtitle.setStyleSheet(inventory.SUBTITLE_QSS)
+        self.subtitle.setWordWrap(True)
         textos.addWidget(titulo)
         textos.addWidget(self.subtitle)
         container = QWidget()
         container.setLayout(textos)
-        layout.addWidget(container)
-        layout.addStretch()
+        layout.addWidget(container, 1)
         return layout
 
     def _create_form(self):
-        card = QFrame()
-        card.setObjectName("card")
-        card.setStyleSheet(inventory.TABLE_CARD_QSS)
-        fora = QVBoxLayout(card)
+        card = _card("movementForm")
+        fora = card.layout()
         fora.setContentsMargins(18, 16, 18, 16)
         fora.setSpacing(10)
 
+        fora.addLayout(_card_header("fa5s.exchange-alt", "Nova movimentação", "Registre uma intenção ou confirme para atualizar o saldo."))
         linha = QHBoxLayout()
         linha.setSpacing(10)
 
@@ -159,32 +161,74 @@ class MovimentacoesPage(QWidget):
             lambda: self._registrar(confirmar=True)
         )
 
-        linha.addWidget(self.produto_combo, 3)
-        linha.addWidget(self.especie_combo, 1)
-        linha.addWidget(self.fornecedor_combo, 2)
-        linha.addWidget(self.quantidade_input, 1)
-        linha.addWidget(self.nota_input, 3)
-        linha.addWidget(self.registrar_button, 1)
-        linha.addWidget(self.registrar_confirmar_button, 1)
+        for label, widget, stretch in (
+            ("Produto", self.produto_combo, 4),
+            ("Tipo de movimentação", self.especie_combo, 2),
+            ("Quantidade", self.quantidade_input, 1),
+        ):
+            field = _field(label)
+            field.layout().addWidget(widget)
+            linha.addWidget(field, stretch)
         fora.addLayout(linha)
+        details = QHBoxLayout()
+        for label, widget in (("Fornecedor da entrada", self.fornecedor_combo), ("Observação", self.nota_input)):
+            field = _field(label)
+            field.layout().addWidget(widget)
+            details.addWidget(field, 1)
+        fora.addLayout(details)
+        for widget in (self.produto_combo, self.especie_combo, self.fornecedor_combo, self.quantidade_input, self.nota_input):
+            widget.setStyleSheet(FIELD_QSS.format(widget=type(widget).__name__))
+            if isinstance(widget, QComboBox):
+                widget.setStyleSheet(widget.styleSheet() + "QComboBox::drop-down { border: none; width: 28px; }")
+                widget.setMinimumWidth(0)
+                widget.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        actions = QHBoxLayout()
+        actions.addStretch()
+        self.registrar_button.setText("Salvar como pendente")
+        self.registrar_button.setStyleSheet(inventory.FILTER_QSS)
+        for button in (self.registrar_button, self.registrar_confirmar_button):
+            button.setCursor(Qt.PointingHandCursor)
+            actions.addWidget(button)
+        fora.addLayout(actions)
 
         self.warning_label = QLabel("")
         self.warning_label.setStyleSheet(
             "color: #EF4444; font-size: 12px; font-weight: 500;"
         )
+        self.warning_label.setWordWrap(True)
         fora.addWidget(self.warning_label)
         return card
 
     def _create_table(self):
-        card = QFrame()
-        card.setStyleSheet(inventory.TABLE_CARD_QSS)
-        fora = QVBoxLayout(card)
-        fora.setContentsMargins(0, 0, 0, 0)
+        card = _card("movementHistory")
+        fora = card.layout()
+        fora.addLayout(_card_header("fa5s.history", "Histórico de movimentações", "Confirmadas são protegidas contra edição e exclusão; cancelar mantém o histórico."))
+        filters = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Buscar produto, fornecedor ou observação…")
+        self.search_input.setAccessibleName("Buscar movimentações")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.addAction(qta.icon("fa5s.search", color="#94A3B8"), QLineEdit.LeadingPosition)
+        self.search_input.setFixedHeight(40)
+        self.search_input.setStyleSheet(inventory.SEARCH_QSS)
+        self.status_filter = QComboBox()
+        self.status_filter.addItems(["Todas as situações", *STATUS_COLORS])
+        self.status_filter.setAccessibleName("Filtrar por situação")
+        self.status_filter.setFixedHeight(40)
+        self.status_filter.setStyleSheet(FIELD_QSS.format(widget="QComboBox") + "QComboBox::drop-down { border: none; width: 28px; }")
+        filters.addWidget(self.search_input, 1)
+        filters.addWidget(self.status_filter)
+        fora.addLayout(filters)
+        self.search_input.textChanged.connect(self._filter_rows)
+        self.status_filter.currentIndexChanged.connect(self._filter_rows)
+        self.result_count = QLabel()
+        self.result_count.setStyleSheet("color: #64748B; font-size: 12px;")
 
         self.table = QTableWidget(0, len(COLUMNS))
         self.table.setHorizontalHeaderLabels(list(COLUMNS))
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.verticalHeader().hide()
         self.table.setShowGrid(False)
         self.table.setStyleSheet(inventory.TABLE_QSS)
@@ -192,7 +236,8 @@ class MovimentacoesPage(QWidget):
         cabecalho.setSectionResizeMode(QHeaderView.ResizeToContents)
         cabecalho.setSectionResizeMode(COLUMNS.index("Observação"), QHeaderView.Stretch)
         self.table.verticalHeader().setDefaultSectionSize(56)
-        fora.addWidget(self.table)
+        fora.addWidget(self.table, 1)
+        fora.addWidget(self.result_count)
         return card
 
     # ======================================================
@@ -253,19 +298,40 @@ class MovimentacoesPage(QWidget):
 
         for row, mov in enumerate(self.movimentacoes):
             produto = QTableWidgetItem(f"{mov[MOV_CODE]} — {mov[MOV_NAME]}")
-            produto.setForeground(Qt.blue)
+            produto.setForeground(QColor("#1D4ED8"))
             self.table.setItem(row, 0, produto)
             self.table.setItem(row, 1, QTableWidgetItem(str(mov[MOV_KIND])))
             self.table.setItem(row, 2, QTableWidgetItem(str(mov[MOV_QTY])))
-            self.table.setItem(row, 3, QTableWidgetItem(str(mov[MOV_STATUS])))
+            status = QTableWidgetItem(str(mov[MOV_STATUS]))
+            foreground, background = STATUS_COLORS.get(str(mov[MOV_STATUS]), ("#64748B", "#F8FAFC"))
+            status.setForeground(QColor(foreground))
+            status.setBackground(QColor(background))
+            status.setTextAlignment(Qt.AlignCenter)
+            self.table.setItem(row, 3, status)
+            self.table.item(row, 2).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.table.setItem(row, 4, QTableWidgetItem(str(mov[MOV_NOTE] or "—")))
             self.table.setItem(row, 5, QTableWidgetItem(str(mov[MOV_WHEN])))
             supplier_name = str(mov[8]) if len(mov) > 8 else "—"
             self.table.setItem(row, 6, QTableWidgetItem(supplier_name))
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._acoes(mov))
+            for column in range(ACTIONS_COLUMN):
+                item = self.table.item(row, column)
+                item.setToolTip(item.text())
 
         self.table.setVisible(True)
+        self._filter_rows()
         self._atualizar_vazio()
+
+    def _filter_rows(self, *_):
+        query = self.search_input.text().strip().casefold()
+        status = self.status_filter.currentText()
+        visible = 0
+        for row, movement in enumerate(self.movimentacoes):
+            matches = query in " ".join(str(value) for value in movement[1:]).casefold()
+            matches = matches and (self.status_filter.currentIndex() == 0 or str(movement[MOV_STATUS]) == status)
+            self.table.setRowHidden(row, not matches)
+            visible += matches
+        self.result_count.setText(f"{visible} de {len(self.movimentacoes)} movimentações" if visible or not self.movimentacoes else "Nenhuma movimentação corresponde aos filtros.")
 
     def show_load_error(self, erro):
         """Falha fica NA ÁREA DA LISTA, pelo mesmo motivo da tela de Estoque.
@@ -332,7 +398,8 @@ class MovimentacoesPage(QWidget):
     def _botao(icone, dica, cor_hover):
         botao = QPushButton()
         botao.setIcon(qta.icon(icone, color="#94A3B8"))
-        botao.setFixedSize(28, 28)
+        botao.setFixedSize(32, 32)
+        botao.setCursor(Qt.PointingHandCursor)
         botao.setToolTip(dica)
         botao.setAccessibleName(dica)
         botao.setStyleSheet(

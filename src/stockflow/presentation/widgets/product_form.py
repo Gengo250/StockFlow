@@ -84,7 +84,9 @@ class BasicInfoCard(FormCard):
         self.new_category_button = QPushButton("Nova")
         self.new_category_button.setObjectName("secondaryButton")
         self.new_category_button.setToolTip("Cadastrar uma categoria nesta empresa")
-        self.new_category_button.setFixedHeight(self.category_input.sizeHint().height())
+        self.new_category_button.setFixedHeight(42)
+        self.new_category_button.setCursor(Qt.PointingHandCursor)
+        self.new_category_button.setStyleSheet("QPushButton { color: #2563EB; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 0 12px; } QPushButton:hover { background: #DBEAFE; } QPushButton:disabled { color: #94A3B8; }")
         category_row.addWidget(self.category_input, 1)
         category_row.addWidget(self.new_category_button)
         category.layout().addLayout(category_row)
@@ -366,21 +368,34 @@ class BeforeRegisterCard(QFrame):
         return container
 
 
-class ProductImageCard(QFrame):
+class ProductImageCard(FormCard):
     """Miniatura JPEG limitada, persistida junto ao produto."""
     def __init__(self):
-        super().__init__()
+        super().__init__("productImageCard")
         self.image_data = ""
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Imagem do produto"))
-        self.preview = QLabel("Sem imagem")
+        layout = self.content_layout
+        layout.addLayout(_card_header("fa5s.image", "Imagem do produto", "Identificação visual no catálogo."))
+        layout.addWidget(_divider())
+        self.preview = QLabel("Nenhuma imagem selecionada")
         self.preview.setAlignment(Qt.AlignCenter)
-        self.preview.setMinimumHeight(160)
+        self.preview.setMinimumSize(220, 200)
+        self.preview.setStyleSheet("background: #F8FAFC; color: #64748B; border: 1px dashed #CBD5E1; border-radius: 12px;")
         layout.addWidget(self.preview)
+        hint = QLabel("PNG, JPG ou WebP • Até 10 MB")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #64748B; font-size: 12px;")
+        layout.addWidget(hint)
         self.choose_button = QPushButton("Selecionar imagem")
-        self.remove_button = QPushButton("Remover imagem")
+        self.choose_button.setIcon(qta.icon("fa5s.upload", color="#2563EB"))
+        self.remove_button = QPushButton("Remover")
+        self.remove_button.setIcon(qta.icon("fa5s.trash-alt", color="#64748B"))
+        for button in (self.choose_button, self.remove_button):
+            button.setFixedHeight(40)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setStyleSheet("QPushButton { background: white; color: #334155; border: 1px solid #CBD5E1; border-radius: 8px; padding: 0 12px; } QPushButton:hover { background: #EFF6FF; } QPushButton:focus { border: 2px solid #93C5FD; } QPushButton:disabled { color: #94A3B8; background: #F8FAFC; }")
         layout.addWidget(self.choose_button)
         layout.addWidget(self.remove_button)
+        self.remove_button.setEnabled(False)
         self.choose_button.clicked.connect(self.choose_image)
         self.remove_button.clicked.connect(lambda: self.set_image_data(""))
 
@@ -423,8 +438,10 @@ class ProductImageCard(QFrame):
             image.loadFromData(base64.b64decode(self.image_data, validate=True))
         except (ValueError, TypeError):
             pass
+        self.remove_button.setEnabled(bool(self.image_data))
+        self.choose_button.setText("Trocar imagem" if not image.isNull() else "Selecionar imagem")
         if image.isNull():
             self.preview.clear()
-            self.preview.setText("Sem imagem")
+            self.preview.setText("Nenhuma imagem selecionada")
         else:
             self.preview.setPixmap(QPixmap.fromImage(image).scaled(240, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation))

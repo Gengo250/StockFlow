@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.set_suppliers(fornecedores)
 
         self.dashboard_page = DashboardPage(self.product_repository, self.sale_repository, self.client_repository)
+        self.dashboard_page.navigate_requested.connect(self.show_page)
         self.reports_page = ReportsPage(self.product_repository, self.sale_repository)
         self.settings_page = SettingsPage(self.session)
         # A ordem de insercao reproduz os indices originais de main.py

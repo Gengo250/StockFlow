@@ -1,7 +1,7 @@
 import qtawesome as qta
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from stockflow.application.dto.product_input import ProductInput
 from stockflow.domain.stock_level import to_min
@@ -107,9 +107,11 @@ class NovoProdutoPage(QWidget):
         scroll_layout.addStretch()
         scroll.setWidget(scroll_container)
         page_layout.addWidget(scroll)
+        page_layout.addWidget(self.actions_bar)
 
     def _create_columns(self):
-        columns = QHBoxLayout()
+        columns = QBoxLayout(QBoxLayout.LeftToRight)
+        self.columns_layout = columns
         columns.setSpacing(22)
         columns.setContentsMargins(0, 0, 0, 0)
 
@@ -126,6 +128,7 @@ class NovoProdutoPage(QWidget):
         left_layout.addStretch()
 
         right = QWidget()
+        self.side_column = right
         right.setMaximumWidth(430)
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
@@ -142,6 +145,12 @@ class NovoProdutoPage(QWidget):
         columns.addWidget(right, 3)
         self._expose_form_fields()
         return columns
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        compact = self.width() < 1000
+        self.columns_layout.setDirection(QBoxLayout.TopToBottom if compact else QBoxLayout.LeftToRight)
+        self.side_column.setMaximumWidth(16777215 if compact else 430)
 
     def _expose_form_fields(self):
         groups = (
@@ -223,9 +232,12 @@ class NovoProdutoPage(QWidget):
         left_layout.addWidget(subtitle)
         left_layout.addWidget(self.permission_warning)
 
-        actions = QWidget()
+        actions = QFrame()
+        self.actions_bar = actions
+        actions.setObjectName("productActions")
+        actions.setStyleSheet("QFrame#productActions { background: white; border-top: 1px solid #DBEAFE; }")
         actions_layout = QHBoxLayout(actions)
-        actions_layout.setContentsMargins(0, 0, 0, 0)
+        actions_layout.setContentsMargins(26, 14, 26, 14)
         actions_layout.setSpacing(10)
         self.cancel_button = self._action_button("Cancelar", """
             QPushButton {
@@ -269,17 +281,19 @@ class NovoProdutoPage(QWidget):
         self.save_button.setIcon(qta.icon("fa5s.check", color="white"))
         self.save_button.setIconSize(QSize(13, 13))
         actions_layout.addWidget(self.cancel_button)
+        actions_layout.addStretch()
         actions_layout.addWidget(self.draft_button)
         actions_layout.addWidget(self.save_button)
         layout.addWidget(left, 1)
-        layout.addWidget(actions, 0, Qt.AlignTop)
+
         return header
 
     @staticmethod
     def _action_button(text, style):
         button = QPushButton(text)
         button.setFixedHeight(40)
-        button.setStyleSheet(style)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setStyleSheet(style + "QPushButton:disabled { background: #E2E8F0; color: #64748B; } QPushButton:focus { border: 2px solid #93C5FD; }")
         return button
 
     def apply_permission(self, pode_escrever: bool):

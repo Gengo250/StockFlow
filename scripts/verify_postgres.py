@@ -108,6 +108,41 @@ def exercise(dsn):
     check(row and row[1:] == (3,'Descrição persistida','12345678','1234567890123','Prateleira A',False),'Independent connection rereads all product fields and initial movement')
     product_id=str(row[0])
     check(len(window.product_repository.list_alerts())==1,'Alert view has barcode and correct minimum')
+    # H13: privileged direct writes must obey the same history protection.
+    supplier_id = rpc('fn_create_supplier', p_company_id=company, p_name='Fornecedor H13')
+    guarded = rpc('fn_register_supplier_movement', p_company_id=company,
+                  p_product_id=product_id, p_kind='ENTRADA', p_quantity=1,
+                  p_supplier_id=supplier_id, p_confirm=True)
+    before = admin.execute('SELECT to_jsonb(m) FROM stock_movements m WHERE id=%s', (guarded,)).fetchone()[0]
+    check(str(before['supplier_id']) == str(supplier_id), 'H13 confirmed entry retains supplier')
+    changes = ["quantity = quantity + 1", "note = 'changed'", "kind = 'SAIDA'",
+               "status = 'PENDENTE'", "confirmed_on = NULL", "supplier_id = NULL",
+               "created_by = NULL", "created_on = now()", "id = gen_random_uuid()"]
+    for change in changes:
+        rejects(lambda change=change: admin.execute(
+            'UPDATE stock_movements SET ' + change + ' WHERE id=%s', (guarded,)),
+            '23514', 'H13 refuses ' + change)
+    rejects(lambda: admin.execute('DELETE FROM stock_movements WHERE id=%s', (guarded,)),
+            '23514', 'H13 refuses confirmed deletion')
+    check(admin.execute('SELECT to_jsonb(m) FROM stock_movements m WHERE id=%s', (guarded,)).fetchone()[0] == before,
+          'H13 refusals preserve every original field')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s', (product_id,)).fetchone()[0] == 4,
+          'H13 refusals preserve balance')
+    rpc('fn_cancel_movement', p_movement_id=guarded)
+    check(admin.execute('SELECT stock FROM products WHERE id=%s', (product_id,)).fetchone()[0] == 3,
+          'H13 cancellation still reverses balance')
+    for statement in ('DELETE FROM stock_movements WHERE id=%s',
+                      "UPDATE stock_movements SET status='CONFIRMADA' WHERE id=%s",
+                      "UPDATE stock_movements SET note='changed' WHERE id=%s"):
+        rejects(lambda statement=statement: admin.execute(statement, (guarded,)),
+                '23514', 'H13 cancelled confirmed history remains immutable')
+    pending = rpc('fn_register_movement', p_company_id=company, p_product_id=product_id,
+                  p_kind='ENTRADA', p_quantity=1)
+    admin.execute("UPDATE stock_movements SET note='draft' WHERE id=%s", (pending,))
+    admin.execute('DELETE FROM stock_movements WHERE id=%s', (pending,))
+    check(admin.execute('SELECT stock FROM products WHERE id=%s', (product_id,)).fetchone()[0] == 3,
+          'H13 pending-only edits and deletion do not change balance')
+
     window._show_edit_product(window.products[code])
     form=window.editar_produto_page
     form.description_input.setPlainText('Descrição editada')
