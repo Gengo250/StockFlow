@@ -237,3 +237,122 @@ def test_falha_ao_carregar_aparece_na_area_da_lista(qapp):
         assert not page.table.isVisibleTo(page)
     finally:
         page.close()
+
+
+# ------------------------------------------------------------- ajuste (H11)
+
+from stockflow.application.dto.adjustment_input import AdjustmentInput
+from stockflow.domain.enums.adjustment_reason import AdjustmentReason
+
+
+def catalogo_para_ajuste():
+    from stockflow.presentation.demo_products import Product
+
+    return {"P1": Product("P1", "Arroz", "Grãos", "UN", "10,00", "5,00",
+                          True, "42", "Normal")}
+
+
+def selecionar_produto_de_ajuste(page, code="P1"):
+    page.ajuste_produto_combo.setCurrentIndex(
+        page.ajuste_produto_combo.findData(code)
+    )
+
+
+def test_a_tela_mostra_o_saldo_atual_do_produto_escolhido(qapp):
+    page = MovimentacoesPage(catalogo_para_ajuste())
+
+    selecionar_produto_de_ajuste(page)
+
+    assert "42" in page.ajuste_saldo_label.text()
+
+
+def test_a_previa_diz_a_especie_e_a_quantidade_antes_do_clique(qapp):
+    page = MovimentacoesPage(catalogo_para_ajuste())
+    selecionar_produto_de_ajuste(page)
+
+    page.ajuste_contado_input.setValue(38)
+
+    texto = page.ajuste_previa_label.text().upper()
+    assert "SAÍDA" in texto or "SAIDA" in texto
+    assert "4" in texto
+
+
+def test_contar_mais_mostra_entrada(qapp):
+    page = MovimentacoesPage(catalogo_para_ajuste())
+    selecionar_produto_de_ajuste(page)
+
+    page.ajuste_contado_input.setValue(50)
+
+    assert "ENTRADA" in page.ajuste_previa_label.text().upper()
+    assert "8" in page.ajuste_previa_label.text()
+
+
+def test_sem_diferenca_desabilita_o_botao(qapp):
+    """A recusa chega antes do clique, não como erro vindo do banco."""
+    page = MovimentacoesPage(catalogo_para_ajuste())
+    selecionar_produto_de_ajuste(page)
+
+    page.ajuste_contado_input.setValue(42)
+
+    assert not page.ajuste_aplicar_button.isEnabled()
+    assert "sem diferença" in page.ajuste_previa_label.text().casefold()
+
+
+def test_outro_sem_detalhe_nao_emite_o_pedido(qapp):
+    page = MovimentacoesPage(catalogo_para_ajuste())
+    pedidos = []
+    page.adjust_requested.connect(pedidos.append)
+    selecionar_produto_de_ajuste(page)
+    page.ajuste_contado_input.setValue(38)
+    page.ajuste_motivo_combo.setCurrentIndex(
+        page.ajuste_motivo_combo.findData(AdjustmentReason.OUTRO)
+    )
+
+    page.ajuste_aplicar_button.click()
+
+    assert pedidos == []
+    assert "justificativa" in page.warning_label.text().casefold()
+
+
+def test_aplicar_emite_o_pedido_com_o_saldo_que_a_tela_exibiu(qapp):
+    page = MovimentacoesPage(catalogo_para_ajuste())
+    pedidos = []
+    page.adjust_requested.connect(pedidos.append)
+    selecionar_produto_de_ajuste(page)
+    page.ajuste_contado_input.setValue(38)
+    page.ajuste_motivo_combo.setCurrentIndex(
+        page.ajuste_motivo_combo.findData(AdjustmentReason.QUEBRA)
+    )
+
+    page.ajuste_aplicar_button.click()
+
+    assert len(pedidos) == 1
+    pedido = pedidos[0]
+    assert isinstance(pedido, AdjustmentInput)
+    assert (pedido.product_code, pedido.counted_balance) == ("P1", 38)
+    assert pedido.expected_balance == 42, (
+        "sem o saldo exibido a função não tem como detectar que ele mudou"
+    )
+    assert pedido.reason is AdjustmentReason.QUEBRA
+
+
+def test_papel_sem_alcada_nao_opera_o_card(qapp):
+    page = MovimentacoesPage(catalogo_para_ajuste())
+
+    page.apply_permission(False)
+
+    assert not page.ajuste_aplicar_button.isEnabled()
+    assert not page.ajuste_contado_input.isEnabled()
+    assert not page.ajuste_motivo_combo.isEnabled()
+
+
+def test_produto_inativo_sai_da_oferta_do_ajuste(qapp):
+    import dataclasses
+
+    produtos = catalogo_para_ajuste()
+    page = MovimentacoesPage(produtos)
+    produtos["P1"] = dataclasses.replace(produtos["P1"], active=False)
+
+    page.reload_products(produtos)
+
+    assert page.ajuste_produto_combo.findData("P1") < 0
