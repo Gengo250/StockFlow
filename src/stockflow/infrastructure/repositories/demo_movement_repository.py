@@ -66,17 +66,20 @@ class DemoMovementRepository:
             linhas = [m for m in linhas if m["product_code"] == product_code]
         result = []
         for linha in linhas:
-            movimento = row_to_movement(
+            supplier_name = ""
+            if linha.get("supplier_id"):
+                supplier = (
+                    self._suppliers.get(linha["supplier_id"])
+                    if self._suppliers else None
+                )
+                supplier_name = getattr(supplier, "name", "") or "Fornecedor indisponível"
+            result.append(row_to_movement(
                 linha,
                 product_code=linha["product_code"],
                 product_name=self._nome_do_produto(linha["product_code"]),
                 agora=self._agora,
-            )
-            if linha.get("supplier_id"):
-                supplier = self._suppliers.get(linha["supplier_id"]) if self._suppliers else None
-                name = getattr(supplier, "name", "") or "Fornecedor indisponível"
-                movimento += (name,)
-            result.append(movimento)
+                supplier_name=supplier_name,
+            ))
         return tuple(result)
 
     def _nome_do_produto(self, code: str) -> str:

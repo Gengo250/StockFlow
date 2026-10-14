@@ -123,6 +123,8 @@ def test_a_linha_do_banco_vira_a_tupla_que_a_tela_desenha():
         "Pendente",             # enum traduzido por MovementStatus.label
         "Compra NF 4821",
         "Ontem, 18:30",
+        VAZIO,                  # sem fornecedor: posição fixa, nunca ausente
+        VAZIO,                  # sem motivo de ajuste: idem
     )
     assert recente[0] == "mov-2"
     assert recente[7] == "Hoje, 18:30"
@@ -482,6 +484,8 @@ def test_a_tupla_da_demonstracao_e_a_mesma_do_banco():
         "Pendente",
         "Compra NF 4821",
         "Hoje, 18:30",
+        VAZIO,
+        VAZIO,
     ),)
 
 
@@ -526,3 +530,36 @@ def test_a_situacao_registrada_segue_o_enum_do_dominio():
 
     situacoes = [linha[5] for linha in repo.list_movements()]
     assert situacoes == [MovementStatus.CONFIRMADA.label, MovementStatus.PENDENTE.label]
+
+
+# -------------------------------------------------------- tupla de 10 campos
+# A cauda da tupla era OPCIONAL: o fornecedor só era acrescentado quando
+# existia, e a tela lia `mov[8] if len(mov) > 8`. Pendurar o motivo do ajuste
+# nisso colocaria "Quebra / avaria" na coluna Fornecedor toda vez que o
+# produto não tivesse fornecedor — a maioria das saídas.
+
+CAMPOS = 10
+I_FORNECEDOR, I_MOTIVO = 8, 9
+
+
+def test_movimentacao_sem_fornecedor_ainda_tem_dez_campos():
+    repo = DemoMovementRepository(
+        {"P1": Product("P1", "Arroz", "Grãos", "UN", "10,00", "5,00", True, "42", "Normal")},
+        agora=AGORA,
+    )
+    repo.register(MovementInput("P1", MovementKind.SAIDA, 2, confirm=True))
+
+    linha = repo.list_movements()[0]
+
+    assert len(linha) == CAMPOS
+    assert linha[I_FORNECEDOR] == VAZIO
+    assert linha[I_MOTIVO] == VAZIO
+
+
+def test_o_fornecedor_nao_escorrega_para_a_coluna_do_motivo():
+    """Posição fixa: fornecedor é sempre 8, motivo é sempre 9."""
+    tabelas = movimentos_falsos()
+    repo = SupabaseMovementRepository(ClienteFalso(tabelas), COMPANY, agora=AGORA)
+
+    for linha in repo.list_movements():
+        assert len(linha) == CAMPOS

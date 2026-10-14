@@ -26,12 +26,13 @@ from stockflow.domain.product_status import selectable_products
 from stockflow.presentation.styles import inventory
 
 COLUMNS = ("Produto", "Espécie", "Quantidade", "Situação", "Observação",
-           "Quando", "Fornecedor", "Ações")
+           "Quando", "Fornecedor", "Motivo", "Ações")
 ACTIONS_COLUMN = len(COLUMNS) - 1
 
-# Índices da tupla que o repositório devolve:
-# (id, código, nome do produto, espécie, quantidade, situação, nota, quando)
-MOV_ID, MOV_CODE, MOV_NAME, MOV_KIND, MOV_QTY, MOV_STATUS, MOV_NOTE, MOV_WHEN = range(8)
+# Índices da tupla que o repositório devolve. DEZ posições, sempre — ausência
+# é travessão. Ver a nota em `movement_mapper.row_to_movement`.
+(MOV_ID, MOV_CODE, MOV_NAME, MOV_KIND, MOV_QTY, MOV_STATUS, MOV_NOTE,
+ MOV_WHEN, MOV_SUPPLIER, MOV_REASON) = range(10)
 
 STATUS_COLORS = {
     MovementStatus.CONFIRMADA.label: ("#0F7B4F", "#E4F7EF"),
@@ -267,8 +268,9 @@ class MovimentacoesPage(QWidget):
             self.table.setItem(row, 3, QTableWidgetItem(str(mov[MOV_STATUS])))
             self.table.setItem(row, 4, QTableWidgetItem(str(mov[MOV_NOTE] or "—")))
             self.table.setItem(row, 5, QTableWidgetItem(str(mov[MOV_WHEN])))
-            supplier_name = str(mov[8]) if len(mov) > 8 else "—"
-            self.table.setItem(row, 6, QTableWidgetItem(supplier_name))
+            self.table.setItem(row, 6, QTableWidgetItem(str(mov[MOV_SUPPLIER])))
+            motivo = QTableWidgetItem(str(mov[MOV_REASON]))
+            self.table.setItem(row, 7, motivo)
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._acoes(mov))
 
         self.table.setVisible(True)

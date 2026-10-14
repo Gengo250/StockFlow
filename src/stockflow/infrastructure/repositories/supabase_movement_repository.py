@@ -43,7 +43,10 @@ from stockflow.infrastructure.repositories.supabase_product_repository import (
 
 # Colunas que a tela consome. Lista explícita em vez de `*` para que uma
 # coluna nova na tabela não comece a trafegar sozinha.
-MOVEMENT_COLUMNS = "id,product_id,supplier_id,kind,quantity,status,note,created_on,confirmed_on"
+MOVEMENT_COLUMNS = (
+    "id,product_id,supplier_id,kind,quantity,status,note,created_on,"
+    "confirmed_on,adjustment_reason,counted_balance"
+)
 
 # Nome da função -> ação em português. Os rótulos são os MESMOS que
 # `MovementService` passa para `ensure_can_move_stock`: quando o banco recusa
