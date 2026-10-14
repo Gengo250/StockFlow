@@ -240,3 +240,89 @@ def test_migration_em_transacao_nao_usa_comando_proibido():
             conflitos.append(f"{arquivo.name} abre transação e usa {achados}")
 
     assert conflitos == [], f"comandos que não rodam dentro de transação: {conflitos}"
+
+
+# ---------------------------------------------------------------------- H11
+# O ajuste manual não é uma terceira espécie de movimentação: é uma ENTRADA
+# ou SAIDA comum marcada por `adjustment_reason`. Estes testes cobram que a
+# marca e as suas regras estejam na FONTE declarativa, não só na migration —
+# `code/` é o que o `declarative sync` diffa contra o banco, e o que ficar de
+# fora dele o diff seguinte propõe derrubar.
+
+CODE_SQL = "\n".join(
+    re.sub(r"--[^\n]*", "", p.read_text(encoding="utf-8"))
+    for p in sorted(CODE.rglob("*.sql"))
+)
+
+
+def test_h11_tipo_do_motivo_existe_com_os_seis_valores():
+    achado = re.search(
+        r"CREATE TYPE\s+public\.adjustment_reason\s+AS ENUM\s*\((.*?)\)",
+        CODE_SQL,
+        re.S | re.I,
+    )
+    assert achado, "tipo public.adjustment_reason não declarado em database/code"
+
+    valores = set(re.findall(r"'(\w+)'", achado.group(1)))
+    assert valores == {
+        "CONTAGEM", "QUEBRA", "PERDA", "VENCIMENTO", "DEVOLUCAO", "OUTRO",
+    }
+
+
+def test_h11_colunas_do_ajuste_estao_em_stock_movements():
+    corpo = re.search(
+        r"CREATE TABLE\s+public\.stock_movements\s*\((.*?)\n\);", CODE_SQL, re.S | re.I
+    )
+    assert corpo, "tabela stock_movements não encontrada em database/code"
+
+    texto = corpo.group(1)
+    assert "adjustment_reason public.adjustment_reason" in texto
+    assert "counted_balance" in texto
+
+
+def test_h11_as_constraints_do_ajuste_sao_nomeadas():
+    """Nome explícito nas três, para que a migration possa guardá-las.
+
+    CHECK anônimo ganha nome gerado pelo Postgres, que a migration não teria
+    como consultar em `pg_constraint` — e os dois lados passariam a declarar
+    a mesma regra com identidades diferentes.
+    """
+    for nome in ("ck_movements_counted_balance",
+                 "ck_movements_adjustment_pair",
+                 "ck_movements_adjustment_detail"):
+        assert f"CONSTRAINT {nome}" in CODE_SQL, f"constraint {nome} sem nome em database/code"
+
+
+def test_h11_o_par_motivo_contagem_e_tudo_ou_nada():
+    """Motivo sem contagem (ou o contrário) seria ajuste pela metade."""
+    assert "ck_movements_adjustment_pair" in CODE_SQL
+
+
+def test_h11_outro_sem_detalhe_e_recusado_pelo_banco():
+    """A justificativa é regra do banco, não cortesia da tela.
+
+    Sem este CHECK, quem chamasse a função por SQL gravaria `OUTRO` sem
+    dizer nada — e o critério de aceite fala em justificativa, não em campo
+    de formulário.
+    """
+    assert "ck_movements_adjustment_detail" in CODE_SQL
+
+
+def test_h11_a_funcao_de_ajuste_existe_e_e_security_definer():
+    corpo = re.search(
+        r"CREATE OR REPLACE FUNCTION\s+public\.fn_register_adjustment\b(.*?)\$\$;",
+        CODE_SQL,
+        re.S | re.I,
+    )
+    assert corpo, "fn_register_adjustment não declarada em database/code"
+    assert "SECURITY DEFINER" in corpo.group(1)
+    assert "FOR UPDATE" in corpo.group(1), (
+        "sem FOR UPDATE dois ajustes simultâneos calculam a diferença sobre "
+        "o mesmo saldo e um sobrescreve o outro"
+    )
+
+
+def test_h11_a_funcao_de_ajuste_esta_na_allowlist_de_execute():
+    """Função fora da allowlist aplica no banco e quebra o app em runtime."""
+    allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    assert "'fn_register_adjustment'" in allowlist
