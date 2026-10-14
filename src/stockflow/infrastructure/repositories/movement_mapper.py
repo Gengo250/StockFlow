@@ -177,3 +177,25 @@ def movement_input_to_register_args(data, company_id, product_id) -> dict:
     if getattr(data, "supplier_id", None):
         args["p_supplier_id"] = data.supplier_id
     return args
+
+
+def adjustment_input_to_args(data, company_id, product_id) -> dict:
+    """Argumentos nomeados de `fn_register_adjustment`.
+
+    `p_expected_balance` vai junto e NÃO é opcional: é o saldo que a tela
+    exibiu, e é ele que faz a função recusar quando outra pessoa movimentou o
+    produto no meio. Omiti-lo transformaria "esqueci de passar" em "não quero
+    a checagem de concorrência".
+
+    Detalhe vazio vira NULL, não string vazia, pelo mesmo motivo da nota em
+    `movement_input_to_register_args`.
+    """
+    detalhe = str(getattr(data, "detail", "") or "").strip()
+    return {
+        "p_company_id": company_id,
+        "p_product_id": product_id,
+        "p_counted_balance": to_int(data.counted_balance),
+        "p_expected_balance": to_int(data.expected_balance),
+        "p_reason": AdjustmentReason.from_value(data.reason).value,
+        "p_detail": detalhe or None,
+    }

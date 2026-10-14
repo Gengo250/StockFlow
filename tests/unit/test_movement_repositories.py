@@ -721,3 +721,80 @@ def test_a_ordem_das_recusas_espelha_a_funcao_sql():
     assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
     assert produtos["P1"].stock_status == "Normal", "o status foi recalculado apesar da recusa"
     assert repo.list_movements() == ()
+
+
+# ---------------------------------------------------- ajuste (H11) — Supabase
+# O adaptador de banco não decide nada sobre o saldo: o que ele precisa
+# acertar é a tradução (código -> uuid, enum -> valor cru) e repassar a
+# recusa certa para o tipo certo de exceção.
+
+
+def test_ajuste_chama_a_rpc_com_o_uuid_e_o_motivo_cru():
+    """A tela trabalha com código; a função exige uuid e o valor do enum."""
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas)
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo.list_movements()   # alimenta o cache barcode -> uuid
+
+    repo.adjust(ajuste(product_code="PRD-009", counted_balance=38,
+                       expected_balance=18, reason=AdjustmentReason.QUEBRA,
+                       detail=" caixa amassada "))
+
+    nome, args = cliente.chamadas_rpc[-1]
+    assert nome == "fn_register_adjustment"
+    assert args["p_product_id"] == PRODUTO_ID
+    assert args["p_counted_balance"] == 38
+    assert args["p_expected_balance"] == 18
+    assert args["p_reason"] == "QUEBRA"
+    assert args["p_detail"] == "caixa amassada", "o detalhe precisa chegar aparado"
+
+
+def test_detalhe_vazio_vira_nulo_e_nao_string_vazia():
+    """A coluna é nullable e "não escrevi" é ausência.
+
+    Gravar `''` faria um relatório que filtra por detalhe preenchido
+    encontrar ajustes sem detalhe nenhum.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas)
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo.list_movements()
+
+    repo.adjust(ajuste(product_code="PRD-009", detail="   "))
+
+    assert cliente.chamadas_rpc[-1][1]["p_detail"] is None
+
+
+def test_recusa_de_permissao_na_rpc_de_ajuste_vira_erro_de_dominio():
+    """42501 tem que cair nos `except PermissionDeniedError` já instalados.
+
+    Sem a tradução, a recusa sobe como exceção crua do cliente HTTP e
+    aparece um traceback onde deveria aparecer a mensagem de permissão.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas, rpc_erros={
+        "fn_register_adjustment": ErroDoPostgrest("permission denied", "42501"),
+    })
+    repo = SupabaseMovementRepository(cliente, COMPANY, role="SELLER", agora=AGORA)
+    repo._ids["PRD-009"] = PRODUTO_ID
+
+    with pytest.raises(PermissionDeniedError, match="ajustar o estoque"):
+        repo.adjust(ajuste(product_code="PRD-009"))
+
+
+def test_saldo_desatualizado_no_banco_vira_erro_nomeado():
+    """40001 não é falha de sistema: é pedido de recontagem.
+
+    Sem o nome próprio, a tela mostraria "serialization_failure" para quem
+    só precisa contar de novo.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas, rpc_erros={
+        "fn_register_adjustment": ErroDoPostgrest(
+            "O saldo mudou desde a contagem (na tela: 42, agora: 45)", "40001"),
+    })
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo._ids["PRD-009"] = PRODUTO_ID
+
+    with pytest.raises(SaldoDesatualizadoError, match="45"):
+        repo.adjust(ajuste(product_code="PRD-009"))
