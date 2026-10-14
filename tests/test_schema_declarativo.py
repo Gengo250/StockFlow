@@ -24,14 +24,24 @@ MIGRATIONS = RAIZ / "database" / "supabase" / "migrations"
 # Mesma ordem de supabase/config.toml e de EXECUTION_ORDER no compilador.
 ORDEM = ["tables", "procedures", "views", "triggers", "policies"]
 
+# `IF NOT EXISTS` é opcional em toda criação. Migration que roda sobre um banco
+# que já tem parte do objeto precisa da forma longa, e sem tolerá-la aqui o
+# regex captura o literal "IF" como NOME do objeto. O estrago é duplo e
+# silencioso: `('table', 'if')` aparece como objeto sem fonte declarativa, e o
+# objeto de verdade some da comparação dos dois lados.
+#
+# `UNIQUE` entra pelo mesmo motivo: `CREATE UNIQUE INDEX` não casava com nada,
+# então índice único declarado só nas migrations passava despercebido.
+SE_NAO_EXISTIR = r"(?:IF NOT EXISTS\s+)?"
+
 PADROES = (
-    (r"CREATE TABLE\s+(?:public\.)?(\w+)", "table"),
-    (r"CREATE TYPE\s+(?:public\.)?(\w+)", "type"),
-    (r"CREATE (?:OR REPLACE )?VIEW\s+(?:public\.)?(\w+)", "view"),
+    (rf"CREATE TABLE\s+{SE_NAO_EXISTIR}(?:public\.)?(\w+)", "table"),
+    (rf"CREATE TYPE\s+{SE_NAO_EXISTIR}(?:public\.)?(\w+)", "type"),
+    (rf"CREATE (?:OR REPLACE )?VIEW\s+{SE_NAO_EXISTIR}(?:public\.)?(\w+)", "view"),
     (r"CREATE (?:OR REPLACE )?FUNCTION\s+(?:public\.)?(\w+)", "function"),
     (r"CREATE (?:OR REPLACE )?PROCEDURE\s+(?:public\.)?(\w+)", "procedure"),
-    (r"CREATE TRIGGER\s+(\w+)", "trigger"),
-    (r"CREATE INDEX\s+(\w+)", "index"),
+    (rf"CREATE TRIGGER\s+{SE_NAO_EXISTIR}(\w+)", "trigger"),
+    (rf"CREATE (?:UNIQUE )?INDEX\s+{SE_NAO_EXISTIR}(\w+)", "index"),
 )
 
 # Funções nativas do Postgres que nunca precisam ser declaradas.
