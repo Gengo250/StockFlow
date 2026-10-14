@@ -130,6 +130,11 @@ BEGIN
     END IF;
 
     PERFORM 1 FROM public.products WHERE id = v_product FOR UPDATE;
+    IF EXISTS (SELECT 1 FROM public.stock_movements
+                WHERE id = p_movement_id AND sale_id IS NOT NULL) THEN
+        RAISE EXCEPTION 'A saída pertence a uma venda e não pode ser cancelada isoladamente'
+            USING ERRCODE = 'check_violation';
+    END IF;
     UPDATE public.stock_movements
        SET status = 'CANCELADA'
      WHERE id = p_movement_id;

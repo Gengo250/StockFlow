@@ -120,6 +120,8 @@ class MovimentacoesPage(QWidget):
         linha.setSpacing(10)
 
         self.produto_combo = QComboBox()
+        self.produto_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.produto_combo.setMinimumContentsLength(12)
         self.produto_combo.setFixedHeight(42)
         self.produto_combo.setAccessibleName("Produto da movimentação")
 
@@ -131,6 +133,8 @@ class MovimentacoesPage(QWidget):
         self.especie_combo.currentIndexChanged.connect(self._update_supplier_enabled)
 
         self.fornecedor_combo = QComboBox()
+        self.fornecedor_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.fornecedor_combo.setMinimumContentsLength(12)
         self.fornecedor_combo.setFixedHeight(42)
         self.fornecedor_combo.setAccessibleName("Fornecedor da entrada")
         self.fornecedor_combo.addItem("Selecione um fornecedor...", None)
@@ -163,10 +167,13 @@ class MovimentacoesPage(QWidget):
         linha.addWidget(self.especie_combo, 1)
         linha.addWidget(self.fornecedor_combo, 2)
         linha.addWidget(self.quantidade_input, 1)
-        linha.addWidget(self.nota_input, 3)
-        linha.addWidget(self.registrar_button, 1)
-        linha.addWidget(self.registrar_confirmar_button, 1)
         fora.addLayout(linha)
+        acoes = QHBoxLayout()
+        acoes.setSpacing(10)
+        acoes.addWidget(self.nota_input, 1)
+        acoes.addWidget(self.registrar_button)
+        acoes.addWidget(self.registrar_confirmar_button)
+        fora.addLayout(acoes)
 
         self.warning_label = QLabel("")
         self.warning_label.setStyleSheet(

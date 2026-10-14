@@ -58,9 +58,22 @@ def objetos(arquivos):
         # Comentário não cria objeto: um `-- ... CREATE TABLE de 03_catalog`
         # explicando onde a coluna nasce virava a "tabela de".
         texto = re.sub(r"--[^\n]*", "", arquivo.read_text(encoding="utf-8"))
+        eventos = []
         for padrao, tipo in PADROES:
-            for nome in re.findall(padrao, texto, re.I):
-                achados.add((tipo, nome.lower()))
+            for match in re.finditer(padrao, texto, re.I):
+                eventos.append((match.start(), "create", tipo, match.group(1).lower()))
+        for match in re.finditer(
+            r"DROP (TABLE|TYPE|VIEW|FUNCTION|PROCEDURE|TRIGGER|INDEX)\s+"
+            r"(?:IF EXISTS\s+)?(?:public\.)?(\w+)", texto, re.I
+        ):
+            eventos.append((match.start(), "drop", match.group(1).lower(), match.group(2).lower()))
+        # Inventário estático por nome. A execução em PostgreSQL é quem
+        # verifica assinaturas, dependências e efeitos de CASCADE.
+        for _, acao, tipo, nome in sorted(eventos):
+            if acao == "create":
+                achados.add((tipo, nome))
+            else:
+                achados.discard((tipo, nome))
     return achados
 
 
@@ -69,6 +82,16 @@ def arquivos_na_ordem():
     for pasta in ORDEM:
         ordenados += sorted((CODE / pasta).glob("*.sql"))
     return ordenados
+
+
+def test_inventario_respeita_remocao_e_recriacao_de_objetos(tmp_path):
+    antigo = tmp_path / "01.sql"
+    novo = tmp_path / "02.sql"
+    antigo.write_text("CREATE TABLE public.antiga(id int); CREATE INDEX idx_old ON antiga(id);")
+    novo.write_text("DROP INDEX IF EXISTS public.idx_old; DROP TABLE public.antiga; "
+                    "CREATE TABLE public.atual(id int); DROP TABLE public.atual; "
+                    "CREATE TABLE public.atual(id int);")
+    assert objetos([antigo, novo]) == {("table", "atual")}
 
 
 def test_code_cobre_todos_os_objetos_das_migrations():
@@ -155,3 +178,65 @@ def test_ordem_do_compilador_bate_com_o_config():
     compilador = (RAIZ / "database" / "supabase_compiler.py").read_text(encoding="utf-8")
     declarada = re.search(r"EXECUTION_ORDER = \[(.*?)\]", compilador, re.S).group(1)
     assert re.findall(r'"(\w+)"', declarada) == ORDEM
+
+
+# `supabase db push` manda cada comando da migration separadamente, em
+# autocommit: não existe transação envolvendo o arquivo. Quem precisa de uma
+# tem que abrir a sua. Foi exatamente isso que derrubou a US09/US10 no remoto
+# ("LOCK TABLE can only be used in transaction blocks", SQLSTATE 25P01), e a
+# verificação local não pegou porque ela aplicava cada arquivo já dentro de
+# uma transação.
+EXIGEM_TRANSACAO = {
+    "LOCK TABLE": r"\bLOCK\s+TABLE\b",
+    "SET CONSTRAINTS": r"\bSET\s+CONSTRAINTS\b",
+}
+
+# O avesso: dentro de uma transação o PostgreSQL recusa estes. Uma migration
+# que abre BEGIN não pode misturá-los.
+PROIBIDOS_EM_TRANSACAO = {
+    "CONCURRENTLY": r"\bCONCURRENTLY\b",
+    "VACUUM": r"\bVACUUM\b",
+    "ALTER SYSTEM": r"\bALTER\s+SYSTEM\b",
+    "CREATE DATABASE": r"\bCREATE\s+DATABASE\b",
+    "DROP DATABASE": r"\bDROP\s+DATABASE\b",
+    "CREATE TABLESPACE": r"\bCREATE\s+TABLESPACE\b",
+}
+
+
+def fora_de_corpo(arquivo):
+    """Texto sem comentário e sem corpo `$$...$$`.
+
+    Dentro de função o comando já roda numa transação, então um LOCK ali não
+    diz nada sobre como o arquivo é aplicado."""
+    texto = re.sub(r"--[^\n]*", "", arquivo.read_text(encoding="utf-8"))
+    return re.sub(r"\$(\w*)\$.*?\$\1\$", " ", texto, flags=re.S)
+
+
+def abre_transacao(texto):
+    return bool(re.match(r"\s*BEGIN\s*;", texto, re.I)) and bool(
+        re.search(r"\bCOMMIT\s*;\s*\Z", texto, re.I)
+    )
+
+
+def test_migration_que_exige_transacao_abre_a_propria():
+    faltando = []
+    for arquivo in sorted(MIGRATIONS.glob("*.sql")):
+        texto = fora_de_corpo(arquivo)
+        usados = [n for n, p in EXIGEM_TRANSACAO.items() if re.search(p, texto, re.I)]
+        if usados and not abre_transacao(texto):
+            faltando.append(f"{arquivo.name} usa {usados} sem BEGIN;/COMMIT; próprios")
+
+    assert faltando == [], f"recusadas por `db push` com 25P01: {faltando}"
+
+
+def test_migration_em_transacao_nao_usa_comando_proibido():
+    conflitos = []
+    for arquivo in sorted(MIGRATIONS.glob("*.sql")):
+        texto = fora_de_corpo(arquivo)
+        if not abre_transacao(texto):
+            continue
+        achados = [n for n, p in PROIBIDOS_EM_TRANSACAO.items() if re.search(p, texto, re.I)]
+        if achados:
+            conflitos.append(f"{arquivo.name} abre transação e usa {achados}")
+
+    assert conflitos == [], f"comandos que não rodam dentro de transação: {conflitos}"

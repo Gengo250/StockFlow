@@ -189,6 +189,10 @@ class MainWindow(QMainWindow):
         self.movement_repository = build_movement_repository(
             self.session, self.products, self.supplier_repository
         )
+        if not using_supabase():
+            self.sale_repository.movements = self.movement_repository
+        else:
+            self.vendas_page.execute = lambda *args: self.executar_em_segundo_plano(*args)
         self.movement_service = MovementService(
             self.movement_repository, self.supplier_repository, self.product_repository
         )
@@ -281,6 +285,7 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
         self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
         self.suppliers_page.suppliers_changed.connect(self._refresh_supplier_options)
+        self.vendas_page.sale_registered.connect(self._venda_registrada)
 
         self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
         self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
@@ -370,6 +375,13 @@ class MainWindow(QMainWindow):
     # ======================================================
     # MOVIMENTAÇÕES
     # ======================================================
+
+    def _venda_registrada(self, venda):
+        """Venda concluída invalida saldo, alertas e histórico de movimentos."""
+        self._saldo_mudou()
+        # Vendedores não têm acesso à listagem de movimentações.
+        if pode_ver(self.session, "movimentacoes"):
+            self._recarregar_movimentacoes()
 
     def _recarregar_movimentacoes(self):
         """Recarrega o histórico. A permissão já foi checada na navegação."""

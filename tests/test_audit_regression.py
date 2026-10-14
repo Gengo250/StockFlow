@@ -58,6 +58,12 @@ def remote_window(qapp, monkeypatch):
     client = ClienteFalso(catalogo_falso(), rpc_resultados={
         "fn_list_company_clients": [{"client_id": "client-a", "name": "Cliente teste", "active": True}],
         "fn_register_sale": "sale-a",
+        "fn_checkout_sale": {
+            "id": "sale-a", "client_name": "Cliente teste", "total": "2499.90",
+            "created_on": "2026-10-13T12:00:00+00:00", "payment_method": "DINHEIRO",
+            "discount": "0", "status": "CONCLUIDA",
+            "sale_items": [{"product_name": "Monitor", "product_code": "PRD-009", "quantity": 1}],
+        },
     })
     monkeypatch.setenv('STOCKFLOW_BACKEND', 'supabase')
     monkeypatch.setattr(backend, '_client', lambda: client)
@@ -85,7 +91,8 @@ def test_remote_sale_reaches_rpc(remote_window):
     choose_sale(w.vendas_page)
     client.chamadas_rpc.clear()
     w.vendas_page._registrar_venda()
-    assert any(name == 'fn_register_sale' for name, _ in client.chamadas_rpc), 'Venda só altera historico_vendas em memória'
+    assert any(name == 'fn_checkout_sale' for name, _ in client.chamadas_rpc), 'Venda só altera historico_vendas em memória'
+    assert w.vendas_page.warning_label.text() == ''
 
 
 def test_new_client_becomes_selectable_in_sales(window, qapp):
@@ -111,9 +118,10 @@ def test_new_client_becomes_selectable_in_sales(window, qapp):
 
 
 @pytest.mark.parametrize('value', ['abc', '-10,00', 'NaN'])
-def test_sale_rejects_invalid_amount(window, value):
+def test_sale_rejects_invalid_discount(window, value):
     page = window.vendas_page
-    choose_sale(page, value)
+    choose_sale(page)
+    page.desconto_input.setText(value)
     before = len(page.historico_vendas)
     page._registrar_venda()
     assert len(page.historico_vendas) == before, f'Valor inválido aceito: {value}'

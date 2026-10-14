@@ -97,24 +97,24 @@ def test_venda_sem_cliente_e_bloqueada(vendas_page):
     assert vendas_page.warning_label.text() == "Selecione um cliente ativo válido."
 
 
-def test_venda_sem_valor_e_bloqueada(vendas_page):
+def test_venda_nao_exige_redigitar_o_preco_do_catalogo(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
     produto_valido(vendas_page)
     vendas_page._registrar_venda()
-    assert len(vendas_page.historico_vendas) == 2
-    assert vendas_page.warning_label.text() == "Informe o valor da venda."
+    assert len(vendas_page.historico_vendas) == 3
+    assert vendas_page.historico_vendas[0]["valor"] == "R$ 2.499,90"
+    assert vendas_page.warning_label.text() == ""
 
 
 def test_venda_valida_entra_no_historico_com_o_cliente(vendas_page):
     vendas_page.selecionar_cliente_externo("Juliana Ramos")
     produto_valido(vendas_page)
-    vendas_page.val_input.setText("250,00")
     vendas_page._registrar_venda()
 
     assert len(vendas_page.historico_vendas) == 3
     nova = vendas_page.historico_vendas[0]
     assert nova["cliente"] == "Juliana Ramos"
-    assert nova["valor"] == "R$ 250,00"
+    assert nova["valor"] == "R$ 2.499,90"
     assert vendas_page.table.item(0, 1).text() == "Juliana Ramos"
 
 

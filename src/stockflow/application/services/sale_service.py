@@ -1,4 +1,4 @@
-"""Regras de registro comercial; movimentação de estoque é um fluxo separado."""
+"""Registro comercial; a conclusão baixa o estoque na mesma operação."""
 
 from decimal import Decimal, InvalidOperation
 import re
@@ -18,11 +18,13 @@ def parse_total(value) -> Decimal:
         raise ValueError("Informe um valor válido, com até duas casas decimais.")
     if "," in text:
         text = text.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
+        text = text.replace(".", "")
     try:
         total = Decimal(text)
     except InvalidOperation as error:
         raise ValueError("Valor da venda inválido.") from error
-    if not total.is_finite() or total < 0 or total >= Decimal("10000000000"):
+    if not total.is_finite() or total < 0 or total >= Decimal("100000000"):
         raise ValueError("Valor da venda inválido.")
     return total.quantize(Decimal("0.01"))
 
@@ -84,12 +86,16 @@ class SaleService:
         client = self._cliente_ativo(client_id)
         desconto = parse_total(discount or "0")
 
-        resolvidos, bruto = [], Decimal("0")
+        por_codigo, bruto = {}, Decimal("0")
         for item in itens:
             product = self._produto_ativo(item["codigo"])
             quantidade = parse_quantity(item["quantidade"])
-            resolvidos.append({"product": product, "quantity": quantidade})
-            bruto += parse_price(product.sale_price) * quantidade
+            existente = por_codigo.setdefault(product.code, {"product": product, "quantity": 0})
+            existente["quantity"] = parse_quantity(existente["quantity"] + quantidade)
+            subtotal = parse_price(product.sale_price) * quantidade
+            bruto += subtotal
+            if bruto >= Decimal("100000000"):
+                raise ValueError("Total da venda acima do limite de R$ 99.999.999,99.")
 
         if desconto > bruto:
             raise ValueError(
@@ -97,7 +103,7 @@ class SaleService:
             )
 
         return self.repository.register_items(
-            client, resolvidos, payment_method, desconto, bruto - desconto
+            client, list(por_codigo.values()), payment_method, desconto, bruto - desconto
         )
 
     def list_sales(self):

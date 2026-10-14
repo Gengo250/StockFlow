@@ -149,11 +149,35 @@ class DemoMovementRepository:
         situação e a soma das confirmadas não muda.
         """
         linha = self._linha(movement_id)
+        if linha.get("sale_id"):
+            raise ValueError("A saída pertence a uma venda e não pode ser cancelada isoladamente.")
         if linha["status"] == MovementStatus.CANCELADA.value:
             return
         if linha["status"] == MovementStatus.CONFIRMADA.value:
             self._aplicar_no_saldo(linha, sentido=-1)
         linha["status"] = MovementStatus.CANCELADA.value
+
+    def register_sale(self, sale_id, itens):
+        """Valida o carrinho inteiro antes de registrar qualquer saída."""
+        quantidades = {}
+        for item in itens:
+            code = item["product"].code
+            quantidades[code] = quantidades.get(code, 0) + item["quantity"]
+        for code, quantity in quantidades.items():
+            produto = self._products.get(code)
+            if produto is None or not produto.active:
+                raise ValueError("Selecione um produto ativo válido.")
+            if to_int(produto.stock) < quantity:
+                raise ValueError(
+                    f"Estoque insuficiente para {produto.name} "
+                    f"(disponível: {produto.stock}, vendido: {quantity})."
+                )
+        for code, quantity in quantidades.items():
+            movement_id = self.register(MovementInput(
+                code, MovementKind.SAIDA, quantity,
+                note=f"Venda {sale_id}", confirm=True,
+            ))
+            self._linha(movement_id)["sale_id"] = str(sale_id)
 
     # ======================================================
     # SALDO

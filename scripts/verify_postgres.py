@@ -125,15 +125,17 @@ def exercise(dsn):
     sale=window.vendas_page
     sale.cliente_combo.setCurrentIndex(1)
     sale.produto_combo.setCurrentIndex(1)
-    sale.val_input.setText('25,90')
     sale.save_button.click()
-    check(admin.execute('SELECT count(*),sum(total) FROM sales').fetchone()==(1,__import__('decimal').Decimal('25.90')),'Qt sale persisted and reread independently')
+    check(not sale.warning_label.text(), 'Qt checkout returned no error: '+sale.warning_label.text())
+    check(admin.execute('SELECT count(*),sum(total) FROM sales').fetchone()==(1,__import__('decimal').Decimal('20.00')),'Qt sale persisted at catalog price and reread independently')
     # US10: venda virou cabeçalho + itens, e concluí-la baixa o estoque por
     # movimentação. As duas coisas são conferidas por conexão independente
     # porque é justamente o que um teste com cliente falso não alcança.
     sale_id=admin.execute('SELECT id FROM sales').fetchone()[0]
-    check(admin.execute('SELECT count(*),sum(subtotal) FROM sale_items WHERE sale_id=%s',(sale_id,)).fetchone()==(1,__import__('decimal').Decimal('25.90')),'Sale header carries its item')
-    check(admin.execute("SELECT status FROM sales WHERE id=%s",(sale_id,)).fetchone()[0]=='CONCLUIDA','Sale is closed by fn_register_sale')
+    check(admin.execute('SELECT count(*),sum(subtotal) FROM sale_items WHERE sale_id=%s',(sale_id,)).fetchone()==(1,__import__('decimal').Decimal('20.00')),'Sale header carries its item')
+    check(admin.execute("SELECT status FROM sales WHERE id=%s",(sale_id,)).fetchone()[0]=='CONCLUIDA','Sale is closed by fn_checkout_sale')
+    sale.reload_sales()
+    check(sale.last_error is None and sale.historico_vendas[0]['total']=='20.00', 'Qt rereads persisted history with its embedded items')
     check(admin.execute('SELECT count(*) FROM sales_log WHERE sale_id=%s',(sale_id,)).fetchone()[0]==1,'Closing the sale stamps sales_log')
     check(admin.execute("SELECT kind,quantity,status FROM stock_movements WHERE sale_id=%s",(sale_id,)).fetchone()==('SAIDA',1,'CONFIRMADA'),'Closing the sale registers a confirmed outflow linked to it')
     check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Sale reduced the balance through the movement')
@@ -246,7 +248,7 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--schema',action='store_true',help='Build database/code instead of migrations')
     args=parser.parse_args()
-    dsn=os.environ.get('STOCKFLOW_TEST_DSN','host=127.0.0.1 port=55439 dbname=postgres')
+    dsn=os.environ.get('STOCKFLOW_TEST_DSN','host=127.0.0.1 port=55439 dbname=postgres user=postgres')
     config=conninfo_to_dict(dsn)
     if config.get('host') not in {'127.0.0.1','localhost','::1'}:
         raise SystemExit('Only a disposable local PostgreSQL server is supported.')
@@ -263,8 +265,11 @@ def main():
                 files=([f for group in ('tables','procedures','views','triggers','policies') for f in sorted((ROOT/'database'/'code'/group).glob('*.sql'))]
                        if args.schema else sorted((ROOT/'database'/'supabase'/'migrations').glob('*.sql')))
                 for path in files:
-                    with setup.transaction():
-                        setup.execute(path.read_text())
+                    # Sem transação externa aqui: o PostgreSQL já executa a
+                    # string inteira do arquivo numa transação implícita, e
+                    # envolver de novo brigaria com a migration que abre a
+                    # própria (BEGIN/COMMIT no arquivo, como o `db push` exige).
+                    setup.execute(path.read_text())
                 print(f'PASS {len(files)} SQL files applied; PostgreSQL {setup.info.server_version}',flush=True)
             exercise(target)
         finally:

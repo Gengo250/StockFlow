@@ -206,7 +206,7 @@ def build_client_repository(session=None):
 def build_sale_repository(session, products):
     if not using_supabase():
         from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
-        return DemoSaleRepository()
+        return DemoSaleRepository(products)
     from stockflow.infrastructure.repositories.supabase_sale_repository import SupabaseSaleRepository
     return SupabaseSaleRepository(_client(), session.company_id)
 

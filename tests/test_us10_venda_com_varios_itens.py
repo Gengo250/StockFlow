@@ -145,12 +145,11 @@ def test_carrinho_vazio_mantem_a_venda_de_um_produto(vendas_page):
     antes = len(vendas_page.historico_vendas)
     _com_cliente(vendas_page)
     assert vendas_page.selecionar_produto(MONITOR) is True
-    vendas_page.val_input.setText("100,00")
 
     vendas_page._registrar_venda()
 
     assert len(vendas_page.historico_vendas) == antes + 1
-    assert vendas_page.historico_vendas[0]["total"] == "100.00"
+    assert vendas_page.historico_vendas[0]["total"] == "2499.90"
 
 
 def test_venda_com_itens_exige_cliente(vendas_page):

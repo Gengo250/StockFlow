@@ -6,6 +6,17 @@ from stockflow.infrastructure.repositories.demo_sale_repository import (
 )
 
 
+def _receipt_row(receipt):
+    itens = receipt.get("sale_items") or []
+    codigo, descricao = resumo_dos_itens(itens)
+    row = sale_row(receipt["id"], receipt["client_name"], codigo, descricao,
+                   Decimal(str(receipt["total"])), receipt["created_on"])
+    row.update(payment_method=receipt.get("payment_method"),
+               discount=str(receipt.get("discount", 0)),
+               status=receipt.get("status", "CONCLUIDA"), items=itens)
+    return row
+
+
 class SupabaseSaleRepository:
     def __init__(self, client, company_id):
         self._client, self._company_id = client, company_id
@@ -15,16 +26,12 @@ class SupabaseSaleRepository:
         # PostgREST traz os itens junto com o cabeçalho: uma ida ao banco por
         # listagem, e não uma por venda.
         rows = (self._client.table("sales")
-                .select("id,client_name,total,created_on,"
-                        "sale_items(product_name,product_code,quantity)")
-                .eq("company_id", self._company_id).order("created_on", desc=True)
+                .select("id,client_name,total,created_on,payment_method,discount,status,"
+                        "sale_items(product_name,product_code,quantity,unit_price,subtotal)")
+                .eq("company_id", self._company_id).eq("status", "CONCLUIDA")
+                .order("created_on", desc=True)
                 .execute().data or [])
-        vendas = []
-        for r in rows:
-            codigo, descricao = resumo_dos_itens(r.get("sale_items") or [])
-            vendas.append(sale_row(r["id"], r["client_name"], codigo, descricao,
-                                   Decimal(str(r["total"])), r["created_on"]))
-        return vendas
+        return [_receipt_row(row) for row in rows]
 
     def register(self, client, product, total):
         rows = (self._client.table("products").select("id")
@@ -61,17 +68,13 @@ class SupabaseSaleRepository:
             {"product_id": por_codigo[i["product"].code], "quantity": int(i["quantity"])}
             for i in itens
         ]
-        sale_id = self._client.rpc("fn_create_complete_sale", {
+        receipt = self._client.rpc("fn_checkout_sale", {
             "p_company_id": self._company_id,
             "p_client_id": client.client_id,
             "p_items": payload,
             "p_payment_method": payment_method,
             "p_discount": str(discount),
         }).execute().data
-
-        codigo, descricao = resumo_dos_itens([
-            {"product_name": i["product"].name, "product_code": i["product"].code,
-             "quantity": i["quantity"]}
-            for i in itens
-        ])
-        return sale_row(sale_id, client.name, codigo, descricao, total, "Hoje")
+        # O recibo é produzido dentro da transação. Não usar o total do
+        # cache nem fazer uma segunda consulta que poderia falhar APÓS gravar.
+        return _receipt_row(receipt)
