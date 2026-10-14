@@ -463,3 +463,69 @@ def test_auditoria_so_e_lida_pelo_admin_da_empresa():
                      policy.group(0), re.I)
     assert re.search(r"ALTER TABLE public\.role_change_log\s+ENABLE ROW LEVEL SECURITY",
                      seguranca, re.I)
+
+
+# ---------------------------------------------------------------------- H11
+# O ajuste manual precisa aplicar sobre um banco que JÁ TEM movimentações, e
+# sobre um remoto que já divergiu do repositório uma vez. Por isso tudo aqui
+# é idempotente: `IF NOT EXISTS`, `DO` com guarda, e nenhuma recriação de
+# tabela.
+
+H11 = "h11_manual_stock_adjustment"
+
+
+def arquivo_h11():
+    achados = [f for f in arquivos() if H11 in f.name]
+    assert achados, f"migration {H11} não encontrada"
+    return achados[0]
+
+
+def test_h11_vem_depois_de_todas_as_anteriores():
+    assert arquivo_h11() == arquivos()[-1], (
+        "a migration da H11 precisa ser a última da cadeia; "
+        "timestamp menor aplica antes de dependência que já existe"
+    )
+
+
+def test_h11_abre_a_propria_transacao():
+    """`supabase db push` manda cada comando em autocommit.
+
+    Sem o BEGIN do próprio arquivo, uma falha no meio deixa metade aplicada
+    — foi a lição que b92c490 registrou.
+    """
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert re.search(r"^\s*BEGIN;", texto, re.M)
+    assert re.search(r"^\s*COMMIT;", texto, re.M)
+
+
+def test_h11_cria_o_tipo_sem_quebrar_se_ele_ja_existir():
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert "to_regtype('public.adjustment_reason')" in texto, (
+        "criar o tipo sem guarda falha no banco que já o tem"
+    )
+
+
+def test_h11_adiciona_colunas_sem_recriar_a_tabela():
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS adjustment_reason" in texto
+    assert "ADD COLUMN IF NOT EXISTS counted_balance" in texto
+    assert "DROP TABLE" not in texto.upper(), "migration destrutiva: perde histórico"
+
+
+def test_h11_declara_as_duas_constraints():
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert "ck_movements_adjustment_pair" in texto
+    assert "ck_movements_adjustment_detail" in texto
+
+
+def test_h11_cria_a_funcao_e_concede_execute():
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert "CREATE OR REPLACE FUNCTION public.fn_register_adjustment" in texto
+    assert re.search(
+        r"GRANT EXECUTE ON FUNCTION public\.fn_register_adjustment", texto
+    ), "sem GRANT a função aplica e o app quebra em runtime"
