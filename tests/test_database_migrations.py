@@ -515,9 +515,10 @@ def test_h11_adiciona_colunas_sem_recriar_a_tabela():
     assert "DROP TABLE" not in texto.upper(), "migration destrutiva: perde histórico"
 
 
-def test_h11_declara_as_duas_constraints():
+def test_h11_declara_as_tres_constraints():
     texto = arquivo_h11().read_text(encoding="utf-8")
 
+    assert "ck_movements_counted_balance" in texto
     assert "ck_movements_adjustment_pair" in texto
     assert "ck_movements_adjustment_detail" in texto
 

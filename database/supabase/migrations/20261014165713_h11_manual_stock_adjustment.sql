@@ -33,14 +33,16 @@ ALTER TABLE public.stock_movements
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                    WHERE conname = 'ck_movements_counted_balance') THEN
+                    WHERE conrelid = 'public.stock_movements'::regclass
+                      AND conname = 'ck_movements_counted_balance') THEN
         ALTER TABLE public.stock_movements
             ADD CONSTRAINT ck_movements_counted_balance
             CHECK (counted_balance IS NULL OR counted_balance >= 0);
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                    WHERE conname = 'ck_movements_adjustment_pair') THEN
+                    WHERE conrelid = 'public.stock_movements'::regclass
+                      AND conname = 'ck_movements_adjustment_pair') THEN
         ALTER TABLE public.stock_movements
             ADD CONSTRAINT ck_movements_adjustment_pair CHECK (
                 (adjustment_reason IS NULL     AND counted_balance IS NULL)
@@ -48,7 +50,8 @@ BEGIN
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint
-                    WHERE conname = 'ck_movements_adjustment_detail') THEN
+                    WHERE conrelid = 'public.stock_movements'::regclass
+                      AND conname = 'ck_movements_adjustment_detail') THEN
         ALTER TABLE public.stock_movements
             ADD CONSTRAINT ck_movements_adjustment_detail CHECK (
                 adjustment_reason IS DISTINCT FROM 'OUTRO'
