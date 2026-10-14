@@ -26,8 +26,11 @@ import dataclasses
 from datetime import datetime
 
 from stockflow.application.dto.movement_input import MovementInput
+from stockflow.domain.enums.adjustment_reason import AdjustmentReason
 from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.enums.movement_status import MovementStatus
+from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
+from stockflow.domain.stock_adjustment import calcular_ajuste
 from stockflow.domain.stock_level import derive_stock_status, to_int
 from stockflow.infrastructure.repositories.movement_mapper import row_to_movement
 
@@ -159,6 +162,81 @@ class DemoMovementRepository:
         if linha["status"] == MovementStatus.CONFIRMADA.value:
             self._aplicar_no_saldo(linha, sentido=-1)
         linha["status"] = MovementStatus.CANCELADA.value
+
+    def adjust(self, data) -> str:
+        """Ajuste manual de inventário, imitando `fn_register_adjustment`.
+
+        A ordem das recusas é a MESMA da função SQL
+        (`database/code/procedures/04a_movements.sql`), e isso não é
+        capricho: o modo demonstração que aceitasse o que o Postgres recusa
+        esconderia o bug de quem não roda com banco até a primeira gravação
+        real — e, pior, a MESMA entrada errada produziria uma mensagem
+        diferente aqui e lá, o que já custou caro neste projeto (ver a nota
+        do README sobre a regra de `stock_status` que divergia de
+        `fn_stock_state` em 5 de 11 casos antes de alguém notar).
+
+        O saldo resultante é conferido ANTES de mexer no catálogo. Lá a
+        garantia vem da transação; aqui não há transação, então a única
+        forma de não deixar estado pela metade é calcular, conferir e só
+        então aplicar.
+        """
+        contado = to_int(data.counted_balance)
+        if contado < 0:
+            # Espelha o guard `p_counted_balance IS NULL OR
+            # p_counted_balance < 0` da função SQL, que roda ANTES até de
+            # travar a linha do produto: um contado negativo é erro de
+            # entrada, e não depende de qual produto foi escolhido.
+            # `calcular_ajuste` faz a MESMA checagem mais abaixo, mas só
+            # depois de resolver produto e saldo esperado — tarde demais
+            # para honrar esta ordem, por isso o guard se repete aqui em vez
+            # de mover a chamada de `calcular_ajuste` para cima (o que
+            # obrigaria a resolver `atual` antes da hora).
+            raise ValueError(f"O saldo contado não pode ser negativo (recebido: {contado}).")
+
+        motivo = AdjustmentReason.from_value(data.reason)
+        detalhe = str(data.detail or "").strip()
+        if motivo.exige_detalhe and not detalhe:
+            raise ValueError('O motivo "Outro" exige uma justificativa escrita.')
+
+        produto = self._products.get(data.product_code)
+        if produto is None:
+            raise LookupError(f"Produto {data.product_code} não encontrado.")
+        if not produto.active:
+            raise ValueError("Selecione um produto ativo.")
+
+        atual = to_int(produto.stock)
+        esperado = data.expected_balance
+        if esperado is not None and to_int(esperado) != atual:
+            raise SaldoDesatualizadoError.de_saldos(to_int(esperado), atual)
+
+        especie, quantidade = calcular_ajuste(atual, contado)
+
+        # A conferência do saldo resultante, antes de qualquer escrita. Se
+        # `calcular_ajuste` e `_aplicar_no_saldo` algum dia discordarem, é
+        # aqui que aparece — e nada foi alterado ainda.
+        if atual + especie.sinal * quantidade != contado:
+            raise AssertionError(
+                f"Ajuste calculado levaria o saldo a "
+                f"{atual + especie.sinal * quantidade}, não ao contado {contado}."
+            )
+
+        agora = self._agora or datetime.now()
+        linha = {
+            "id": self._proximo_id(),
+            "product_code": data.product_code,
+            "kind": especie.value,
+            "quantity": quantidade,
+            "status": MovementStatus.CONFIRMADA.value,
+            "note": detalhe,
+            "supplier_id": None,
+            "adjustment_reason": motivo.value,
+            "counted_balance": contado,
+            "created_on": agora,
+            "confirmed_on": agora,
+        }
+        self._aplicar_no_saldo(linha, sentido=1)
+        self._movements.append(linha)
+        return linha["id"]
 
     def register_sale(self, sale_id, itens):
         """Valida o carrinho inteiro antes de registrar qualquer saída."""

@@ -563,3 +563,151 @@ def test_o_fornecedor_nao_escorrega_para_a_coluna_do_motivo():
 
     for linha in repo.list_movements():
         assert len(linha) == CAMPOS
+
+
+# ------------------------------------------------------------- ajuste (H11)
+# Do adaptador de demonstração o que se prova é mais forte que do de banco,
+# porque ele É a implementação: aqui não há trigger nem transação, então a
+# atomicidade e o saldo resultante precisam ser código testado.
+
+from stockflow.application.dto.adjustment_input import AdjustmentInput
+from stockflow.domain.enums.adjustment_reason import AdjustmentReason
+from stockflow.domain.exceptions.adjustment_errors import (
+    AjusteSemEfeitoError,
+    SaldoDesatualizadoError,
+)
+
+
+def catalogo_de_um(stock="42", active=True):
+    return {"P1": Product("P1", "Arroz", "Grãos", "UN", "10,00", "5,00",
+                          active, stock, "Normal")}
+
+
+def ajuste(**kwargs):
+    base = dict(product_code="P1", counted_balance=38, expected_balance=42,
+                reason=AdjustmentReason.QUEBRA, detail="")
+    base.update(kwargs)
+    return AdjustmentInput(**base)
+
+
+def test_ajuste_leva_o_saldo_exatamente_ao_contado():
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    repo.adjust(ajuste(counted_balance=38))
+
+    assert produtos["P1"].stock == "38"
+
+
+def test_contar_mais_do_que_havia_vira_entrada():
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    repo.adjust(ajuste(counted_balance=50, reason=AdjustmentReason.CONTAGEM))
+
+    assert produtos["P1"].stock == "50"
+    assert repo.list_movements()[0][3] == MovementKind.ENTRADA.label
+
+
+def test_o_ajuste_nasce_confirmado_e_carrega_o_motivo():
+    """Não há par registrar/confirmar: a contagem vale no ato."""
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    repo.adjust(ajuste(counted_balance=38))
+    linha = repo.list_movements()[0]
+
+    assert linha[5] == MovementStatus.CONFIRMADA.label
+    assert linha[9] == AdjustmentReason.QUEBRA.label
+
+
+def test_saldo_mudou_desde_a_contagem_e_recusado_sem_gravar():
+    produtos = catalogo_de_um("45")   # alguém movimentou; a tela viu 42
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(SaldoDesatualizadoError):
+        repo.adjust(ajuste(expected_balance=42, counted_balance=38))
+
+    assert produtos["P1"].stock == "45", "o saldo foi alterado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_produto_inativo_nao_e_ajustado():
+    produtos = catalogo_de_um("42", active=False)
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(ValueError):
+        repo.adjust(ajuste())
+
+    assert repo.list_movements() == ()
+
+
+def test_outro_sem_detalhe_e_recusado_como_no_banco():
+    """Espelha `ck_movements_adjustment_detail`.
+
+    Sem isto, o modo demonstração aceitaria o que o Postgres recusa, e o bug
+    só apareceria para quem roda com banco.
+    """
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(ValueError):
+        repo.adjust(ajuste(reason=AdjustmentReason.OUTRO, detail=""))
+
+    assert repo.list_movements() == ()
+
+
+def test_zerar_o_saldo_e_ajuste_valido():
+    produtos = catalogo_de_um("5")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    repo.adjust(ajuste(counted_balance=0, expected_balance=5,
+                       reason=AdjustmentReason.PERDA))
+
+    assert produtos["P1"].stock == "0"
+
+
+def test_contado_igual_ao_atual_e_ajuste_sem_efeito():
+    """Espelha o `IF p_counted_balance = v_current` do banco.
+
+    É a recusa NOMEADA (`AjusteSemEfeitoError`), não qualquer `ValueError`:
+    a tela usa esse nome para desabilitar o botão antes do clique, e um
+    `ValueError` genérico esconderia essa distinção.
+    """
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(AjusteSemEfeitoError):
+        repo.adjust(ajuste(counted_balance=42, expected_balance=42))
+
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_contado_negativo_e_recusado_sem_gravar():
+    """Espelha o guard `p_counted_balance IS NULL OR p_counted_balance < 0`."""
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(ValueError):
+        repo.adjust(ajuste(counted_balance=-1, expected_balance=42))
+
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_a_ordem_das_recusas_espelha_a_funcao_sql():
+    """Produto inativo E `OUTRO` sem detalhe ao mesmo tempo.
+
+    `fn_register_adjustment` confere o motivo ANTES de travar a linha do
+    produto; se o adaptador de demonstração invertesse essa ordem, a mesma
+    entrada errada produziria uma mensagem diferente contra o banco e contra
+    a demonstração — e é exatamente essa divergência que pinça este teste.
+    """
+    produtos = catalogo_de_um("42", active=False)
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(ValueError, match="Outro"):
+        repo.adjust(ajuste(reason=AdjustmentReason.OUTRO, detail=""))
+
+    assert repo.list_movements() == ()
