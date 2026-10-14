@@ -9,10 +9,13 @@ checam `fn_has_role` por conta própria. São camadas: esta dá a mensagem certa
 na tela sem gastar requisição, aquela é a que de fato impede a gravação.
 """
 
+from stockflow.application.dto.adjustment_input import AdjustmentInput
 from stockflow.application.dto.movement_input import MovementInput
 from stockflow.application.ports.movement_repository import MovementRepository
+from stockflow.domain.enums.adjustment_reason import AdjustmentReason
 from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.permissions import ensure_can_move_stock
+from stockflow.domain.stock_adjustment import calcular_ajuste
 
 
 class MovementService:
@@ -64,6 +67,37 @@ class MovementService:
     def cancel(self, session, movement_id: str) -> None:
         ensure_can_move_stock(session, action="cancelar movimentações")
         self._repository.cancel(movement_id)
+
+    def adjust(self, session, data: AdjustmentInput) -> str:
+        """Ajusta o saldo para o valor contado. Levanta `ValueError` em dado inválido.
+
+        Permissão primeiro, como em `register`: a mesma alçada ADMIN/STOCK,
+        porque `fn_register_adjustment` checa o mesmo `fn_has_role`. As
+        validações abaixo não substituem as do banco — elas dão a mensagem
+        certa em português sem gastar requisição, e o banco segue sendo quem
+        de fato impede a gravação.
+        """
+        ensure_can_move_stock(session, action="ajustar o estoque")
+
+        if not (data.product_code or "").strip():
+            raise ValueError("Selecione o produto do ajuste.")
+
+        if self._product_repository is not None:
+            product = self._product_repository.get(data.product_code)
+            if product is None or not product.active:
+                raise ValueError("Selecione um produto ativo.")
+
+        motivo = AdjustmentReason.from_value(data.reason)
+        if motivo.exige_detalhe and not str(data.detail or "").strip():
+            raise ValueError('O motivo "Outro" exige uma justificativa escrita.')
+
+        # `calcular_ajuste` levanta em contado negativo e em diferença zero.
+        # Chamá-la aqui é o que faz a tela receber a recusa nomeada em vez de
+        # uma mensagem do Postgres traduzida pela metade.
+        calcular_ajuste(_para_inteiro(data.expected_balance),
+                        _para_inteiro(data.counted_balance))
+
+        return self._repository.adjust(data)
 
 
 def _para_inteiro(valor) -> int:
