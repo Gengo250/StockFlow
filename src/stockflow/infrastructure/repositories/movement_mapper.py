@@ -182,20 +182,30 @@ def movement_input_to_register_args(data, company_id, product_id) -> dict:
 def adjustment_input_to_args(data, company_id, product_id) -> dict:
     """Argumentos nomeados de `fn_register_adjustment`.
 
-    `p_expected_balance` vai junto e NÃO é opcional: é o saldo que a tela
-    exibiu, e é ele que faz a função recusar quando outra pessoa movimentou o
-    produto no meio. Omiti-lo transformaria "esqueci de passar" em "não quero
-    a checagem de concorrência".
+    `p_expected_balance` vai junto e a CHAVE não é opcional: é o saldo que a
+    tela exibiu, e é ele que faz a função recusar quando outra pessoa
+    movimentou o produto no meio. Omitir a chave transformaria "esqueci de
+    passar" em "não quero a checagem de concorrência".
+
+    O VALOR, porém, preserva `None` como `None` (NULL), em vez de passar por
+    `to_int` — a função só pula a checagem quando recebe NULL de verdade
+    (`IF p_expected_balance IS NOT NULL AND p_expected_balance <> v_current`
+    em `fn_register_adjustment`), e é assim que o adaptador de demonstração
+    também lê (`if esperado is not None and ...`). Rodar `to_int(None)` aqui
+    gravaria `0`, e todo ajuste sem saldo esperado passaria a recusar com
+    "na tela: 0, agora: <o saldo real>" em vez de pular a checagem como os
+    dois adaptadores atrás da mesma porta precisam concordar em fazer.
 
     Detalhe vazio vira NULL, não string vazia, pelo mesmo motivo da nota em
     `movement_input_to_register_args`.
     """
     detalhe = str(getattr(data, "detail", "") or "").strip()
+    esperado = data.expected_balance
     return {
         "p_company_id": company_id,
         "p_product_id": product_id,
         "p_counted_balance": to_int(data.counted_balance),
-        "p_expected_balance": to_int(data.expected_balance),
+        "p_expected_balance": None if esperado is None else to_int(esperado),
         "p_reason": AdjustmentReason.from_value(data.reason).value,
         "p_detail": detalhe or None,
     }

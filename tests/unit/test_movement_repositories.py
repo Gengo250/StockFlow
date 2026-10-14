@@ -798,3 +798,81 @@ def test_saldo_desatualizado_no_banco_vira_erro_nomeado():
 
     with pytest.raises(SaldoDesatualizadoError, match="45"):
         repo.adjust(ajuste(product_code="PRD-009"))
+
+
+def test_saldo_esperado_nulo_preserva_null_nas_duas_pontas():
+    """`None` é a forma DOCUMENTADA de pular a checagem de concorrência.
+
+    `fn_register_adjustment` só pula a checagem quando recebe
+    `p_expected_balance` NULL de verdade (`IF p_expected_balance IS NOT NULL
+    AND p_expected_balance <> v_current THEN RAISE`); o adaptador de
+    demonstração espelha a mesma regra (`if esperado is not None and ...`).
+
+    Se o adaptador de banco convertesse `None` para `0` (o default de
+    `to_int`), todo ajuste sem saldo esperado passaria a recusar com "na
+    tela: 0, agora: <real>" em vez de pular a checagem — as DUAS
+    implementações atrás da mesma porta precisam concordar neste ponto, por
+    isso o teste roda a MESMA entrada contra as duas, e não só confere o
+    dict de argumentos do lado do banco (que passaria mesmo se o adaptador
+    de demonstração tivesse o bug oposto).
+    """
+    dados = ajuste(product_code="PRD-009", counted_balance=20,
+                   expected_balance=None, reason=AdjustmentReason.CONTAGEM)
+
+    produtos = {"PRD-009": Product(
+        "PRD-009", "Monitor LG UltraWide 34\"", "Eletrônicos", "UN",
+        "10,00", "5,00", True, "18", "Normal",
+    )}
+    demo = DemoMovementRepository(produtos, agora=AGORA)
+    # Não levanta `SaldoDesatualizadoError`, mesmo o saldo real (18) sendo
+    # diferente do contado (20): `None` pulou a checagem, como documentado.
+    demo.adjust(dados)
+
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas)
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo._ids["PRD-009"] = PRODUTO_ID
+
+    repo.adjust(dados)
+
+    assert cliente.chamadas_rpc[-1][1]["p_expected_balance"] is None
+
+
+def test_40001_fora_do_ajuste_nao_vira_saldo_desatualizado():
+    """`40001` é uma classe PADRÃO do Postgres, não exclusiva do nosso RAISE.
+
+    O próprio motor levanta `serialization_failure` em conflito de
+    transação serializável — não só `fn_register_adjustment`. Um `40001`
+    genuíno do motor em `fn_confirm_movement` não é "recontagem" nenhuma, e
+    virar `SaldoDesatualizadoError` ali daria um conselho sem sentido. A
+    tradução tem que ficar presa à função de ajuste.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas, rpc_erros={
+        "fn_confirm_movement": ErroDoPostgrest(
+            "could not serialize access due to concurrent update", "40001"),
+    })
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+
+    with pytest.raises(ErroDoPostgrest):
+        repo.confirm(MOV_ID)
+
+
+def test_ajuste_nao_faz_leitura_de_conferencia_depois_da_rpc():
+    """A conferência do saldo resultante acontece DENTRO da função, atômica.
+
+    Reler o saldo aqui depois compararia contra uma leitura nova que outra
+    pessoa já pode ter mudado — pareceria uma checagem e não valeria nada.
+    Este teste prova a ausência contando consultas de tabela em vez de só
+    ler o código: uma edição bem-intencionada que acrescentasse uma
+    releitura passaria despercebida sem este contador.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas, rpc_resultados={"fn_register_adjustment": MOV_ID})
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo._ids["PRD-009"] = PRODUTO_ID
+
+    consultas_antes = len(cliente.consultas)
+    repo.adjust(ajuste(product_code="PRD-009"))
+
+    assert len(cliente.consultas) == consultas_antes

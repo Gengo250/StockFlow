@@ -67,7 +67,15 @@ ACTION_BY_RPC = {
 # SQLSTATE que `fn_register_adjustment` usa para "o saldo mudou desde a
 # contagem". Não é falha de sistema nem erro do usuário: é pedido de
 # recontagem, e precisa de um tipo próprio para a tela poder dizer isso.
+#
+# `40001` (serialization_failure) é uma classe PADRÃO do Postgres — o próprio
+# motor a levanta em conflito de transação serializável, não só o nosso
+# `RAISE EXCEPTION`. Por isso a tradução abaixo é escopada à função de
+# ajuste: um `40001` genuíno do motor em `fn_confirm_movement` ou
+# `fn_cancel_movement`, por exemplo, não é "recontagem" nenhuma, e virar
+# `SaldoDesatualizadoError` ali daria um conselho sem sentido.
 STALE_BALANCE_SQLSTATE = "40001"
+STALE_BALANCE_RPC = "fn_register_adjustment"
 
 
 class SupabaseMovementRepository:
@@ -252,7 +260,8 @@ class SupabaseMovementRepository:
                 raise PermissionDeniedError(
                     ACTION_BY_RPC.get(name, f"executar {name}"), self._role
                 ) from erro
-            if str(getattr(erro, "code", "")) == STALE_BALANCE_SQLSTATE:
+            if (name == STALE_BALANCE_RPC
+                    and str(getattr(erro, "code", "")) == STALE_BALANCE_SQLSTATE):
                 # A mensagem do servidor já traz os dois saldos; reescrevê-la
                 # aqui criaria uma segunda redação da mesma recusa.
                 raise SaldoDesatualizadoError(
