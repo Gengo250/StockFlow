@@ -639,6 +639,10 @@ def test_produto_inativo_nao_e_ajustado():
     with pytest.raises(ValueError):
         repo.adjust(ajuste())
 
+    # Literal "42", não uma variável capturada antes da chamada: comparar o
+    # saldo com ele mesmo depois do `adjust` não provaria nada se o código
+    # tivesse mutado o MESMO objeto.
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
     assert repo.list_movements() == ()
 
 
@@ -654,6 +658,7 @@ def test_outro_sem_detalhe_e_recusado_como_no_banco():
     with pytest.raises(ValueError):
         repo.adjust(ajuste(reason=AdjustmentReason.OUTRO, detail=""))
 
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
     assert repo.list_movements() == ()
 
 
@@ -710,4 +715,9 @@ def test_a_ordem_das_recusas_espelha_a_funcao_sql():
     with pytest.raises(ValueError, match="Outro"):
         repo.adjust(ajuste(reason=AdjustmentReason.OUTRO, detail=""))
 
+    # É justamente aqui, com DUAS condições erradas ao mesmo tempo, que um
+    # estado pela metade apareceria primeiro: saldo E status literais da
+    # fixture, não recalculados a partir de um saldo fantasma.
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
+    assert produtos["P1"].stock_status == "Normal", "o status foi recalculado apesar da recusa"
     assert repo.list_movements() == ()
