@@ -24,6 +24,7 @@ como em `DemoProductRepository`.
 
 import dataclasses
 from datetime import datetime
+from threading import RLock
 
 from stockflow.application.dto.movement_input import MovementInput
 from stockflow.domain.enums.movement_kind import MovementKind
@@ -43,6 +44,7 @@ class DemoMovementRepository:
     def __init__(self, products: dict, movements=None, agora=None, suppliers=None):
         self._products = products
         self._suppliers = suppliers
+        self.lock = RLock()
         # Lista, e não dict por id: a ordem de inserção É o histórico, e a
         # leitura só precisa invertê-la para entregar a mais recente primeiro.
         self._movements = list(movements or ())
@@ -123,6 +125,30 @@ class DemoMovementRepository:
             self._aplicar_no_saldo(linha, sentido=1)
         self._movements.append(linha)
         return linha["id"]
+
+    def register_sale(self, items) -> tuple[str, ...]:
+        """Confirma todas as saídas de uma venda como uma única demo-operação."""
+        with self.lock:
+            stock_before = {
+                item.product_code: self._products[item.product_code]
+                for item in items
+            }
+            movements_before = list(self._movements)
+            try:
+                ids = []
+                for item in items:
+                    ids.append(self.register(MovementInput(
+                        product_code=item.product_code,
+                        kind=MovementKind.SAIDA,
+                        quantity=item.quantity,
+                        note=f"SAIDA_VENDA - venda, produto {item.product_code}",
+                        confirm=True,
+                    )))
+                return tuple(ids)
+            except Exception:
+                self._products.update(stock_before)
+                self._movements[:] = movements_before
+                raise
 
     def confirm(self, movement_id: str) -> None:
         """Confirma uma pendente. É esta transição que altera o saldo."""

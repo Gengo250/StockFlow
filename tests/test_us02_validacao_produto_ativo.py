@@ -70,10 +70,9 @@ def coluna(page, column):
     return [page.table.item(r, column).text() for r in range(page.table.rowCount())]
 
 
-def venda_valida(page, cliente="Ana Ferreira", produto="PRD-009", valor="100,00"):
+def venda_valida(page, cliente="Ana Ferreira", produto="PRD-009", valor=None):
     page.selecionar_cliente_externo(cliente)
     page.selecionar_produto(produto)
-    page.val_input.setText(valor)
     page._registrar_venda()
 
 
@@ -141,19 +140,19 @@ def test_produto_inexistente_nao_e_relatado_como_inativo(vendas):
 
 def test_venda_sem_produto_e_bloqueada(vendas):
     vendas.selecionar_cliente_externo("Ana Ferreira")
-    vendas.val_input.setText("100,00")
     vendas._registrar_venda()
 
     assert len(vendas.historico_vendas) == 2
-    assert vendas.warning_label.text() == "Selecione um produto ativo válido."
+    assert vendas.warning_label.text() == "Adicione pelo menos um item à venda."
 
 
 def test_venda_valida_grava_codigo_e_nome_do_produto(vendas):
-    venda_valida(vendas, produto="PRD-009", valor="250,00")
+    venda_valida(vendas, produto="PRD-009")
 
     nova = vendas.historico_vendas[0]
     assert nova["produto_codigo"] == "PRD-009"
     assert nova["produto"] == 'Monitor LG UltraWide 34"'
+    assert nova["valor"] == "R$ 2.499,90"
     assert vendas.table.item(0, PRODUTO_COLUMN).text() == 'Monitor LG UltraWide 34"'
 
 
@@ -165,7 +164,6 @@ def test_produto_desativado_com_a_tela_aberta_e_recusado_na_gravacao(vendas, cat
     """
     vendas.selecionar_cliente_externo("Ana Ferreira")
     vendas.selecionar_produto("PRD-007")
-    vendas.val_input.setText("80,00")
 
     desativar(catalogo, "PRD-007")
     vendas._registrar_venda()
@@ -178,7 +176,6 @@ def test_produto_desativado_com_a_tela_aberta_e_recusado_na_gravacao(vendas, cat
 def test_recusa_por_produto_inativo_tira_ele_da_oferta(vendas, catalogo):
     vendas.selecionar_cliente_externo("Ana Ferreira")
     vendas.selecionar_produto("PRD-007")
-    vendas.val_input.setText("80,00")
 
     desativar(catalogo, "PRD-007")
     vendas._registrar_venda()
@@ -189,7 +186,6 @@ def test_recusa_por_produto_inativo_tira_ele_da_oferta(vendas, catalogo):
 def test_produto_sumido_do_catalogo_e_recusado_na_gravacao(vendas, catalogo):
     vendas.selecionar_cliente_externo("Ana Ferreira")
     vendas.selecionar_produto("PRD-007")
-    vendas.val_input.setText("80,00")
 
     del catalogo["PRD-007"]
     vendas._registrar_venda()
@@ -227,7 +223,7 @@ def test_desativar_produto_nao_apaga_a_venda_antiga(vendas, catalogo):
 
 
 def test_desativar_produto_depois_da_venda_nao_reescreve_o_historico(vendas, catalogo):
-    venda_valida(vendas, produto="PRD-008", valor="459,90")
+    venda_valida(vendas, produto="PRD-008")
     desativar(catalogo, "PRD-008")
     vendas.reload_products()
 

@@ -109,5 +109,28 @@ CREATE TABLE public.sales (
     FOREIGN KEY (product_id)
         REFERENCES public.products (id) ON DELETE SET NULL
 );
+ALTER TABLE public.sales
+    ADD CONSTRAINT uq_sales_company_id UNIQUE (company_id, id);
 CREATE INDEX idx_sales_company_created
     ON public.sales (company_id, created_on DESC);
+
+CREATE TABLE public.sale_items (
+    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id   uuid NOT NULL,
+    sale_id      uuid NOT NULL,
+    product_id   uuid,
+    product_code text NOT NULL,
+    product_name text NOT NULL,
+    line_number  integer NOT NULL CHECK (line_number > 0),
+    quantity     integer NOT NULL CHECK (quantity > 0),
+    unit_price   numeric(10,2) NOT NULL CHECK (unit_price >= 0),
+    subtotal     numeric(10,2) NOT NULL CHECK (subtotal >= 0),
+    created_on   timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (company_id, sale_id)
+        REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id)
+        REFERENCES public.products (id) ON DELETE SET NULL,
+    UNIQUE (sale_id, line_number)
+);
+CREATE INDEX idx_sale_items_sale_created
+    ON public.sale_items (sale_id, line_number);

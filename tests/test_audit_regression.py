@@ -57,7 +57,19 @@ def window(qapp):
 def remote_window(qapp, monkeypatch):
     client = ClienteFalso(catalogo_falso(), rpc_resultados={
         "fn_list_company_clients": [{"client_id": "client-a", "name": "Cliente teste", "active": True}],
-        "fn_register_sale": "sale-a",
+        "fn_register_sale": {
+            "id": "sale-a",
+            "cliente": "Cliente teste",
+            "total": 2499.90,
+            "created_on": "2026-10-12T12:00:00Z",
+            "items": [{
+                "product_code": "PRD-009",
+                "product_name": 'Monitor LG UltraWide 34"',
+                "quantity": 1,
+                "unit_price": 2499.90,
+                "subtotal": 2499.90,
+            }],
+        },
     })
     monkeypatch.setenv('STOCKFLOW_BACKEND', 'supabase')
     monkeypatch.setattr(backend, '_client', lambda: client)
@@ -68,10 +80,10 @@ def remote_window(qapp, monkeypatch):
     w.close()
 
 
-def choose_sale(page, value='10,00'):
+def choose_sale(page):
     page.cliente_combo.setCurrentIndex(1)
     page.produto_combo.setCurrentIndex(1)
-    page.val_input.setText(value)
+    page._item_rows[0]["quantity"].setText("1")
     assert page.cliente_combo.currentData() and page.produto_combo.currentData()
 
 
@@ -110,13 +122,14 @@ def test_new_client_becomes_selectable_in_sales(window, qapp):
     assert any((combo.itemData(i) or {}).get('nome') == 'Cliente Auditoria Novo' for i in range(combo.count())), 'Vendas recarrega DEMO_PEOPLE, não os clientes cadastrados'
 
 
-@pytest.mark.parametrize('value', ['abc', '-10,00', 'NaN'])
-def test_sale_rejects_invalid_amount(window, value):
+@pytest.mark.parametrize('quantity', ['abc', '-1', '0', '1.5'])
+def test_sale_rejects_invalid_quantity(window, quantity):
     page = window.vendas_page
-    choose_sale(page, value)
+    choose_sale(page)
+    page._item_rows[0]["quantity"].setText(quantity)
     before = len(page.historico_vendas)
     page._registrar_venda()
-    assert len(page.historico_vendas) == before, f'Valor inválido aceito: {value}'
+    assert len(page.historico_vendas) == before, f'Quantidade inválida aceita: {quantity}'
 
 
 def test_sale_rechecks_inactive_client(window):

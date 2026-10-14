@@ -117,14 +117,16 @@ O botão de ação da linha **desativa** o produto (soft-delete, como
 `fn_set_product_active`); ele some da lista e só reaparece em `Inativos`, de
 onde pode ser reativado.
 
-Em **Vendas**, uma venda nova escolhe cliente, produto e valor. A lista de
-produtos oferece apenas os que estão **ativos**: desativar um item no Estoque
-(ou pelo formulário de edição) o retira da seleção na hora, e a gravação
-revalida a situação antes de registrar — a lista é uma foto, e o produto pode
-ser desativado com a tela de Vendas aberta. O **histórico** não muda: cada
-venda guarda o produto que foi associado a ela, então operações antigas
-continuam exibindo o item original mesmo depois de ele ser desativado ou sair
-do catálogo.
+Em **Vendas**, a montagem aceita vários produtos e quantidades inteiras
+positivas. O subtotal de cada linha e o total são calculados automaticamente
+com os preços do catálogo; não há total digitado pelo usuário. Produtos
+inativos e quantidades acima do saldo são recusados. Ao confirmar, a venda,
+seus itens e uma saída confirmada por linha são gravados juntos: o estoque
+baixa imediatamente e qualquer falha cancela toda a operação. No Supabase, a
+RPC bloqueia os produtos em ordem estável e revalida o saldo dentro da
+transação, inclusive para vendas concorrentes. O **histórico** mantém código
+e nome associados no momento da venda, mesmo que o produto seja desativado
+ou removido depois.
 
 A mesma regra vale para compras e movimentações operacionais quando essas
 telas existirem: a situação do produto tem um dono só,
@@ -158,7 +160,9 @@ faria a aplicação exigir rede numa máquina onde isso não foi pedido.
 
 Antes do primeiro login com o banco, três passos — nesta ordem:
 
-1. **Aplique as migrations** em ordem de timestamp. `20261004150000_minimum_stock_optional.sql`
+1. **Aplique as migrations** em ordem de timestamp, incluindo
+   `20261006120000_atomic_multi_item_sales.sql` para habilitar vendas
+   multi-item e baixa atômica. `20261004150000_minimum_stock_optional.sql`
    é **destrutiva por desenho**: ela converte todo `min_quantity = 0` em
    `NULL`, porque esses zeros foram gravados quando zero significava "não
    configurado". Sem backup não há volta. Sem a primeira, `fn_current_user_id()`

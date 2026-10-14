@@ -26,6 +26,7 @@ ALTER TABLE public.product_stock  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sale_items      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
 
 -- register não tem coluna de empresa (tables/02_cash_register.sql: "Caixa.
@@ -61,6 +62,7 @@ GRANT SELECT ON public.company,
                 public.clients,
                 public.suppliers,
                 public.sales,
+                public.sale_items,
                 public.vw_stock_situation,
                 public.vw_stock_alerts
   TO app_backend, authenticated;
@@ -74,6 +76,7 @@ DROP POLICY IF EXISTS product_stock_select ON public.product_stock;
 DROP POLICY IF EXISTS stock_movements_select ON public.stock_movements;
 DROP POLICY IF EXISTS clients_select          ON public.clients;
 DROP POLICY IF EXISTS sales_select            ON public.sales;
+DROP POLICY IF EXISTS sale_items_select       ON public.sale_items;
 DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
 
 -- Policy é por role: o GRANT acima deixa `authenticated` chegar à tabela, mas
@@ -101,6 +104,10 @@ CREATE POLICY clients_select ON public.clients
   USING (public.fn_is_member(company_id));
 
 CREATE POLICY sales_select ON public.sales
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_is_member(company_id));
+
+CREATE POLICY sale_items_select ON public.sale_items
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
 

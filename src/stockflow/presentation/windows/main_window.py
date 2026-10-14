@@ -173,7 +173,12 @@ class MainWindow(QMainWindow):
         # catálogo como ele estava quando a janela abriu.
         from stockflow.application.services.sale_service import SaleService
         self.client_repository = build_client_repository(self.session)
-        self.sale_repository = build_sale_repository(self.session, self.products)
+        self.movement_repository = build_movement_repository(
+            self.session, self.products, self.supplier_repository
+        )
+        self.sale_repository = build_sale_repository(
+            self.session, self.products, self.movement_repository
+        )
         self.sale_service = SaleService(self.sale_repository, self.client_repository, self.product_repository)
         self.vendas_page = VendasPage(self.products, service=self.sale_service, session=self.session)
         self.clientes_page = ClientesPage(sales_page=self.vendas_page, repository=self.client_repository, session=self.session)
@@ -182,9 +187,6 @@ class MainWindow(QMainWindow):
         # Movimentações recebe o MESMO catálogo: a oferta de produtos tem que
         # acompanhar desativações feitas no Estoque, pela mesma razão da tela
         # de Vendas (US02).
-        self.movement_repository = build_movement_repository(
-            self.session, self.products, self.supplier_repository
-        )
         self.movement_service = MovementService(
             self.movement_repository, self.supplier_repository, self.product_repository
         )
@@ -243,6 +245,7 @@ class MainWindow(QMainWindow):
         self.users_page.user_table.venda_requested.connect(
             self._associar_cliente_e_abrir_vendas
         )
+        self.vendas_page.sale_registered.connect(self._saldo_mudou)
         self.users_page.user_table.status_change_requested.connect(
             self._on_user_status_changed
         )
@@ -418,17 +421,15 @@ class MainWindow(QMainWindow):
         return True
 
     def _saldo_mudou(self):
-        """Uma movimentação confirmada alterou o saldo. Propaga para as telas.
+        """Uma operação confirmada alterou o saldo. Propaga para as telas.
 
         Dois caminhos, porque as duas fontes se comportam de forma diferente:
 
         - COM banco, o saldo foi recalculado pelo trigger e a foto local não
-          sabe disso. Só reconsultando.
-        - SEM banco, o repositório de movimentação já escreveu no catálogo
-          compartilhado; o que falta é redesenhar. Reconsultar sairia cedo
-          (não há `load_catalog`) e a tela ficaria com o saldo antigo — foi
-          exatamente o que aconteceu: o catálogo marcava 13 e a tabela de
-          Estoque seguia mostrando 18.
+          sabe disso. Só reconsultando. Isso inclui vendas confirmadas.
+        - SEM banco, a operação já escreveu no catálogo compartilhado; o que
+          falta é redesenhar. Reconsultar sairia cedo (não há `load_catalog`)
+          e a tela ficaria com o saldo antigo.
         """
         if getattr(self.product_repository, "load_catalog", None) is not None:
             self._reconsultar_estoque()

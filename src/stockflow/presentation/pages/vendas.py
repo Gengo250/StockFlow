@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -14,36 +16,26 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from stockflow.application.services.product_selection_service import (
-    ProductSelectionService,
-)
+from stockflow.application.dto.sale_item import SaleItemInput, SaleItemValidator
+from stockflow.application.services.product_selection_service import ProductSelectionService
+from stockflow.application.services.sale_service import SaleService, calculate_total_from_items, parse_total
 from stockflow.domain.enums.operation_kind import OperationKind
 from stockflow.domain.exceptions.inactive_product import InactiveProductError
 from stockflow.domain.exceptions.product_not_found import ProductNotFoundError
-from stockflow.infrastructure.repositories.demo_product_repository import (
-    DemoProductRepository,
-)
-from stockflow.presentation.demo_data import base_de_clientes
-from stockflow.presentation.demo_products import DEMO_PRODUCTS
-from stockflow.application.services.sale_service import SaleService
-from stockflow.infrastructure.repositories.demo_client_repository import DemoClientRepository
-from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
 from stockflow.domain.permissions import can_manage_clients
-
+from stockflow.infrastructure.repositories.demo_client_repository import DemoClientRepository
+from stockflow.infrastructure.repositories.demo_product_repository import DemoProductRepository
+from stockflow.infrastructure.repositories.demo_movement_repository import DemoMovementRepository
+from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
+from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
 
 class VendasPage(QWidget):
-    """Página provisória para simulação de vendas e associação de clientes."""
+    """Montagem e confirmação de vendas compostas por vários produtos."""
+
+    sale_registered = Signal()
 
     def __init__(self, products=None, product_selection=None, parent=None, service=None, session=None):
-        """Monta a tela sobre o catálogo compartilhado `code -> Product`.
-
-        Sem argumento cai numa CÓPIA de `DEMO_PRODUCTS`, para a página
-        continuar utilizável isolada sem escrever no catálogo do módulo. O
-        caminho que importa é o outro: a `MainWindow` passa o MESMO dict que
-        o Estoque grava, e é essa identidade que faz um produto desativado lá
-        sumir da seleção de venda aqui.
-        """
         super().__init__(parent)
         self.setObjectName("vendasPage")
         self.setStyleSheet("""
@@ -83,118 +75,134 @@ class VendasPage(QWidget):
             }
         """)
 
-        # Base de clientes para simulação [ID, Nome, Status].
-        # Vem de demo_data, a mesma fonte da tabela de Usuários: enquanto as
-        # duas telas mantinham listas próprias, usuário ativo lá podia não
-        # existir aqui e a associação falhava sem explicação.
-        self.clientes = base_de_clientes()
-
-        # Catálogo e política de seleção (US02). O serviço é quem decide se
-        # um produto pode entrar numa venda nova; a tela não olha `active`
-        # por conta própria, para não virar uma segunda cópia da regra.
         self.products = dict(DEMO_PRODUCTS) if products is None else products
         self.product_selection = product_selection or ProductSelectionService(
             DemoProductRepository(self.products)
         )
-
-        # Vendas históricas. Guardam o NOME do cliente e o código/nome do
-        # produto como estavam no momento da venda — não uma referência ao
-        # cadastro. Desativar ou remover o produto depois não pode esvaziar
-        # a linha do que já aconteceu.
-        #
-        # VND-1001 aponta para PRD-004, que nem está mais no catálogo: é o
-        # caso que prova que a consulta do histórico não depende do cadastro.
         self.session = session
-        self.service = service or SaleService(
-            DemoSaleRepository(), DemoClientRepository(), DemoProductRepository(self.products)
-        )
-        self.clientes = [{"id": c.client_id, "nome": c.name, "status": c.status}
-                         for c in self.service.clients.list_all()]
+        if service is None:
+            self.movement_repository = DemoMovementRepository(self.products)
+            self.service = SaleService(
+                DemoSaleRepository(self.products, self.movement_repository),
+                DemoClientRepository(),
+                DemoProductRepository(self.products),
+            )
+        else:
+            self.service = service
+            self.movement_repository = getattr(
+                self.service.repository, "_movement_repository", None
+            )
+        self.client_repository = self.service.clients
+        self.clientes = [
+            {
+                "id": client.client_id,
+                "nome": client.name,
+                "status": "Ativo" if client.active else "Inativo",
+            }
+            for client in self.client_repository.list_all()
+        ]
         self.historico_vendas = self.service.list_sales()
-
+        self._item_rows = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 22, 22, 22)
         layout.setSpacing(18)
-
-        # Cabeçalho
         title = QLabel("Registro e Seleção de Vendas")
         title.setStyleSheet("color: #0F172A; font-size: 26px; font-weight: 700;")
         layout.addWidget(title)
 
-        # Card de Nova Venda
         form_card = QFrame()
         form_card.setObjectName("card")
         form_layout = QVBoxLayout(form_card)
         form_layout.setContentsMargins(20, 20, 20, 20)
         form_layout.setSpacing(12)
-
         form_title = QLabel("Nova Venda")
         form_title.setStyleSheet("color: #1E3A8A; font-size: 16px; font-weight: 600;")
         form_layout.addWidget(form_title)
 
-        row = QHBoxLayout()
-        row.setSpacing(12)
-
-        # Combo para seleção de cliente
+        client_row = QHBoxLayout()
         self.cliente_combo = QComboBox()
         self.cliente_combo.setFixedHeight(42)
-        self.recarregar_clientes_disponiveis()
-        self.cliente_combo.currentIndexChanged.connect(self._ao_selecionar_cliente)
-
-        # Label de alerta para clientes inativos
         self.warning_label = QLabel("")
         self.warning_label.setStyleSheet("color: #EF4444; font-size: 12px; font-weight: 500;")
+        self.recarregar_clientes_disponiveis()
+        self.cliente_combo.currentIndexChanged.connect(self._ao_selecionar_cliente)
+        client_row.addWidget(self.cliente_combo, 2)
+        client_row.addWidget(self.warning_label, 1)
+        form_layout.addLayout(client_row)
 
-        # Combo de produto: só entra aqui o que a política deixa vender.
-        self.produto_combo = QComboBox()
-        self.produto_combo.setFixedHeight(42)
-        self.recarregar_produtos_disponiveis()
-        self.produto_combo.currentIndexChanged.connect(self._ao_selecionar_produto)
+        self.itens_frame = QFrame()
+        self.itens_frame.setObjectName("card")
+        self.itens_layout = QVBoxLayout(self.itens_frame)
+        self.itens_layout.setContentsMargins(10, 10, 10, 10)
+        self.itens_layout.setSpacing(8)
+        form_layout.addWidget(self.itens_frame, 1)
+        self._adicionar_linha_item()
 
-        self.val_input = QLineEdit()
-        self.val_input.setPlaceholderText("Valor (R$)")
-        self.val_input.setFixedHeight(42)
+        self.btn_adicionar_item = QPushButton("+ Outro Item")
+        self.btn_adicionar_item.setObjectName("primaryButton")
+        self.btn_adicionar_item.setFixedHeight(32)
+        self.btn_adicionar_item.clicked.connect(self._adicionar_linha_item)
+        form_layout.addWidget(self.btn_adicionar_item)
 
-        self.save_button = btn_salvar = QPushButton(" Finalizar Venda")
-        btn_salvar.setObjectName("primaryButton")
-        btn_salvar.setFixedHeight(42)
-        btn_salvar.setIcon(qta.icon("fa5s.check", color="white"))
-        btn_salvar.clicked.connect(self._registrar_venda)
-
-        row.addWidget(self.cliente_combo, 2)
-        row.addWidget(self.produto_combo, 2)
-        row.addWidget(self.val_input, 1)
-        row.addWidget(btn_salvar, 1)
-        form_layout.addLayout(row)
-        form_layout.addWidget(self.warning_label)
-
+        total_row = QHBoxLayout()
+        self.label_total = QLabel("Total: R$ 0,00")
+        self.label_total.setStyleSheet("color: #0F172A; font-size: 14px; font-weight: 600;")
+        self.label_total_value = QLabel("R$ 0,00")
+        self.label_total_value.setStyleSheet("color: #059669; font-size: 14px;")
+        self.save_button = QPushButton("Confirmar Venda")
+        self.save_button.setObjectName("primaryButton")
+        self.save_button.setFixedHeight(42)
+        self.save_button.setIcon(qta.icon("fa5s.check", color="white"))
+        self.save_button.clicked.connect(self._registrar_venda)
+        total_row.addWidget(self.label_total)
+        total_row.addWidget(self.label_total_value, 1)
+        total_row.addWidget(self.save_button)
+        form_layout.addLayout(total_row)
         layout.addWidget(form_card)
 
-        # Tabela de Histórico de Vendas
         hist_title = QLabel("Histórico de Vendas Realizadas")
         hist_title.setStyleSheet("color: #0F172A; font-size: 18px; font-weight: 600;")
         layout.addWidget(hist_title)
-
         table_card = QFrame()
         table_card.setObjectName("card")
         table_layout = QVBoxLayout(table_card)
         table_layout.setContentsMargins(0, 0, 0, 0)
-
         self.table = QTableWidget()
         self.table.setColumnCount(5)
         self.table.setHorizontalHeaderLabels(
-            ["ID Venda", "Cliente Associado", "Produto", "Valor Total", "Data"]
+            ["ID Venda", "Cliente Associado", "Produto(s)", "Valor Total", "Data"]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setShowGrid(False)
         self.table.verticalHeader().hide()
-
         table_layout.addWidget(self.table)
         layout.addWidget(table_card, 1)
-
         self.atualizar_tabela_historico()
         self.apply_session(session)
+
+    @property
+    def itens(self):
+        """Itens válidos da tela, preservando a ordem visual das linhas."""
+        result = []
+        for row in self._item_rows:
+            code = self._code_from_data(row["combo"].currentData())
+            quantity_text = row["quantity"].text().strip()
+            if not code and not quantity_text:
+                continue
+            if not code:
+                raise ValueError("Selecione um produto para cada quantidade informada.")
+            if not quantity_text.isascii() or not quantity_text.isdecimal() or int(quantity_text) <= 0:
+                raise ValueError(f"Informe uma quantidade inteira positiva para {code}.")
+            result.append(SaleItemInput(
+                product_code=code,
+                quantity=int(quantity_text),
+            ))
+        return tuple(result)
+
+    @property
+    def produto_combo(self):
+        return self._item_rows[0]["combo"]
 
     def apply_session(self, session):
         self.session = session
@@ -205,206 +213,283 @@ class VendasPage(QWidget):
         self.atualizar_tabela_historico()
 
     def recarregar_clientes_disponiveis(self):
-        """Preenche o combo apenas com clientes ativos para novas associações.
-
-        A escolha atual é reapontada depois da recarga, pelo mesmo motivo do
-        combo de produtos: a lista é refeita toda vez que a tela de Clientes
-        sincroniza — inclusive durante a navegação para cá — e perder a
-        seleção no caminho fazia o cliente associado pela tela de Usuários
-        chegar aqui com o combo no placeholder. Se o cliente escolhido tiver
-        sido inativado, ele simplesmente não volta.
-        """
-        escolhido = self.cliente_combo.currentData()
-
+        escolhido = self.cliente_combo.currentData() if hasattr(self, "cliente_combo") else None
         self.cliente_combo.clear()
         self.cliente_combo.addItem("Selecione um cliente...", None)
-
-        for cli in self.clientes:
-            # Clientes inativos não aparecem na seleção de nova venda
-            if cli["status"] == "Ativo":
-                self.cliente_combo.addItem(f"{cli['nome']} ({cli['id']})", cli)
-
+        for client in self.clientes:
+            if self._cliente_ativo(client["id"]):
+                self.cliente_combo.addItem(
+                    f"{client['nome']} ({client['id']})", client
+                )
         if escolhido:
             self._apontar_cliente(escolhido["id"])
 
     def _apontar_cliente(self, client_id):
-        """Põe o combo no cliente pedido, se ele estiver na oferta."""
-        for i in range(self.cliente_combo.count()):
-            data = self.cliente_combo.itemData(i)
+        for index in range(self.cliente_combo.count()):
+            data = self.cliente_combo.itemData(index)
             if data and data.get("id") == client_id:
-                self.cliente_combo.setCurrentIndex(i)
+                self.cliente_combo.setCurrentIndex(index)
                 return True
         return False
 
-    def recarregar_produtos_disponiveis(self):
-        """Preenche o combo apenas com produtos ativos para novas vendas.
+    def selecionar_cliente_externo(self, nome):
+        cliente = next((c for c in self.clientes if c["nome"] == nome), None)
+        if cliente is None:
+            self.warning_label.setText(f"O cliente {nome} não existe.")
+            self.cliente_combo.setCurrentIndex(0)
+            return False
+        if not self._cliente_ativo(cliente["id"]):
+            self.warning_label.setText(f"O cliente {nome} está inativo.")
+            self.cliente_combo.setCurrentIndex(0)
+            return False
+        self._apontar_cliente(cliente["id"])
+        self.warning_label.setText("")
+        return True
 
-        A escolha atual é reapontada depois da recarga: o combo é refeito
-        toda vez que o catálogo muda, e perder a seleção no meio de uma
-        venda obrigaria o usuário a procurar o produto de novo. Se o produto
-        escolhido tiver sido desativado, ele simplesmente não volta.
-        """
-        escolhido = self.produto_combo.currentData()
+    def _cliente_ativo(self, client_id):
+        return any(
+            client["id"] == client_id and client["status"] == "Ativo"
+            for client in self.clientes
+        )
 
-        self.produto_combo.clear()
-        self.produto_combo.addItem("Selecione um produto...", None)
-
-        for produto in self.product_selection.available_products():
-            self.produto_combo.addItem(
-                f"{produto.name} ({produto.code})",
-                {"codigo": produto.code, "nome": produto.name},
-            )
-
-        if escolhido:
-            self._apontar_produto(escolhido["codigo"])
+    def _ao_selecionar_cliente(self, _index):
+        if self.cliente_combo.currentData() is not None:
+            self.warning_label.setText("")
 
     def reload_products(self, products=None):
-        """Refaz a oferta de produtos a partir do catálogo atual.
-
-        O histórico NÃO é refeito aqui de propósito. Suas linhas guardam o
-        produto gravado na venda; reconstruí-las a partir do catálogo é
-        justamente o que apagaria a operação antiga cujo produto foi
-        desativado ou removido.
-        """
-        if products is not None and products is not self.products:
+        if products is not None:
             self.products = products
-            self.product_selection = ProductSelectionService(
-                DemoProductRepository(products)
+        selected_by_row = [
+            self._code_from_data(row["combo"].currentData())
+            for row in self._item_rows
+        ]
+        for row, selected in zip(self._item_rows, selected_by_row):
+            self._preencher_combo_produtos(row["combo"], selected)
+        self._atualizar_total()
+
+    def recarregar_produtos_disponiveis(self):
+        self.reload_products()
+
+    def _adicionar_linha_item(self):
+        frame = QFrame()
+        frame.setStyleSheet("QFrame { border: none; }")
+        row_layout = QHBoxLayout(frame)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+
+        combo = QComboBox()
+        combo.setFixedHeight(38)
+        self._preencher_combo_produtos(combo)
+        quantity = QLineEdit()
+        quantity.setPlaceholderText("Qtd")
+        quantity.setFixedHeight(38)
+        quantity.setMaxLength(10)
+        remove = QPushButton("Remover")
+        remove.setFixedHeight(38)
+        remove.setStyleSheet("QPushButton { background: transparent; color: #EF4444; border: none; }")
+        subtotal = QLabel("R$ 0,00")
+        subtotal.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        row = {
+            "frame": frame,
+            "combo": combo,
+            "quantity": quantity,
+            "subtotal": subtotal,
+        }
+        self._item_rows.append(row)
+        combo.currentIndexChanged.connect(lambda _index, current=row: self._linha_mudou(current))
+        quantity.textChanged.connect(lambda _text, current=row: self._linha_mudou(current))
+        remove.clicked.connect(lambda _checked=False, current=row: self._remover_linha_item(current))
+        row_layout.addWidget(combo, 1)
+        row_layout.addWidget(quantity, 1)
+        row_layout.addWidget(subtotal, 0)
+        row_layout.addWidget(remove)
+        self.itens_layout.addWidget(frame)
+
+    def _preencher_combo_produtos(self, combo, selected=None):
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem("Selecione um produto...", None)
+        for product in self.product_selection.available_products():
+            combo.addItem(
+                f"{product.name} ({product.code})",
+                {"codigo": product.code, "nome": product.name},
             )
+        if selected:
+            index = next(
+                (
+                    i for i in range(combo.count())
+                    if self._code_from_data(combo.itemData(i)) == selected
+                ),
+                -1,
+            )
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            else:
+                self.warning_label.setText(
+                    f"O produto {selected} não está disponível para venda."
+                )
+        combo.blockSignals(False)
 
-        self.recarregar_produtos_disponiveis()
+    def _linha_mudou(self, row):
+        code = self._code_from_data(row["combo"].currentData())
+        if code:
+            try:
+                self.product_selection.ensure_selectable(code, OperationKind.VENDA)
+            except (InactiveProductError, ProductNotFoundError) as error:
+                self.warning_label.setText(str(error))
+                row["combo"].setCurrentIndex(0)
+                self._atualizar_total()
+                return
+        self.warning_label.setText("")
+        self._atualizar_total()
 
-    def _apontar_produto(self, codigo):
-        """Põe o combo no produto pedido, se ele estiver na oferta."""
-        for i in range(self.produto_combo.count()):
-            data = self.produto_combo.itemData(i)
-            if data and data.get("codigo") == codigo:
-                self.produto_combo.setCurrentIndex(i)
-                return True
-        return False
+    def _remover_linha_item(self, row):
+        if len(self._item_rows) == 1:
+            row["combo"].setCurrentIndex(0)
+            row["quantity"].clear()
+        else:
+            self._item_rows.remove(row)
+            self.itens_layout.removeWidget(row["frame"])
+            row["frame"].deleteLater()
+        self.warning_label.setText("")
+        self._atualizar_total()
 
     def selecionar_produto(self, codigo):
-        """Escolhe o produto por código, recusando o que não pode ser vendido.
-
-        Fora da oferta há três causas diferentes, e tratá-las como uma só
-        esconde duas delas: o produto pode estar inativo (regra da US02), não
-        existir (divergência entre quem pediu e o catálogo) ou estar ativo e
-        ausente só porque o combo ficou velho. Quem distingue é a política.
-        """
-        if self._apontar_produto(codigo):
-            self.warning_label.setText("")
-            return True
-
         try:
             self.product_selection.ensure_selectable(codigo, OperationKind.VENDA)
-        except (InactiveProductError, ProductNotFoundError) as erro:
-            self.produto_combo.setCurrentIndex(0)
-            self.warning_label.setText(str(erro))
+        except (InactiveProductError, ProductNotFoundError) as error:
+            self.warning_label.setText(str(error))
             return False
-
-        # Ativo e fora do combo: a oferta é que estava desatualizada.
-        self.recarregar_produtos_disponiveis()
-        if self._apontar_produto(codigo):
-            self.warning_label.setText("")
-            return True
-
-        self.produto_combo.setCurrentIndex(0)
-        self.warning_label.setText(
-            f"O produto {codigo} não está disponível para venda."
+        row = next(
+            (
+                item for item in self._item_rows
+                if self._code_from_data(item["combo"].currentData()) is None
+            ),
+            None,
         )
-        return False
-
-    def _ao_selecionar_produto(self, index):
-        self.warning_label.setText("")
-
-    def selecionar_cliente_externo(self, cliente_nome):
-        """Permite que a tela de clientes peça para associar um cliente específico."""
-        for i in range(self.cliente_combo.count()):
-            data = self.cliente_combo.itemData(i)
-            if data and data.get("nome") == cliente_nome:
-                self.cliente_combo.setCurrentIndex(i)
-                # setCurrentIndex não emite sinal quando o índice já era o
-                # atual, então o aviso anterior precisa ser limpo aqui.
-                self.warning_label.setText("")
-                return True
-
-        # Sair do combo tem duas causas distintas: o cliente existe mas não
-        # está ativo, ou não existe na base. Relatar sempre "inativo" escondia
-        # divergências entre a base de Vendas e a tabela de Usuários.
-        cliente = next(
-            (c for c in self.clientes if c["nome"] == cliente_nome), None
+        if row is None:
+            self._adicionar_linha_item()
+            row = self._item_rows[-1]
+        index = next(
+            (
+                i for i in range(row["combo"].count())
+                if self._code_from_data(row["combo"].itemData(i)) == codigo
+            ),
+            -1,
         )
-        if cliente is None:
-            self.warning_label.setText(
-                f"O cliente '{cliente_nome}' não existe na base de vendas."
+        if index < 0:
+            self._preencher_combo_produtos(row["combo"])
+            index = next(
+                (
+                    i for i in range(row["combo"].count())
+                    if self._code_from_data(row["combo"].itemData(i)) == codigo
+                ),
+                -1,
             )
-        else:
-            self.warning_label.setText(
-                f"O cliente '{cliente_nome}' está {cliente['status'].lower()} "
-                "e não pode ser selecionado."
-            )
-        return False
-
-    def _ao_selecionar_cliente(self, index):
+        if index < 0:
+            self.warning_label.setText(f"O produto {codigo} não está disponível para venda.")
+            return False
+        row["combo"].setCurrentIndex(index)
+        if not row["quantity"].text():
+            row["quantity"].setText("1")
         self.warning_label.setText("")
+        self._atualizar_total()
+        return True
+
+    @staticmethod
+    def _code_from_data(data):
+        if isinstance(data, dict):
+            return data.get("codigo")
+        return data
+
+    def _atualizar_total(self):
+        for row in self._item_rows:
+            row["subtotal"].setText("R$ 0,00")
+        try:
+            items = self.itens
+            if not items:
+                self.label_total.setText("Total: R$ 0,00")
+                self.label_total_value.setText("R$ 0,00")
+                return
+            validator = SaleItemValidator(DemoProductRepository(self.products))
+            validator.validate(items)
+            codes = {item.product_code for item in items}
+            prices = {
+                code: parse_total(self.products[code].sale_price)
+                for code in codes
+            }
+            total = calculate_total_from_items(items, prices)
+            item_index = 0
+            for row in self._item_rows:
+                if self._code_from_data(row["combo"].currentData()) is None:
+                    continue
+                item = items[item_index]
+                row["subtotal"].setText(
+                    self._format_currency(
+                        prices[item.product_code] * item.quantity
+                    )
+                )
+                item_index += 1
+        except ValueError as error:
+            message = str(error)
+            if "inativo" in message.casefold() or "não existe" in message.casefold():
+                self.reload_products()
+            self.warning_label.setText(message)
+            total = Decimal("0.00")
+        formatted = self._format_currency(total)
+        self.label_total.setText(f"Total: {formatted}")
+        self.label_total_value.setText(formatted)
+
+    @staticmethod
+    def _format_currency(amount):
+        return f"R$ {amount:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
 
     def _registrar_venda(self):
-        data = self.cliente_combo.currentData()
-        escolhido = self.produto_combo.currentData()
-        valor = self.val_input.text().strip()
-
-        # A ordem das recusas segue a ordem dos campos na tela: apontar o
-        # último erro de um formulário meio vazio manda o usuário para o
-        # campo errado.
-        if not data:
+        client = self.cliente_combo.currentData()
+        if not client:
             self.warning_label.setText("Selecione um cliente ativo válido.")
             return
-
-        if not escolhido:
-            self.warning_label.setText("Selecione um produto ativo válido.")
-            return
-
-        # Revalida contra o catálogo mesmo o produto tendo saído de um combo
-        # que só lista ativos. O combo é uma foto do catálogo no momento da
-        # montagem, e a tela de Estoque pode desativar o produto com a tela
-        # de Vendas aberta — sem esta checagem a venda passaria assim mesmo.
         try:
-            produto = self.product_selection.ensure_selectable(
-                escolhido["codigo"], OperationKind.VENDA
-            )
-        except (InactiveProductError, ProductNotFoundError) as erro:
-            # Recarregar primeiro: a recarga mexe no combo e o sinal de
-            # mudança limpa o aviso. Invertido, a mensagem sumiria na hora.
-            self.recarregar_produtos_disponiveis()
-            self.warning_label.setText(str(erro))
+            items = self.itens
+            if not items:
+                self.warning_label.setText("Adicione pelo menos um item à venda.")
+                return
+            registered = self.service.register(self.session, client["id"], items)
+        except ValueError as error:
+            message = str(error)
+            if "inativo" in message.casefold() or "não existe" in message.casefold():
+                self.reload_products()
+            self.warning_label.setText(message)
+            return
+        except Exception as error:
+            self.warning_label.setText(f"Erro ao registrar venda: {error}")
             return
 
-        if not valor:
-            self.warning_label.setText("Informe o valor da venda.")
-            return
-
-        try:
-            nova_venda = self.service.register(
-                self.session, data["id"], produto.code, valor
-            )
-        except Exception as erro:
-            self.warning_label.setText(str(erro))
-            return
-        self.historico_vendas.insert(0, nova_venda)
-        self.val_input.clear()
+        self.historico_vendas.insert(0, registered)
+        self._limpar_linhas_itens()
+        self._adicionar_linha_item()
         self.cliente_combo.setCurrentIndex(0)
-        self.produto_combo.setCurrentIndex(0)
         self.warning_label.setText("")
+        self._atualizar_total()
         self.atualizar_tabela_historico()
+        self.sale_registered.emit()
+
+    def _limpar_linhas_itens(self):
+        while self.itens_layout.count():
+            item = self.itens_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._item_rows.clear()
 
     def atualizar_tabela_historico(self):
         self.table.setRowCount(len(self.historico_vendas))
-        for row, venda in enumerate(self.historico_vendas):
-            self.table.setItem(row, 0, QTableWidgetItem(venda["id"]))
-            self.table.setItem(row, 1, QTableWidgetItem(venda["cliente"]))
-            # O produto sai do que foi gravado na venda, NUNCA de uma
-            # releitura do catálogo: é isso que mantém visível a operação
-            # antiga cujo produto foi desativado ou saiu do cadastro.
-            self.table.setItem(row, 2, QTableWidgetItem(venda["produto"]))
-            self.table.setItem(row, 3, QTableWidgetItem(venda["valor"]))
-            self.table.setItem(row, 4, QTableWidgetItem(venda["data"]))
+        for row_index, sale in enumerate(self.historico_vendas):
+            values = (
+                sale["id"], sale["cliente"], sale["produto"],
+                sale["valor"], sale["data"],
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                self.table.setItem(row_index, column, item)
