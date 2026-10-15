@@ -210,6 +210,26 @@ class SupabaseMovementRepository:
     def cancel(self, movement_id: str) -> None:
         """Cancela. Cancelar uma confirmada devolve o saldo (o trigger recalcula)."""
         self._rpc("fn_cancel_movement", {"p_movement_id": movement_id})
+    def adjust(self, data: MovementInput) -> str:
+        """
+        Executa ajuste manual atômico via RPC.
+        Garante a atualização do saldo e a gravação do log em uma única transação.
+        """
+        product_id = self._product_id(data.product_code)
+
+        if product_id is None:
+            raise LookupError(f"Produto {data.product_code} não encontrado nesta empresa.")
+
+        args = {
+            "p_product_id": product_id,
+            "p_company_id": self._company_id,
+            "p_quantity": data.quantity,
+            "p_movement_kind": data.movement_kind,
+            "p_justification": data.justification,
+            "p_user_id": data.user_id # Enviamos o ID para a auditoria do banco
+        }
+        return self._rpc("fn_adjust_product_stock", args)
+
 
     def _rpc(self, name: str, args: dict):
         """Chama a função e traduz recusa de autorização para o erro de domínio.

@@ -32,4 +32,12 @@ class MovementRepository(Protocol):
 
     def cancel(self, movement_id: str) -> None:
         """Cancela. Cancelar uma confirmada devolve o saldo."""
+
+    
+        ...
+    def adjust(self, data: MovementInput) -> str:
+        """
+        Executa ajuste manual: grava a movimentação já como 'CONFIRMADA'
+        e atualiza o saldo do produto em uma única transação atômica.
+        """
         ...

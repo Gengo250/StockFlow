@@ -64,6 +64,14 @@ class MovementService:
     def cancel(self, session, movement_id: str) -> None:
         ensure_can_move_stock(session, action="cancelar movimentações")
         self._repository.cancel(movement_id)
+    def adjust(self, session, data: MovementInput) -> str:
+        data = replace(data, origin="MANUAL")
+        self._ensure_can_move_stock(session, "realizar ajustes manuais de estoque")
+        if not (data.note or "").strip():
+            raise ValueError("A justificativa é obrigatória para ajustes manuais de estoque.")
+        if data.quantity <= 0:
+            raise ValueError("A quantidade do ajuste deve ser um valor positivo. Use o campo 'kind' para definir Entrada ou Saída.")
+        return self._repository.adjust(data)
 
 
 def _para_inteiro(valor) -> int:
