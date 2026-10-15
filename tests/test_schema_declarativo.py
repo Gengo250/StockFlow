@@ -582,3 +582,82 @@ def test_h09_o_log_aceita_custo_que_nao_existia_antes():
     assert "CONSTRAINT ck_price_edit_log_value_present" in texto, (
         "sem o CHECK, uma linha com os dois lados nulos não diz nada"
     )
+
+
+# ------------------------------------------- H09 · consulta do histórico
+# Gravar o rastro e não conseguir lê-lo não entrega a história. A consulta
+# mora numa função, e não num SELECT da tela, pela mesma razão de
+# `fn_list_company_users`: a auditoria só faz sentido com o código do produto
+# e o nome de quem mudou, que vivem em outras tabelas.
+
+
+def _corpo_da_consulta_de_historico(sql: str) -> str:
+    corpo = re.search(
+        r"CREATE OR REPLACE FUNCTION\s+public\.fn_list_price_edits\b(.*?)\$\$;",
+        sql,
+        re.S | re.I,
+    )
+    assert corpo, "fn_list_price_edits não declarada em database/code"
+    return corpo.group(1)
+
+
+def test_h09_consulta_do_historico_e_security_definer_com_search_path():
+    corpo = _corpo_da_consulta_de_historico(CODE_SQL)
+
+    assert "SECURITY DEFINER" in corpo
+    assert re.search(r"SET search_path = public", corpo, re.I), (
+        "função SECURITY DEFINER sem search_path fixo aceita sequestro de schema"
+    )
+
+
+def test_h09_consulta_do_historico_exige_admin():
+    """Mesma alçada da policy que já protege a tabela.
+
+    `price_edit_log_select` restringe a leitura ao ADMIN da empresa. Uma
+    função SECURITY DEFINER passa por cima da RLS, então ou ela repete a
+    checagem ou vira a porta dos fundos da própria auditoria.
+    """
+    corpo = _corpo_da_consulta_de_historico(CODE_SQL)
+
+    assert re.search(r"fn_is_admin\s*\(", corpo, re.I), (
+        "sem a guarda de ADMIN, SECURITY DEFINER entrega o log a qualquer papel"
+    )
+    assert "insufficient_privilege" in corpo
+
+
+def test_h09_consulta_ordena_do_mais_recente_e_desempata_pelo_id():
+    """O desempate não é preciosismo: `now()` é constante na transação.
+
+    Preço e custo alterados no mesmo UPDATE recebem `last_updated_on`
+    IDÊNTICO. Ordenando só por tempo, a ordem relativa dessas duas linhas
+    fica indefinida e a tela as embaralha entre uma consulta e outra —
+    "cronológica" viraria "quase cronológica".
+    """
+    corpo = _corpo_da_consulta_de_historico(CODE_SQL)
+
+    assert re.search(
+        r"ORDER BY\s+\w*\.?last_updated_on DESC\s*,\s*\w*\.?id DESC", corpo, re.I
+    ), "ordem cronológica decrescente com desempate estável pelo id"
+
+
+def test_h09_consulta_filtra_por_produto_sem_exigir_o_filtro():
+    """Um parâmetro, dois usos: a lista inteira e a de um produto."""
+    assinatura = re.search(
+        r"CREATE OR REPLACE FUNCTION\s+public\.fn_list_price_edits\s*\((.*?)\)\s*RETURNS",
+        CODE_SQL,
+        re.S | re.I,
+    )
+    assert assinatura, "assinatura de fn_list_price_edits não encontrada"
+
+    assert re.search(r"p_product_id\s+uuid\s+DEFAULT NULL", assinatura.group(1), re.I)
+    corpo = _corpo_da_consulta_de_historico(CODE_SQL)
+    assert re.search(r"p_product_id IS NULL OR", corpo, re.I), (
+        "o filtro opcional precisa ser nulo-tolerante dentro do WHERE"
+    )
+
+
+def test_h09_consulta_do_historico_esta_na_allowlist_de_execute():
+    allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    assert "'fn_list_price_edits'" in allowlist, (
+        "função fora da allowlist aplica no banco e quebra o app em runtime"
+    )
