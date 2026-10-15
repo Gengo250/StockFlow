@@ -26,6 +26,8 @@ MENU_ITEMS = [
     ("clientes", "Clientes", "fa5s.user-friends"),
     ("vendas", "Vendas", "fa5s.chart-bar"),
     ("produtos", "Produtos", "fa5s.box"),
+    # Logo abaixo de Produtos: é a auditoria do que se edita ali.
+    ("historico_precos", "Histórico de preços", "fa5s.tags"),
     ("relatorios", "Relatórios", "fa5s.file-alt"),
 ]
 

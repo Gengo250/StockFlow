@@ -25,6 +25,7 @@ from stockflow.presentation.backend import (
     build_sale_repository,
     build_demo_user_directory,
     build_movement_repository,
+    build_price_history_repository,
     build_supplier_repository,
     build_user_directory,
     set_user_active as set_directory_user_active,
@@ -45,6 +46,7 @@ from stockflow.presentation.pages.overview import DashboardPage, ReportsPage, Se
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
+from stockflow.presentation.pages.historico_precos import HistoricoPrecosPage
 from stockflow.presentation.pages.users import UsersPage
 from stockflow.presentation.pages.vendas import VendasPage
 from stockflow.presentation.pages.products import ProductsPage
@@ -198,6 +200,16 @@ class MainWindow(QMainWindow):
             self.movement_repository, self.supplier_repository, self.product_repository
         )
         self.movimentacoes_page = MovimentacoesPage(self.products)
+
+        # Histórico de preço e custo (H09). O serviço recebe a mesma sessão
+        # das demais telas: a recusa de papel acontece nele, antes de gastar
+        # a consulta que `fn_list_price_edits` recusaria de qualquer jeito.
+        from stockflow.application.services.price_history_service import PriceHistoryService
+        self.price_history_repository = build_price_history_repository(
+            self.session, self.product_repository
+        )
+        self.price_history_service = PriceHistoryService(self.price_history_repository)
+        self.historico_precos_page = HistoricoPrecosPage()
         # Consulta de rede no caminho de CONSTRUÇÃO: uma falha aqui subiria
         # até `__init__` e derrubaria a janela inteira, pelo mesmo motivo que
         # a carga de vendas derrubava. O combo de fornecedores vazio degrada
@@ -226,6 +238,7 @@ class MainWindow(QMainWindow):
             "clientes": self.clientes_page,
             "vendas": self.vendas_page,
             "produtos": self.products_page,
+            "historico_precos": self.historico_precos_page,
             "relatorios": self.reports_page,
             "usuarios": self.users_page,
             "configuracoes": self.settings_page,
@@ -286,6 +299,9 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
         self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
         self.movimentacoes_page.adjust_requested.connect(self._aplicar_ajuste)
+        self.historico_precos_page.filtro_alterado.connect(
+            lambda _codigo: self._carregar_historico_precos()
+        )
         self.suppliers_page.suppliers_changed.connect(self._refresh_supplier_options)
         self.vendas_page.sale_registered.connect(self._venda_registrada)
 
@@ -419,6 +435,39 @@ class MainWindow(QMainWindow):
         self._recarregar_movimentacoes()
         if dados.confirm:
             self._saldo_mudou()
+
+    def _carregar_historico_precos(self):
+        """Recarrega a consulta de histórico e o seu filtro (H09).
+
+        Papel sem alçada não é erro de tela: o item nem aparece no menu, mas
+        a janela sobrevive ao logout, então aplicar a sessão de um estoquista
+        sobre uma janela que estava no histórico passa por aqui. Esvaziar é a
+        resposta honesta — mostrar a recusa num diálogo interromperia um
+        relogin que deu certo.
+        """
+        page = self.historico_precos_page
+        if not pode_ver(self.session, "historico_precos"):
+            page.preencher_produtos(())
+            page.carregar(())
+            return
+
+        page.preencher_produtos(
+            sorted((p.code, p.name) for p in self.products.values())
+        )
+        try:
+            page.carregar(
+                self.price_history_service.list_changes(
+                    self.session, page.produto_combo.currentData()
+                )
+            )
+            self.last_history_error = None
+        except Exception as erro:
+            # A consulta pode falhar por rede ou por recusa do banco. A tela
+            # fica de pé com a mensagem no lugar da tabela, pelo mesmo motivo
+            # de `test_janela_sobrevive_a_fonte_indisponivel`: uma janela que
+            # não abre esconde qual das telas falhou.
+            self.last_history_error = erro
+            page.mostrar_recusa(erro)
 
     def _aplicar_ajuste(self, dados):
         """Ajuste manual: grava e reconsulta, porque o saldo mudou na hora.
@@ -795,6 +844,8 @@ class MainWindow(QMainWindow):
             if widget is atual and not pode_ver(self.session, chave):
                 self.show_page(DEFAULT_KEY)
                 break
+
+        self._carregar_historico_precos()
 
         self.sidebar.set_user(self.session)
         self.top_bar.set_user(self.session)
