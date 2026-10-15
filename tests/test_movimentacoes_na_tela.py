@@ -356,3 +356,88 @@ def test_produto_inativo_sai_da_oferta_do_ajuste(qapp):
     page.reload_products(produtos)
 
     assert page.ajuste_produto_combo.findData("P1") < 0
+
+
+# ------------------------------------------------------------- ajuste (H11)
+
+def test_ajuste_pela_tela_muda_o_saldo_do_estoque(janela, sem_dialogos):
+    """O ciclo inteiro: card → serviço → adaptador → tabela de Estoque.
+
+    Reconsultar o Estoque não é zelo: ajuste muda saldo, saldo muda situação,
+    e alerta desatualizado é o que a US04 proíbe.
+    """
+    from stockflow.domain.enums.adjustment_reason import AdjustmentReason
+
+    w = janela(UserRole.STOCK)
+    w.show_page("movimentacoes")
+    page = w.movimentacoes_page
+    codigo = next(iter(w.products))
+    atual = int(w.products[codigo].stock)
+
+    page.ajuste_produto_combo.setCurrentIndex(
+        page.ajuste_produto_combo.findData(codigo)
+    )
+    page.ajuste_contado_input.setValue(atual + 7)
+    page.ajuste_motivo_combo.setCurrentIndex(
+        page.ajuste_motivo_combo.findData(AdjustmentReason.CONTAGEM)
+    )
+    page.ajuste_aplicar_button.click()
+
+    assert int(w.products[codigo].stock) == atual + 7
+    assert page.table.rowCount() >= 1
+
+
+def test_vendedor_nao_ajusta_nem_burlando_o_botao(janela, sem_dialogos):
+    """O controle visual é cortesia; a recusa é do serviço."""
+    from stockflow.application.dto.adjustment_input import AdjustmentInput
+    from stockflow.domain.enums.adjustment_reason import AdjustmentReason
+
+    w = janela(UserRole.SELLER)
+    codigo = next(iter(w.products))
+    antes = w.products[codigo].stock
+
+    w._aplicar_ajuste(AdjustmentInput(
+        product_code=codigo, counted_balance=0, expected_balance=int(antes),
+        reason=AdjustmentReason.PERDA, detail="",
+    ))
+
+    assert w.products[codigo].stock == antes
+
+
+def test_saldo_desatualizado_recusa_sem_mexer_e_ainda_assim_reconsulta(
+    janela, sem_dialogos, monkeypatch
+):
+    """Prova permanente de que `except SaldoDesatualizadoError` precisa vir
+    ANTES de `except ValueError` em `_aplicar_ajuste`.
+
+    `SaldoDesatualizadoError` é subclasse de `ValueError`. Um `except
+    ValueError` mais largo primeiro engoliria o erro, mostraria a recusa e
+    JAMAIS chamaria `_saldo_mudou()` — o card exibiria a mensagem certa, mas
+    o campo "Saldo atual" ficaria com o número velho, exatamente o que a
+    US04 proíbe. Espionar `_saldo_mudou` é o que distingue as duas ordens:
+    com a ordem certa ele é chamado uma vez; com a ordem errada, zero vezes.
+    Este teste tem que ficar vermelho se alguém trocar a ordem dos `except`.
+    """
+    from stockflow.application.dto.adjustment_input import AdjustmentInput
+    from stockflow.domain.enums.adjustment_reason import AdjustmentReason
+
+    w = janela(UserRole.STOCK)
+    page = w.movimentacoes_page
+    codigo = next(iter(w.products))
+    atual = int(w.products[codigo].stock)
+
+    chamadas = []
+    original = w._saldo_mudou
+    monkeypatch.setattr(w, "_saldo_mudou", lambda: (chamadas.append(1), original())[-1])
+
+    w._aplicar_ajuste(AdjustmentInput(
+        product_code=codigo,
+        counted_balance=atual + 3,
+        expected_balance=atual + 999,  # saldo que a tela exibiu, já velho
+        reason=AdjustmentReason.CONTAGEM,
+        detail="",
+    ))
+
+    assert "reconte" in page.warning_label.text().lower()
+    assert int(w.products[codigo].stock) == atual
+    assert len(chamadas) == 1
