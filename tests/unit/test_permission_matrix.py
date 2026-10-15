@@ -241,3 +241,19 @@ def test_o_espelhamento_pegaria_uma_divergencia():
 def test_fonte_inventada_nao_passa_despercebida():
     """Fonte que não existe no SQL devolve `None`, nunca um acerto vazio."""
     assert papeis_da_fonte("fn_que_nunca_existiu") is None
+
+
+def test_a_funcao_de_ajuste_exige_a_mesma_alcada_das_movimentacoes():
+    """H11 reaproveita a área `movimentacoes`; o SQL tem que concordar.
+
+    Sem este teste, alguém troca `fn_has_role(ADMIN, STOCK)` por
+    `fn_is_member` dentro de `fn_register_adjustment` e nada fica vermelho:
+    a matriz continua apontando para `fn_register_movement`, que não mudou.
+    """
+    do_sql = papeis_da_fonte("fn_register_adjustment")
+
+    assert do_sql is not None, "fn_register_adjustment não existe em database/code/"
+    assert do_sql == PERMISSION_MATRIX["movimentacoes"].gravar, (
+        f"fn_register_adjustment exige {sorted(do_sql)}, mas a área "
+        f"movimentacoes grava {sorted(PERMISSION_MATRIX['movimentacoes'].gravar)}"
+    )

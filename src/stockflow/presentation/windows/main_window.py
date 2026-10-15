@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from stockflow.application.services.movement_service import MovementService
 from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.permissions import (
     PERMISSION_MATRIX,
     TODOS_OS_PAPEIS,
@@ -284,6 +285,7 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.register_requested.connect(self._registrar_movimentacao)
         self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
         self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
+        self.movimentacoes_page.adjust_requested.connect(self._aplicar_ajuste)
         self.suppliers_page.suppliers_changed.connect(self._refresh_supplier_options)
         self.vendas_page.sale_registered.connect(self._venda_registrada)
 
@@ -417,6 +419,37 @@ class MainWindow(QMainWindow):
         self._recarregar_movimentacoes()
         if dados.confirm:
             self._saldo_mudou()
+
+    def _aplicar_ajuste(self, dados):
+        """Ajuste manual: grava e reconsulta, porque o saldo mudou na hora.
+
+        Ao contrário de `_registrar_movimentacao`, não há caso em que o saldo
+        fique parado: ajuste nasce confirmado. Então `_saldo_mudou()` é
+        incondicional.
+        """
+        try:
+            self.movement_service.adjust(self.session, dados)
+        except PermissionDeniedError as erro:
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            return
+        except SaldoDesatualizadoError as erro:
+            # Recontagem, não falha: a mensagem já diz os dois saldos, e
+            # recarregar o catálogo faz o campo "Saldo atual" mostrar o
+            # número novo antes da próxima tentativa.
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            self._saldo_mudou()
+            return
+        except ValueError as erro:
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            return
+        except Exception as erro:
+            self.last_save_error = erro
+            QMessageBox.critical(self, "Não foi possível ajustar", str(erro))
+            return
+
+        self.movimentacoes_page.limpar_ajuste()
+        self._recarregar_movimentacoes()
+        self._saldo_mudou()
 
     def _confirmar_movimentacao(self, movement_id):
         if not self._executar_movimentacao(

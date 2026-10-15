@@ -208,6 +208,29 @@ aconteceu — há o atalho "Registrar e confirmar".
 | `Confirmada` | soma (entrada) ou subtrai (saída) |
 | `Cancelada` | nenhum; cancelar uma confirmada **devolve** o saldo |
 
+**Ajuste manual** (H11) é o segundo card da tela, e responde a outra
+pergunta: não "o que entrou ou saiu", mas "o que existe". O operador escolhe
+o produto, informa o **saldo contado** e o **motivo**; o sistema calcula a
+diferença e lança a entrada ou a saída correspondente, já confirmada.
+
+| Campo | Regra |
+|---|---|
+| Saldo contado | inteiro ≥ 0; igual ao atual não gera lançamento |
+| Motivo | obrigatório, de lista fechada |
+| Detalhe | obrigatório apenas quando o motivo é `Outro` |
+
+Quem grava é `fn_register_adjustment`.
+
+Três coisas que a função garante e a tela não teria como garantir sozinha:
+ela trava o produto com `FOR UPDATE`, recusa se o saldo mudou desde que a
+tela carregou (pedindo recontagem, em vez de aplicar uma diferença sobre um
+número velho) e **relê o saldo depois de gravar** para conferir que ele ficou
+exatamente igual ao contado — se não ficou, a transação inteira volta atrás.
+
+Ajuste não é uma terceira espécie de movimentação: é uma `ENTRADA` ou `SAIDA`
+comum marcada pela coluna `adjustment_reason`. O saldo continua sendo a soma
+das confirmadas, e cancelar um ajuste o devolve, como em qualquer outra.
+
 Em **Fornecedores** (US08), ADMIN e STOCK podem cadastrar, editar, pesquisar e
 inativar fornecedores. CPF/CNPJ é opcional, validado quando preenchido e único
 por empresa mesmo depois da inativação; a pesquisa cobre nome, documento,
@@ -223,10 +246,10 @@ pedido, nota fiscal ou pagamento nesta história. O campo opcional
 **Fornecedor principal** no cadastro/edição de produto também persiste uma
 referência independente.
 
-A tela é restrita a ADMIN e STOCK, porque `fn_register_movement` e as irmãs
-recusam qualquer outro papel — nem o histórico é do vendedor. Confirmar ou
-cancelar reconsulta o Estoque na sequência: alerta desatualizado é o que a
-US04 proíbe.
+A tela é restrita a ADMIN e STOCK, porque `fn_register_movement`,
+`fn_register_adjustment` e as irmãs recusam qualquer outro papel — nem o
+histórico é do vendedor. Confirmar ou cancelar reconsulta o Estoque na
+sequência: alerta desatualizado é o que a US04 proíbe.
 
 Em **Usuários**, a lista vem de `fn_list_company_users`, que recusa quem não é
 ADMIN. A busca só acontece ao abrir a tela, não ao montar a janela: um papel

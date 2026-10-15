@@ -190,6 +190,7 @@ DECLARE
     'fn_my_companies',
     -- Movimentações (US03): o saldo é a soma das confirmadas.
     'fn_register_movement', 'fn_confirm_movement', 'fn_cancel_movement',
+    'fn_register_adjustment',
     'fn_confirmed_balance',
     'fn_list_company_clients', 'fn_create_client', 'fn_update_client',
     'fn_set_client_active', 'fn_register_sale',

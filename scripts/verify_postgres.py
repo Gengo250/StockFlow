@@ -200,6 +200,56 @@ def exercise(dsn):
     with connect('seller_auth') as seller:
         check(len(PostgresAPI(seller).rpc('fn_my_companies',{}).execute().data)==1,'Reactivated account logs in again')
 
+    # H11: manual stock adjustment. This runs BEFORE the H14 block, which
+    # promotes the STOCK account to ADMIN — an adjustment checked after that
+    # would no longer be measuring the STOCK role.
+    #
+    # What only Postgres decides: the role check inside the function, the
+    # justification CHECK, the stale-balance refusal, and above all that the
+    # resulting balance equals the counted one when read from OUTSIDE the
+    # transaction that wrote it. `admin` is that independent connection.
+    #
+    # The concurrent-withdrawal scenario above drains this product to 0, and
+    # p_counted_balance can never be negative. Top it back up with a plain
+    # confirmed ENTRADA so `before` has real headroom for before-3, before-4
+    # and before+99 below — a gap in this test's setup, not a schema rule to
+    # relax.
+    rpc('fn_register_movement',p_company_id=company,p_product_id=product_id,p_kind='ENTRADA',p_quantity=10,p_confirm=True)
+    before=admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]
+    rpc('fn_register_adjustment',p_company_id=company,p_product_id=str(product_id),
+        p_counted_balance=before-3,p_expected_balance=before,p_reason='QUEBRA',
+        p_detail='caixa amassada')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==before-3,
+          'Adjustment leaves the balance exactly at the counted value')
+    check(admin.execute('SELECT kind,quantity,status,adjustment_reason,counted_balance '
+                        'FROM stock_movements WHERE product_id=%s '
+                        'ORDER BY created_on DESC LIMIT 1',(product_id,)).fetchone()
+          ==('SAIDA',3,'CONFIRMADA','QUEBRA',before-3),
+          'Adjustment is a confirmed movement carrying reason and counted balance')
+    check(admin.execute('SELECT created_by FROM stock_movements WHERE product_id=%s '
+                        'ORDER BY created_on DESC LIMIT 1',(product_id,)).fetchone()[0]==ids['user'],
+          'Adjustment records the authenticated user, never a caller-supplied id')
+    rejects(lambda:rpc('fn_register_adjustment',p_company_id=company,p_product_id=str(product_id),
+                       p_counted_balance=before-4,p_expected_balance=before-3,
+                       p_reason='OUTRO',p_detail=None),
+            '23514','Reason OUTRO without a written justification is refused')
+    rejects(lambda:rpc('fn_register_adjustment',p_company_id=company,p_product_id=str(product_id),
+                       p_counted_balance=before-3,p_expected_balance=before-3,
+                       p_reason='CONTAGEM',p_detail=None),
+            '23514','Counting the same balance registers nothing')
+    rejects(lambda:rpc('fn_register_adjustment',p_company_id=company,p_product_id=str(product_id),
+                       p_counted_balance=1,p_expected_balance=before+99,
+                       p_reason='CONTAGEM',p_detail=None),
+            '40001','A balance that moved since the count asks for a recount')
+    with connect('seller_auth') as seller:
+        rejects(lambda:PostgresAPI(seller).rpc('fn_register_adjustment',
+                    {'p_company_id':company,'p_product_id':str(product_id),
+                     'p_counted_balance':0,'p_expected_balance':before-3,
+                     'p_reason':'PERDA','p_detail':None}).execute(),
+                '42501','A seller cannot adjust stock')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==before-3,
+          'Every refused adjustment left the balance untouched')
+
     # H14: profiles and permissions. Authorship on business writes, and a
     # history for every permission event. These run LAST because they change
     # roles, and an earlier check reading a mutated role would measure

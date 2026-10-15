@@ -240,3 +240,233 @@ def test_migration_em_transacao_nao_usa_comando_proibido():
             conflitos.append(f"{arquivo.name} abre transação e usa {achados}")
 
     assert conflitos == [], f"comandos que não rodam dentro de transação: {conflitos}"
+
+
+# ---------------------------------------------------------------------- H11
+# O ajuste manual não é uma terceira espécie de movimentação: é uma ENTRADA
+# ou SAIDA comum marcada por `adjustment_reason`. Estes testes cobram que a
+# marca e as suas regras estejam na FONTE declarativa, não só na migration —
+# `code/` é o que o `declarative sync` diffa contra o banco, e o que ficar de
+# fora dele o diff seguinte propõe derrubar.
+
+CODE_SQL = "\n".join(
+    re.sub(r"--[^\n]*", "", p.read_text(encoding="utf-8"))
+    for p in sorted(CODE.rglob("*.sql"))
+)
+
+
+def test_h11_tipo_do_motivo_existe_com_os_seis_valores():
+    achado = re.search(
+        r"CREATE TYPE\s+public\.adjustment_reason\s+AS ENUM\s*\((.*?)\)",
+        CODE_SQL,
+        re.S | re.I,
+    )
+    assert achado, "tipo public.adjustment_reason não declarado em database/code"
+
+    valores = set(re.findall(r"'(\w+)'", achado.group(1)))
+    assert valores == {
+        "CONTAGEM", "QUEBRA", "PERDA", "VENCIMENTO", "DEVOLUCAO", "OUTRO",
+    }
+
+
+def test_h11_colunas_do_ajuste_estao_em_stock_movements():
+    corpo = re.search(
+        r"CREATE TABLE\s+public\.stock_movements\s*\((.*?)\n\);", CODE_SQL, re.S | re.I
+    )
+    assert corpo, "tabela stock_movements não encontrada em database/code"
+
+    texto = corpo.group(1)
+    assert "adjustment_reason public.adjustment_reason" in texto
+    assert "counted_balance" in texto
+
+
+def test_h11_as_constraints_do_ajuste_sao_nomeadas():
+    """Nome explícito nas três, para que a migration possa guardá-las.
+
+    CHECK anônimo ganha nome gerado pelo Postgres, que a migration não teria
+    como consultar em `pg_constraint` — e os dois lados passariam a declarar
+    a mesma regra com identidades diferentes.
+    """
+    for nome in ("ck_movements_counted_balance",
+                 "ck_movements_adjustment_pair",
+                 "ck_movements_adjustment_detail"):
+        assert f"CONSTRAINT {nome}" in CODE_SQL, f"constraint {nome} sem nome em database/code"
+
+
+def _corpo_de_stock_movements(sql: str) -> str:
+    corpo = re.search(
+        r"CREATE TABLE\s+public\.stock_movements\s*\((.*?)\n\);", sql, re.S | re.I
+    )
+    assert corpo, "tabela stock_movements não encontrada em database/code"
+    return corpo.group(1)
+
+
+def _predicado_do_constraint(corpo_tabela: str, nome: str) -> str:
+    """Texto do CHECK de uma constraint nomeada, com parênteses balanceados.
+
+    Os predicados de H11 aninham parênteses (os dois lados do par, o
+    `IS DISTINCT FROM`); um corte não guloso até o primeiro `)` cortaria o
+    predicado pela metade. Contar profundidade é o que permite extrair o
+    predicado inteiro e avaliar a LÓGICA dele, em vez de só confirmar que o
+    nome da constraint aparece em algum lugar do arquivo.
+    """
+    abertura = re.search(rf"CONSTRAINT\s+{nome}\s+CHECK\s*\(", corpo_tabela)
+    assert abertura, f"constraint {nome} não encontrada no corpo de stock_movements"
+    i = abertura.end()
+    profundidade = 1
+    while profundidade > 0:
+        if corpo_tabela[i] == "(":
+            profundidade += 1
+        elif corpo_tabela[i] == ")":
+            profundidade -= 1
+        i += 1
+    return corpo_tabela[abertura.end() : i - 1]
+
+
+def _avaliar_booleano_sql(expressao: str) -> bool:
+    """Avalia um predicado SQL já reduzido a `True`/`False`/`AND`/`OR`/parênteses.
+
+    Não é um parser de SQL: é o suficiente para distinguir um `AND` de um
+    `OR` depois que as comparações de nulidade/igualdade já viraram
+    booleanos Python. A checagem de resíduo garante que nenhum token do
+    predicado real escapou da substituição — um CHECK apontado para a
+    coluna errada, por exemplo, deixaria um identificador aqui.
+    """
+    expressao = re.sub(r"\bAND\b", "and", expressao)
+    expressao = re.sub(r"\bOR\b", "or", expressao)
+    residual = re.sub(r"True|False|and|or|\(|\)|\s", "", expressao)
+    assert residual == "", f"token não reconhecido no predicado: {residual!r}"
+    # Envolto em parênteses: o predicado original quebra linha com indentação
+    # (ele vem de dentro de um CHECK multilinha), e isso quebraria `eval` de
+    # uma expressão "nua" com `IndentationError`. Um parêntese por fora
+    # resolve sem mudar o valor lógico.
+    return eval("(" + expressao + ")")  # noqa: S307 — só True/False/and/or/parênteses sobrevivem ao residual acima
+
+
+def test_h11_o_par_motivo_contagem_e_tudo_ou_nada():
+    """Motivo sem contagem (ou o contrário) seria ajuste pela metade.
+
+    Avalia a LÓGICA do predicado para os quatro casos de nulidade, não só a
+    presença do nome da constraint: um `AND` virado `OR` numa das metades
+    deixaria o nome intacto e aceitaria a dupla pela metade — exatamente o
+    que este CHECK existe para recusar, e o que um `"ck_movements_..." in
+    CODE_SQL` nunca enxergaria.
+    """
+    corpo = _corpo_de_stock_movements(CODE_SQL)
+    predicado = _predicado_do_constraint(corpo, "ck_movements_adjustment_pair")
+
+    casos = {
+        (True, True): True,  # os dois ausentes: movimentação comum, sem ajuste
+        (True, False): False,  # motivo ausente, contagem presente: pela metade
+        (False, True): False,  # motivo presente, contagem ausente: pela metade
+        (False, False): True,  # os dois presentes: ajuste completo
+    }
+    for (reason_is_null, counted_is_null), esperado in casos.items():
+        expressao = predicado
+        expressao = re.sub(
+            r"adjustment_reason\s+IS\s+NOT\s+NULL", str(not reason_is_null), expressao
+        )
+        expressao = re.sub(r"adjustment_reason\s+IS\s+NULL", str(reason_is_null), expressao)
+        expressao = re.sub(
+            r"counted_balance\s+IS\s+NOT\s+NULL", str(not counted_is_null), expressao
+        )
+        expressao = re.sub(r"counted_balance\s+IS\s+NULL", str(counted_is_null), expressao)
+
+        obtido = _avaliar_booleano_sql(expressao)
+        assert obtido is esperado, (
+            f"ck_movements_adjustment_pair com adjustment_reason "
+            f"{'NULL' if reason_is_null else 'NOT NULL'} e counted_balance "
+            f"{'NULL' if counted_is_null else 'NOT NULL'}: esperado {esperado}, obtido {obtido}"
+        )
+
+
+def test_h11_outro_sem_detalhe_e_recusado_pelo_banco():
+    """A justificativa é regra do banco, não cortesia da tela.
+
+    Avalia a LÓGICA do predicado para motivo e nota concretos, não só a
+    presença do nome da constraint: um CHECK apontado para a coluna errada,
+    ou sempre verdadeiro, deixaria o nome intacto e aceitaria `OUTRO` sem
+    dizer nada — e o critério de aceite fala em justificativa, não em campo
+    de formulário.
+    """
+    corpo = _corpo_de_stock_movements(CODE_SQL)
+    predicado = _predicado_do_constraint(corpo, "ck_movements_adjustment_detail")
+
+    def avaliar(motivo: str, nota: str) -> bool:
+        expressao = predicado.replace(
+            "adjustment_reason IS DISTINCT FROM 'OUTRO'", str(motivo != "OUTRO")
+        )
+        nota_efetiva = (nota or "").strip()
+        expressao = re.sub(
+            r"btrim\(coalesce\(note,\s*''\)\)\s*<>\s*''",
+            str(nota_efetiva != ""),
+            expressao,
+        )
+        return _avaliar_booleano_sql(expressao)
+
+    assert avaliar("OUTRO", "") is False, "OUTRO sem justificativa deveria violar o CHECK"
+    assert avaliar("OUTRO", "   ") is False, (
+        "OUTRO com nota só de espaços em branco deveria violar o CHECK"
+    )
+    assert avaliar("OUTRO", "quebrou na entrega") is True, (
+        "OUTRO com justificativa real deveria passar no CHECK"
+    )
+    assert avaliar("CONTAGEM", "") is True, (
+        "motivo diferente de OUTRO não exige justificativa"
+    )
+
+
+def test_h11_a_funcao_de_ajuste_existe_e_e_security_definer():
+    corpo = re.search(
+        r"CREATE OR REPLACE FUNCTION\s+public\.fn_register_adjustment\b(.*?)\$\$;",
+        CODE_SQL,
+        re.S | re.I,
+    )
+    assert corpo, "fn_register_adjustment não declarada em database/code"
+    assert "SECURITY DEFINER" in corpo.group(1)
+    assert "FOR UPDATE" in corpo.group(1), (
+        "sem FOR UPDATE dois ajustes simultâneos calculam a diferença sobre "
+        "o mesmo saldo e um sobrescreve o outro"
+    )
+
+
+def test_h11_a_funcao_de_ajuste_confere_o_saldo_resultante_depois_de_gravar():
+    """O terceiro critério da H11 é esta releitura, não a aritmética.
+
+    O trigger `trg_stock_movements_apply` produz o saldo certo sozinho, então
+    um teste que só confira "o saldo final é o contado" mede o TRIGGER e
+    passa igualzinho com a releitura apagada. O que a releitura compra é a
+    outra metade: se o saldo gravado discordar do contado, a transação
+    inteira volta atrás. Daí a asserção ser sobre o texto da função — é o
+    único lugar onde a garantia existe sem um Postgres por perto.
+
+    A busca começa DEPOIS do `INSERT` de propósito: reler o saldo antes de
+    gravar não garante nada, porque o trigger ainda não rodou.
+    """
+    corpo = re.search(
+        r"CREATE OR REPLACE FUNCTION\s+public\.fn_register_adjustment\b(.*?)\$\$;",
+        CODE_SQL,
+        re.S | re.I,
+    )
+    assert corpo, "fn_register_adjustment não declarada em database/code"
+
+    partes = corpo.group(1).split("INSERT INTO public.stock_movements", 1)
+    assert len(partes) == 2, "fn_register_adjustment não grava a movimentação"
+
+    assert re.search(
+        r"SELECT\s+stock\s+INTO\s+v_final\b.*?"
+        r"IF\s+v_final\s*<>\s*p_counted_balance\s+THEN.*?"
+        r"RAISE\s+EXCEPTION",
+        partes[1],
+        re.S | re.I,
+    ), (
+        "sem reler products.stock depois do INSERT e levantar quando ele "
+        "difere do contado, o critério 3 vira expectativa: um saldo "
+        "divergente seria gravado em vez de desfazer a transação"
+    )
+
+
+def test_h11_a_funcao_de_ajuste_esta_na_allowlist_de_execute():
+    """Função fora da allowlist aplica no banco e quebra o app em runtime."""
+    allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    assert "'fn_register_adjustment'" in allowlist
