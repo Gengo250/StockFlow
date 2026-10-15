@@ -127,14 +127,18 @@ def test_outro_sem_detalhe_nao_grava_nada(janela):
     w = janela(UserRole.STOCK)
     codigo, atual = primeiro_produto(w)
     page = w.movimentacoes_page
-    linhas_antes = page.table.rowCount()
+    # Repositório, não a tabela: a recusa acontece antes de
+    # `_recarregar_movimentacoes()` (ver `MainWindow._aplicar_ajuste`), então
+    # a tabela nunca seria redesenhada mesmo que uma linha fosse gravada. A
+    # tabela não prova nada aqui; o dado real é o que prova.
+    historico_antes = w.movement_repository.list_movements(codigo)
 
     preencher(page, codigo, atual - 1, AdjustmentReason.OUTRO, detalhe="")
     page.ajuste_aplicar_button.click()
 
     assert int(w.products[codigo].stock) == atual
     assert "justificativa" in page.warning_label.text().casefold()
-    assert page.table.rowCount() == linhas_antes
+    assert w.movement_repository.list_movements(codigo) == historico_antes
 
 
 def test_outro_com_detalhe_grava_e_o_detalhe_aparece_no_historico(janela):
@@ -202,12 +206,14 @@ def test_contar_o_mesmo_numero_nao_registra_movimentacao(janela):
     w = janela(UserRole.STOCK)
     codigo, atual = primeiro_produto(w)
     page = w.movimentacoes_page
-    linhas_antes = page.table.rowCount()
+    # Repositório, e não a tabela: mesma razão do teste de justificativa —
+    # sem clique não há redesenho, então a tabela não prova nada sozinha.
+    historico_antes = w.movement_repository.list_movements(codigo)
 
     preencher(page, codigo, atual, AdjustmentReason.CONTAGEM)
 
     assert not page.ajuste_aplicar_button.isEnabled()
-    assert page.table.rowCount() == linhas_antes
+    assert w.movement_repository.list_movements(codigo) == historico_antes
 
     with pytest.raises(AjusteSemEfeitoError):
         w.movement_service.adjust(w.session, AdjustmentInput(
@@ -216,6 +222,7 @@ def test_contar_o_mesmo_numero_nao_registra_movimentacao(janela):
         ))
 
     assert int(w.products[codigo].stock) == atual
+    assert w.movement_repository.list_movements(codigo) == historico_antes
 
 
 def test_saldo_que_mudou_desde_a_contagem_pede_recontagem(janela):
