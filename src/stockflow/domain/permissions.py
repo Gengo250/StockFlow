@@ -110,6 +110,17 @@ PERMISSION_MATRIX: dict[str, Area] = {
         fonte_ver="fn_list_company_users",
         fonte_gravar="fn_save_company_member",
     ),
+    # O histórico de preço e custo é a auditoria do catálogo, e a tabela já
+    # está restrita ao ADMIN por `price_edit_log_select`. A tela não pode ser
+    # mais permissiva que a policy: para STOCK e SELLER ela abriria vazia e
+    # pareceria um defeito. `gravar` vazio é literal — a auditoria é escrita
+    # pelo trigger, nunca pela tela.
+    "historico_precos": Area(
+        ver=_ADMIN,
+        gravar=_NINGUEM,
+        fonte_ver="fn_list_price_edits",
+        fonte_gravar="",
+    ),
     # Áreas sem gate. `gravar` vazio significa que nada ali grava pela tela —
     # não que a gravação seja livre.
     "dashboard": Area(
@@ -260,6 +271,23 @@ def ensure_can_move_stock(session, action: str = "movimentar o estoque") -> None
     altera saldo, e saldo é o número que decide reposição e venda.
     """
     exigir_gravar(session, "movimentacoes", action)
+
+
+def can_view_price_history(role_or_session) -> bool:
+    """Quem pode consultar o histórico de preço e custo: só o ADMIN.
+
+    Espelha `fn_is_admin(...)` dentro de `fn_list_price_edits`, que por sua
+    vez repete a policy `price_edit_log_select`. É a única área cujo gate é
+    de LEITURA e não de escrita — por isso pergunta a `pode_ver`.
+    """
+    return pode_ver(role_or_session, "historico_precos")
+
+
+def ensure_can_view_price_history(
+    session, action: str = "consultar o histórico de preços"
+) -> None:
+    """Levanta `PermissionDeniedError` se a sessão não puder abrir o histórico."""
+    exigir_ver(session, "historico_precos", action)
 
 
 def can_manage_suppliers(role_or_session) -> bool:
