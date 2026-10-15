@@ -23,3 +23,5 @@ class MovementInput:
     # Registrar e confirmar são passos distintos; confirmar no mesmo ato é
     # atalho para quem está lançando algo que já aconteceu.
     confirm: bool = False
+     # 'NORMAL' = Fluxo de Vendas/Entradas | 'MANUAL' = Ajuste de Estoque (US02.3)
+    origin: str = "NORMAL"
