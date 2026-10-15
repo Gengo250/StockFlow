@@ -16,7 +16,13 @@ from psycopg.conninfo import conninfo_to_dict, make_conninfo
 from verify_postgres import BOOTSTRAP, ROOT, check, rejects
 from postgres_api import PostgresAPI
 
-PENDING_VERSIONS = {"20261013120000", "20261013140000", "20261014120000"}
+# As que ainda não estão no remoto: o ensaio aplica o resto primeiro, insere
+# dado histórico e só então estas. A H09 (20261015103000) precisa entrar aqui
+# por dependência, não só por estar pendente: 20261014120000 recria
+# `trg_log_price_edit` com CREATE OR REPLACE, então aplicá-la depois da H09
+# apagaria a auditoria de custo sem erro nenhum.
+PENDING_VERSIONS = {"20261013120000", "20261013140000", "20261014120000",
+                    "20261015103000"}
 
 
 def run():
@@ -68,7 +74,11 @@ def exercise(dsn):
         db.execute("INSERT INTO stock_movements(company_id,product_id,sale_id,kind,quantity,status) VALUES (%s,%s,%s,'SAIDA',2,'CONFIRMADA')", (company,product,sale))
         before = db.execute("SELECT id,sale_id,product_id,quantity,unit_price,subtotal,product_name FROM sale_items ORDER BY id").fetchall()
         balances = db.execute("SELECT id,stock FROM products ORDER BY id").fetchall()
-        price_logs = db.execute("SELECT * FROM price_edit_log ORDER BY id").fetchall()
+        # Colunas explícitas em vez de `*`: a H09 acrescenta `field` à tabela,
+        # e `SELECT *` compararia tuplas de larguras diferentes antes e depois
+        # — a conversão pareceria destrutiva só por ter ganhado uma coluna.
+        AUDIT = "SELECT id,company_id,product_id,old_price,new_price,updated_by FROM price_edit_log ORDER BY id"
+        price_logs = db.execute(AUDIT).fetchall()
 
         def migrate():
             with db.transaction():
@@ -91,7 +101,9 @@ def exercise(dsn):
         check(db.execute("SELECT id,stock FROM products ORDER BY id").fetchall()==balances, "Migration does not repeat historical stock withdrawals")
         check(db.execute("SELECT client_name,total,status::text FROM sales WHERE id=%s",(sale,)).fetchone()==('Historical snapshot',Decimal('40'),'CONCLUIDA'), "Historical sale and total survive enum/column conversion")
         check(db.execute("SELECT company_id,created_by FROM sales_log WHERE id=%s",(log,)).fetchone()==(company,user), "Migration preserves existing completion logs")
-        check(db.execute("SELECT * FROM price_edit_log ORDER BY id").fetchall()==price_logs, "Reconciliation preserves the historical price audit")
+        check(db.execute(AUDIT).fetchall()==price_logs, "Reconciliation preserves the historical price audit")
+        check(db.execute("SELECT DISTINCT field::text FROM price_edit_log").fetchall()==[('SELL_PRICE',)],
+              "Audit rows written before H09 stay readable as sell price edits")
         check(db.execute("SELECT to_regprocedure('public.fn_register_stock_entry(uuid,uuid,numeric,uuid,uuid,text)')").fetchone()[0] is None,
               "Obsolete stock entry cannot bypass the authorized movement functions")
 
@@ -129,10 +141,40 @@ def exercise(dsn):
         with connect() as conn:
             movement = db.execute("SELECT id FROM stock_movements WHERE sale_id=%s",(receipt['id'],)).fetchone()[0]
             rejects(lambda: PostgresAPI(conn).rpc('fn_cancel_movement',{'p_movement_id':str(movement)}).execute(),'23514','A sale withdrawal cannot be cancelled independently')
-            conn.execute("SELECT public.fn_update_products(%s, p_sell_price => 25)", (product,))
-            check(db.execute("SELECT updated_by,old_price,new_price FROM price_edit_log WHERE product_id=%s ORDER BY last_updated_on DESC LIMIT 1", (product,)).fetchone()
+            # O que a venda concluída registrou, lido ANTES de mexer no
+            # catálogo. Sem esta foto, a comparação lá embaixo não prova nada.
+            ITENS = ("SELECT product_name,product_code,quantity,unit_price,subtotal "
+                     "FROM sale_items WHERE sale_id=%s ORDER BY product_code")
+            vendido = db.execute(ITENS, (receipt['id'],)).fetchall()
+            fechado = db.execute("SELECT total,discount FROM sales WHERE id=%s", (receipt['id'],)).fetchone()
+
+            # Preço e custo no MESMO UPDATE: é o caminho que a tela usa, e é
+            # onde um trigger com um IF só gravaria a mudança de custo com os
+            # valores de preço. O custo deste produto nunca foi informado,
+            # então esta é também a primeira definição — o caso que o
+            # `old_price NOT NULL` original derrubava.
+            conn.execute("SELECT public.fn_update_products(%s, p_sell_price => 25, p_buy_price => 9)", (product,))
+            ULTIMA = ("SELECT updated_by,old_price,new_price FROM price_edit_log "
+                      "WHERE product_id=%s AND field=%s ORDER BY last_updated_on DESC LIMIT 1")
+            check(db.execute(ULTIMA, (product, 'SELL_PRICE')).fetchone()
                   == (user, Decimal('20'), Decimal('25')), 'Price audit resolves the authenticated author')
+            check(db.execute(ULTIMA, (product, 'BUY_PRICE')).fetchone()
+                  == (user, None, Decimal('9')), 'Cost edit is audited without inventing a previous value')
+            check(db.execute("SELECT count(*) FROM price_edit_log WHERE product_id=%s", (product,)).fetchone()[0] == 3,
+                  'One UPDATE touching both fields leaves one audit row per field')
             rejects(lambda: conn.execute("DELETE FROM price_edit_log"), '42501', 'Even ADMIN cannot rewrite the price audit')
+
+            # H09, segunda metade: a venda concluída guarda os valores dela, e
+            # não um ponteiro para o catálogo. A divergência é conferida antes
+            # da igualdade de propósito — se o preço gravado fosse o mesmo do
+            # catálogo novo, a comparação seguinte passaria sem provar nada.
+            check(db.execute("SELECT sell_price FROM products WHERE id=%s", (product,)).fetchone()[0] == Decimal('25')
+                  and any(linha[1] == 'SALE-1' and linha[3] == Decimal('20') for linha in vendido),
+                  'The recorded unit price and the current catalogue price really diverge')
+            check(db.execute(ITENS, (receipt['id'],)).fetchall() == vendido,
+                  'Editing price and cost does not touch what a completed sale recorded')
+            check(db.execute("SELECT total,discount FROM sales WHERE id=%s", (receipt['id'],)).fetchone() == fechado,
+                  'The completed sale keeps the total it was closed with')
 
         with connect(seller_auth) as conn:
             exercise_ui(conn, db, company, seller, client, product)
