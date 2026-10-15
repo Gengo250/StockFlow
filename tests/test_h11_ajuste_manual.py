@@ -18,7 +18,10 @@ from PySide6.QtWidgets import QMessageBox
 from stockflow.application.dto.adjustment_input import AdjustmentInput
 from stockflow.domain.enums.adjustment_reason import AdjustmentReason
 from stockflow.domain.enums.user_role import UserRole
-from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
+from stockflow.domain.exceptions.adjustment_errors import (
+    AjusteSemEfeitoError,
+    SaldoDesatualizadoError,
+)
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.presentation import backend
 from stockflow.presentation.demo_accounts import conta_por_papel
@@ -105,6 +108,7 @@ def test_o_vendedor_e_recusado_mesmo_burlando_o_controle_visual(janela):
     """
     w = janela(UserRole.SELLER)
     codigo, atual = primeiro_produto(w)
+    historico_antes = w.movement_repository.list_movements(codigo)
 
     with pytest.raises(PermissionDeniedError):
         w.movement_service.adjust(w.session, AdjustmentInput(
@@ -113,6 +117,7 @@ def test_o_vendedor_e_recusado_mesmo_burlando_o_controle_visual(janela):
         ))
 
     assert int(w.products[codigo].stock) == atual
+    assert w.movement_repository.list_movements(codigo) == historico_antes
 
 
 # --------------------------------------------------------- 2. justificativa
@@ -122,12 +127,14 @@ def test_outro_sem_detalhe_nao_grava_nada(janela):
     w = janela(UserRole.STOCK)
     codigo, atual = primeiro_produto(w)
     page = w.movimentacoes_page
+    linhas_antes = page.table.rowCount()
 
     preencher(page, codigo, atual - 1, AdjustmentReason.OUTRO, detalhe="")
     page.ajuste_aplicar_button.click()
 
     assert int(w.products[codigo].stock) == atual
     assert "justificativa" in page.warning_label.text().casefold()
+    assert page.table.rowCount() == linhas_antes
 
 
 def test_outro_com_detalhe_grava_e_o_detalhe_aparece_no_historico(janela):
@@ -188,6 +195,10 @@ def test_contar_zero_zera_o_saldo(janela):
 
 
 def test_contar_o_mesmo_numero_nao_registra_movimentacao(janela):
+    """Sem-efeito nas duas camadas: botão desabilitado é cortesia; a prova
+    é que o serviço também recusa, mesmo chamado direto, como no bypass do
+    vendedor.
+    """
     w = janela(UserRole.STOCK)
     codigo, atual = primeiro_produto(w)
     page = w.movimentacoes_page
@@ -197,6 +208,14 @@ def test_contar_o_mesmo_numero_nao_registra_movimentacao(janela):
 
     assert not page.ajuste_aplicar_button.isEnabled()
     assert page.table.rowCount() == linhas_antes
+
+    with pytest.raises(AjusteSemEfeitoError):
+        w.movement_service.adjust(w.session, AdjustmentInput(
+            product_code=codigo, counted_balance=atual, expected_balance=atual,
+            reason=AdjustmentReason.CONTAGEM,
+        ))
+
+    assert int(w.products[codigo].stock) == atual
 
 
 def test_saldo_que_mudou_desde_a_contagem_pede_recontagem(janela):
