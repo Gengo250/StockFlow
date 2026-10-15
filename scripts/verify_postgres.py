@@ -250,6 +250,47 @@ def exercise(dsn):
     check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==before-3,
           'Every refused adjustment left the balance untouched')
 
+    # H09: chronological price/cost history. Runs BEFORE the H14 block for
+    # the same reason as H11 -- that block promotes the STOCK account to
+    # ADMIN, and a role check measured after it would prove nothing.
+    rpc('fn_update_products',p_product_id=str(product_id),p_sell_price=31,p_buy_price=12)
+    rpc('fn_update_products',p_product_id=str(product_id),p_sell_price=33)
+    historico=rpc('fn_list_price_edits',p_company_id=company)
+    check(len(historico)>=3,'The price history returns one row per edited field')
+    check([l['changed_on'] for l in historico]==sorted((l['changed_on'] for l in historico),reverse=True),
+          'The price history answers newest first')
+    check(historico[0]['field']=='SELL_PRICE' and str(historico[0]['new_price']) in ('33','33.00'),
+          'The most recent edit heads the list')
+    # The two rows written by the same UPDATE share last_updated_on to the
+    # microsecond: now() is constant inside a transaction. What the id
+    # tie-break buys is not a "more recent" between them -- there is none --
+    # but that the screen does not shuffle them between loads.
+    assinatura=lambda linhas:[(l['field'],str(l['old_price']),str(l['new_price'])) for l in linhas]
+    check(len({l['changed_on'] for l in historico if str(l['new_price']) in ('31','31.00','12','12.00')})==1,
+          'Price and cost edited in one UPDATE share the same instant')
+    check(assinatura(rpc('fn_list_price_edits',p_company_id=company))==assinatura(historico),
+          'Two rows written in the same UPDATE keep a stable order between calls')
+    check(all(l['product_code'] and l['changed_by'] for l in historico),
+          'Every row resolves the product code and the author name')
+    check(rpc('fn_list_price_edits',p_company_id=company,p_product_id=str(product_id))==historico,
+          'Filtering by the edited product returns that product history')
+
+    # The fixture product was born with a cost, so the first-time case needs
+    # a product that was not: it is the row the original NOT NULL rejected.
+    sem_custo=rpc('fn_create_products',p_company_id=company,p_barcode='NO-COST',
+                  p_name='Produto sem custo',p_sell_price=10)
+    rpc('fn_update_products',p_product_id=str(sem_custo),p_buy_price=7)
+    primeira=rpc('fn_list_price_edits',p_company_id=company,p_product_id=str(sem_custo))
+    check(len(primeira)==1 and primeira[0]['field']=='BUY_PRICE',
+          'Defining a cost for the first time is audited')
+    check(primeira[0]['old_price'] is None,
+          'A first-time cost reaches the query as absence, not zero')
+    for papel in ('stock_auth','seller_auth'):
+        with connect(papel) as outro:
+            rejects(lambda c=outro: PostgresAPI(c).rpc('fn_list_price_edits',
+                        {'p_company_id':company,'p_product_id':None}).execute(),
+                    '42501',papel.split('_')[0].upper()+' cannot read the price history')
+
     # H14: profiles and permissions. Authorship on business writes, and a
     # history for every permission event. These run LAST because they change
     # roles, and an earlier check reading a mutated role would measure
