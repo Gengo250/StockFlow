@@ -30,7 +30,7 @@ from stockflow.domain.enums.adjustment_reason import AdjustmentReason
 from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.enums.movement_status import MovementStatus
 from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
-from stockflow.domain.stock_adjustment import calcular_ajuste
+from stockflow.domain.stock_adjustment import calcular_ajuste, saldo_contado
 from stockflow.domain.stock_level import derive_stock_status, to_int
 from stockflow.infrastructure.repositories.movement_mapper import row_to_movement
 
@@ -180,7 +180,12 @@ class DemoMovementRepository:
         forma de não deixar estado pela metade é calcular, conferir e só
         então aplicar.
         """
-        contado = to_int(data.counted_balance)
+        # `saldo_contado`, e não `to_int`: o padrão zero de `to_int` existe
+        # para não derrubar uma listagem por causa de uma célula ilegível, e
+        # aqui zero não é um valor neutro — é a contagem que ESVAZIA o
+        # produto. Um contado ausente ou ilegível tem que recusar, como o
+        # `p_counted_balance IS NULL` do banco recusa.
+        contado = saldo_contado(data.counted_balance)
         if contado < 0:
             # Espelha o guard `p_counted_balance IS NULL OR
             # p_counted_balance < 0` da função SQL, que roda ANTES até de

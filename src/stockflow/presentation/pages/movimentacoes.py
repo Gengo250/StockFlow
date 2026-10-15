@@ -38,6 +38,11 @@ ACTIONS_COLUMN = len(COLUMNS) - 1
 (MOV_ID, MOV_CODE, MOV_NAME, MOV_KIND, MOV_QTY, MOV_STATUS, MOV_NOTE,
  MOV_WHEN, MOV_SUPPLIER, MOV_REASON) = range(10)
 
+# Aparência do aviso de recusa. Constante porque os DOIS cards têm o seu, e
+# duas folhas de estilo copiadas fariam a mesma recusa parecer mais grave num
+# formulário do que no outro.
+AVISO_QSS = "color: #EF4444; font-size: 12px; font-weight: 500;"
+
 STATUS_COLORS = {
     MovementStatus.CONFIRMADA.label: ("#0F7B4F", "#E4F7EF"),
     MovementStatus.PENDENTE.label: ("#8A6A1F", "#FDF3DF"),
@@ -182,10 +187,12 @@ class MovimentacoesPage(QWidget):
         acoes.addWidget(self.registrar_confirmar_button)
         fora.addLayout(acoes)
 
+        # Aviso DESTE card. O de ajuste tem o seu
+        # (`ajuste_warning_label`): dois formulários dividindo um label só
+        # faziam a recusa de um aparecer sobre o outro, e `limpar_ajuste()`
+        # apagava a recusa de uma movimentação que ninguém chegou a ler.
         self.warning_label = QLabel("")
-        self.warning_label.setStyleSheet(
-            "color: #EF4444; font-size: 12px; font-weight: 500;"
-        )
+        self.warning_label.setStyleSheet(AVISO_QSS)
         fora.addWidget(self.warning_label)
         return card
 
@@ -262,6 +269,15 @@ class MovimentacoesPage(QWidget):
         acoes.addWidget(self.ajuste_detalhe_input, 2)
         acoes.addWidget(self.ajuste_aplicar_button)
         fora.addLayout(acoes)
+
+        # Aviso PRÓPRIO, dentro do card do ajuste. Enquanto os dois
+        # formulários dividiam o `warning_label` do card de entrada/saída, o
+        # texto vermelho de uma recusa de ajuste nascia no card de cima —
+        # longe do botão que o usuário acabara de clicar — e cada card
+        # apagava a mensagem do outro ao limpar o seu próprio formulário.
+        self.ajuste_warning_label = QLabel("")
+        self.ajuste_warning_label.setStyleSheet(AVISO_QSS)
+        fora.addWidget(self.ajuste_warning_label)
 
         self._atualizar_detalhe()
         return card
@@ -552,18 +568,18 @@ class MovimentacoesPage(QWidget):
         codigo = self.ajuste_produto_combo.currentData()
         atual = self._saldo_do_produto_de_ajuste()
         if not codigo or atual is None:
-            self.warning_label.setText("Selecione um produto ativo para ajustar.")
+            self.ajuste_warning_label.setText("Selecione um produto ativo para ajustar.")
             return
 
         motivo = self._motivo_selecionado()
         detalhe = self.ajuste_detalhe_input.text().strip()
         if motivo.exige_detalhe and not detalhe:
-            self.warning_label.setText(
+            self.ajuste_warning_label.setText(
                 'O motivo "Outro" exige uma justificativa escrita.'
             )
             return
 
-        self.warning_label.setText("")
+        self.ajuste_warning_label.setText("")
         self.adjust_requested.emit(AdjustmentInput(
             product_code=codigo,
             counted_balance=self.ajuste_contado_input.value(),
@@ -576,14 +592,21 @@ class MovimentacoesPage(QWidget):
         ))
 
     def limpar_ajuste(self):
+        """Limpa SÓ o card do ajuste, aviso incluído.
+
+        O `warning_label` do card de entrada/saída fica intocado: um ajuste
+        bem-sucedido não é resposta para uma movimentação que o usuário
+        tentou lançar e foi recusada.
+        """
         self.ajuste_contado_input.setValue(0)
         self.ajuste_detalhe_input.clear()
         self.ajuste_motivo_combo.setCurrentIndex(0)
-        self.warning_label.setText("")
+        self.ajuste_warning_label.setText("")
         self._atualizar_previa()
 
     def mostrar_recusa_de_ajuste(self, mensagem):
-        self.warning_label.setText(str(mensagem))
+        """A recusa aparece NO card do ajuste, ao lado do botão que a causou."""
+        self.ajuste_warning_label.setText(str(mensagem))
 
     # ======================================================
     # PERMISSÃO

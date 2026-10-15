@@ -47,9 +47,16 @@ from stockflow.infrastructure.repositories.supabase_product_repository import (
 
 # Colunas que a tela consome. Lista explícita em vez de `*` para que uma
 # coluna nova na tabela não comece a trafegar sozinha.
+#
+# `adjustment_reason` está aqui porque a tabela tem a coluna Motivo.
+# `counted_balance` NÃO está: a tupla do histórico tem dez posições e nenhuma
+# delas é o saldo contado, então trazê-lo seria exatamente a coluna que
+# trafega sozinha sem ninguém consumir. A coluna continua na tabela, para a
+# reconciliação que o comentário do schema prevê — só não é o que a TELA
+# busca.
 MOVEMENT_COLUMNS = (
     "id,product_id,supplier_id,kind,quantity,status,note,created_on,"
-    "confirmed_on,adjustment_reason,counted_balance"
+    "confirmed_on,adjustment_reason"
 )
 
 # Nome da função -> ação em português. Os rótulos são os MESMOS que

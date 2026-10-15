@@ -430,6 +430,42 @@ def test_h11_a_funcao_de_ajuste_existe_e_e_security_definer():
     )
 
 
+def test_h11_a_funcao_de_ajuste_confere_o_saldo_resultante_depois_de_gravar():
+    """O terceiro critério da H11 é esta releitura, não a aritmética.
+
+    O trigger `trg_stock_movements_apply` produz o saldo certo sozinho, então
+    um teste que só confira "o saldo final é o contado" mede o TRIGGER e
+    passa igualzinho com a releitura apagada. O que a releitura compra é a
+    outra metade: se o saldo gravado discordar do contado, a transação
+    inteira volta atrás. Daí a asserção ser sobre o texto da função — é o
+    único lugar onde a garantia existe sem um Postgres por perto.
+
+    A busca começa DEPOIS do `INSERT` de propósito: reler o saldo antes de
+    gravar não garante nada, porque o trigger ainda não rodou.
+    """
+    corpo = re.search(
+        r"CREATE OR REPLACE FUNCTION\s+public\.fn_register_adjustment\b(.*?)\$\$;",
+        CODE_SQL,
+        re.S | re.I,
+    )
+    assert corpo, "fn_register_adjustment não declarada em database/code"
+
+    partes = corpo.group(1).split("INSERT INTO public.stock_movements", 1)
+    assert len(partes) == 2, "fn_register_adjustment não grava a movimentação"
+
+    assert re.search(
+        r"SELECT\s+stock\s+INTO\s+v_final\b.*?"
+        r"IF\s+v_final\s*<>\s*p_counted_balance\s+THEN.*?"
+        r"RAISE\s+EXCEPTION",
+        partes[1],
+        re.S | re.I,
+    ), (
+        "sem reler products.stock depois do INSERT e levantar quando ele "
+        "difere do contado, o critério 3 vira expectativa: um saldo "
+        "divergente seria gravado em vez de desfazer a transação"
+    )
+
+
 def test_h11_a_funcao_de_ajuste_esta_na_allowlist_de_execute():
     """Função fora da allowlist aplica no banco e quebra o app em runtime."""
     allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")

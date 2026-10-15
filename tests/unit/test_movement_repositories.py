@@ -34,6 +34,7 @@ from stockflow.infrastructure.repositories.demo_movement_repository import (
 )
 from stockflow.infrastructure.repositories.movement_mapper import VAZIO
 from stockflow.infrastructure.repositories.supabase_movement_repository import (
+    MOVEMENT_COLUMNS,
     SupabaseMovementRepository,
 )
 from stockflow.presentation.demo_products import Product
@@ -723,6 +724,30 @@ def test_a_ordem_das_recusas_espelha_a_funcao_sql():
     assert repo.list_movements() == ()
 
 
+def test_cancelar_um_ajuste_devolve_o_saldo():
+    """O estorno de ajuste é o caminho GENÉRICO de cancelamento.
+
+    A H11 deixou o estorno fora de escopo justamente porque
+    `fn_cancel_movement` já resolve: um ajuste é uma ENTRADA/SAIDA comum, e
+    cancelá-la tira a linha da soma das confirmadas. Mas "já funciona" não é
+    teste — `cancel` já tem um caso especial (`sale_id`), e o próximo guard
+    escrito ali quebraria em silêncio a reversão que a especificação promete.
+    """
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+    movimento = repo.adjust(ajuste(counted_balance=38))
+    assert produtos["P1"].stock == "38"
+
+    repo.cancel(movimento)
+
+    assert produtos["P1"].stock == "42", "cancelar o ajuste não devolveu o saldo"
+    assert repo.list_movements()[0][5] == MovementStatus.CANCELADA.label
+    # O motivo continua na linha cancelada: o histórico é imutável, e
+    # esconder por que o ajuste existiu tiraria da tela a resposta para "por
+    # que o saldo caiu e voltou".
+    assert repo.list_movements()[0][9] == AdjustmentReason.QUEBRA.label
+
+
 # ---------------------------------------------------- ajuste (H11) — Supabase
 # O adaptador de banco não decide nada sobre o saldo: o que ele precisa
 # acertar é a tradução (código -> uuid, enum -> valor cru) e repassar a
@@ -763,6 +788,41 @@ def test_detalhe_vazio_vira_nulo_e_nao_string_vazia():
     repo.adjust(ajuste(product_code="PRD-009", detail="   "))
 
     assert cliente.chamadas_rpc[-1][1]["p_detail"] is None
+
+
+@pytest.mark.parametrize("contado", [None, "", "trinta"])
+def test_contado_ilegivel_nao_chega_a_rpc_como_zero(contado):
+    """`to_int` devolveria `0`, e `0` ESVAZIA o produto.
+
+    O parâmetro não chega ao banco como NULL para o primeiro guard recusar:
+    chega como uma contagem válida de zero, e a função faz exatamente o que
+    foi pedido. A recusa precisa acontecer antes da rede.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas)
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo.list_movements()
+    chamadas_antes = len(cliente.chamadas_rpc)
+
+    with pytest.raises(ValueError):
+        repo.adjust(ajuste(product_code="PRD-009", counted_balance=contado))
+
+    assert len(cliente.chamadas_rpc) == chamadas_antes, (
+        "um contado ilegível virou requisição"
+    )
+
+
+def test_a_tela_nao_busca_coluna_que_nao_consome():
+    """`MOVEMENT_COLUMNS` é lista explícita justamente para isto.
+
+    `adjustment_reason` fica porque a tabela tem a coluna Motivo (posição 9
+    da tupla). `counted_balance` não tem posição nenhuma — buscá-lo seria a
+    coluna que começa a trafegar sozinha, que é o que a lista explícita
+    existe para impedir. A coluna segue na tabela para a reconciliação que o
+    comentário do schema prevê.
+    """
+    assert "adjustment_reason" in MOVEMENT_COLUMNS
+    assert "counted_balance" not in MOVEMENT_COLUMNS
 
 
 def test_recusa_de_permissao_na_rpc_de_ajuste_vira_erro_de_dominio():

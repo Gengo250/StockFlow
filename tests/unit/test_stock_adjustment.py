@@ -14,7 +14,7 @@ from stockflow.domain.exceptions.adjustment_errors import (
     AjusteSemEfeitoError,
     SaldoDesatualizadoError,
 )
-from stockflow.domain.stock_adjustment import calcular_ajuste
+from stockflow.domain.stock_adjustment import calcular_ajuste, saldo_contado
 
 
 def test_contado_maior_vira_entrada_da_diferenca():
@@ -54,6 +54,26 @@ def test_so_outro_exige_detalhe():
     assert [r for r in AdjustmentReason if r.exige_detalhe] == [AdjustmentReason.OUTRO]
 
 
+def test_os_seis_rotulos_sao_exatamente_estes():
+    """Os rótulos são LITERAIS aqui, e não `AdjustmentReason.X.label`.
+
+    Comparar o rótulo com ele mesmo é tautologia: trocar "Quebra / avaria"
+    por "Perda / furto" no dicionário do enum deixaria o combo oferecendo o
+    rótulo errado para cada valor, o operador registraria o motivo errado em
+    todo ajuste, e o agregado que a lista fechada existe para produzir
+    ("quanto sumiu por quebra neste mês") ficaria corrompido — com a suíte
+    verde do começo ao fim.
+    """
+    assert {motivo.value: motivo.label for motivo in AdjustmentReason} == {
+        "CONTAGEM": "Erro de contagem",
+        "QUEBRA": "Quebra / avaria",
+        "PERDA": "Perda / furto",
+        "VENCIMENTO": "Vencimento",
+        "DEVOLUCAO": "Devolução de cliente",
+        "OUTRO": "Outro",
+    }
+
+
 def test_motivo_desconhecido_estoura_com_o_valor_na_mensagem():
     with pytest.raises(ValueError, match="INVENTADO"):
         AdjustmentReason.from_value("INVENTADO")
@@ -69,3 +89,25 @@ def test_saldo_desatualizado_diz_os_dois_numeros():
 
     assert "42" in str(erro) and "45" in str(erro)
     assert isinstance(erro, ValueError)
+
+
+# ------------------------------------- o saldo contado não ganha um padrão
+
+
+def test_saldo_contado_converte_texto_de_formulario():
+    """O campo da tela entrega inteiro, mas o DTO atravessa adaptador e rede."""
+    assert saldo_contado(38) == 38
+    assert saldo_contado(" 38 ") == 38
+    assert saldo_contado(0) == 0
+
+
+@pytest.mark.parametrize("valor", [None, "", "   ", "trinta", "38,5", "38.0"])
+def test_saldo_contado_recusa_em_vez_de_devolver_zero(valor):
+    """`to_int` devolveria `0` — e `0` é a contagem que ESVAZIA o produto.
+
+    O padrão zero existe para que uma célula ilegível não derrube uma
+    listagem. Aqui o número não é exibido: é o que decide quanto estoque
+    sai, e um campo que não chegou não pode virar a ordem de zerar o saldo.
+    """
+    with pytest.raises(ValueError):
+        saldo_contado(valor)

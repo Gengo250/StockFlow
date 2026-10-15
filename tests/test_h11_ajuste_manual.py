@@ -137,7 +137,7 @@ def test_outro_sem_detalhe_nao_grava_nada(janela):
     page.ajuste_aplicar_button.click()
 
     assert int(w.products[codigo].stock) == atual
-    assert "justificativa" in page.warning_label.text().casefold()
+    assert "justificativa" in page.ajuste_warning_label.text().casefold()
     assert w.movement_repository.list_movements(codigo) == historico_antes
 
 
@@ -254,5 +254,5 @@ def test_a_recusa_de_recontagem_chega_ao_card_sem_dialogo(janela):
         expected_balance=atual + 10, reason=AdjustmentReason.QUEBRA,
     ))
 
-    assert "reconte" in w.movimentacoes_page.warning_label.text().casefold()
+    assert "reconte" in w.movimentacoes_page.ajuste_warning_label.text().casefold()
     assert int(w.products[codigo].stock) == atual

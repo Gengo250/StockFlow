@@ -311,7 +311,55 @@ def test_outro_sem_detalhe_nao_emite_o_pedido(qapp):
     page.ajuste_aplicar_button.click()
 
     assert pedidos == []
-    assert "justificativa" in page.warning_label.text().casefold()
+    assert "justificativa" in page.ajuste_warning_label.text().casefold()
+
+
+def test_a_recusa_do_ajuste_fica_no_card_do_ajuste(qapp):
+    """Cada card tem o seu aviso, e a recusa nasce ao lado do botão clicado.
+
+    Enquanto os dois formulários dividiam um `QLabel` só, clicar em "Aplicar
+    ajuste" acendia o texto vermelho no card de CIMA — o de entrada/saída —
+    e de quebra apagava o que estivesse escrito lá.
+    """
+    page = MovimentacoesPage(catalogo_para_ajuste())
+    page.mostrar_recusa("Selecione um fornecedor ativo para a entrada.")
+    selecionar_produto_de_ajuste(page)
+    page.ajuste_contado_input.setValue(38)
+    page.ajuste_motivo_combo.setCurrentIndex(
+        page.ajuste_motivo_combo.findData(AdjustmentReason.OUTRO)
+    )
+
+    page.ajuste_aplicar_button.click()
+
+    assert "justificativa" in page.ajuste_warning_label.text().casefold()
+    assert page.warning_label.text() == "Selecione um fornecedor ativo para a entrada.", (
+        "a recusa do ajuste escreveu no aviso do card de entrada/saída"
+    )
+
+
+def test_limpar_um_card_nao_apaga_o_aviso_do_outro(qapp):
+    """Limpar um formulário não responde pelo outro.
+
+    `limpar_ajuste()` roda no sucesso do ajuste e `limpar_formulario()` no
+    sucesso da movimentação. Com um aviso só, cada sucesso engolia a recusa
+    pendente do card vizinho antes de alguém lê-la.
+    """
+    page = MovimentacoesPage(catalogo_para_ajuste())
+    page.mostrar_recusa("Selecione um fornecedor ativo para a entrada.")
+    page.mostrar_recusa_de_ajuste("O saldo mudou desde a contagem; reconte.")
+
+    page.limpar_ajuste()
+
+    assert page.ajuste_warning_label.text() == ""
+    assert page.warning_label.text() != "", "limpar o ajuste apagou o aviso da movimentação"
+
+    page.mostrar_recusa_de_ajuste("O saldo mudou desde a contagem; reconte.")
+    page.limpar_formulario()
+
+    assert page.warning_label.text() == ""
+    assert page.ajuste_warning_label.text() != "", (
+        "limpar a movimentação apagou o aviso do ajuste"
+    )
 
 
 def test_aplicar_emite_o_pedido_com_o_saldo_que_a_tela_exibiu(qapp):
@@ -438,6 +486,6 @@ def test_saldo_desatualizado_recusa_sem_mexer_e_ainda_assim_reconsulta(
         detail="",
     ))
 
-    assert "reconte" in page.warning_label.text().lower()
+    assert "reconte" in page.ajuste_warning_label.text().lower()
     assert int(w.products[codigo].stock) == atual
     assert len(chamadas) == 1

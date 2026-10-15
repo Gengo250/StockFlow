@@ -32,6 +32,7 @@ Três decisões que a tupla carrega:
 from stockflow.domain.enums.adjustment_reason import AdjustmentReason
 from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.enums.movement_status import MovementStatus
+from stockflow.domain.stock_adjustment import saldo_contado
 from stockflow.domain.stock_level import to_int
 from stockflow.infrastructure.repositories.user_mapper import (
     NUNCA,
@@ -97,7 +98,7 @@ def _rotulo_de_motivo(valor) -> str:
 
 
 def row_to_movement(row, product_code="", product_name="", agora=None,
-                    supplier_name="", reason=None) -> tuple:
+                    supplier_name="") -> tuple:
     """Linha de `stock_movements` na tupla que a tabela desenha.
 
     DEZ posições, SEMPRE. A cauda já foi opcional — o fornecedor só entrava
@@ -119,7 +120,7 @@ def row_to_movement(row, product_code="", product_name="", agora=None,
         (str(row.get("note") or "").strip() or VAZIO),
         formatar_quando(row.get("created_on"), agora),
         supplier_name or VAZIO,
-        _rotulo_de_motivo(reason if reason is not None else row.get("adjustment_reason")),
+        _rotulo_de_motivo(row.get("adjustment_reason")),
     )
 
 
@@ -196,6 +197,14 @@ def adjustment_input_to_args(data, company_id, product_id) -> dict:
     "na tela: 0, agora: <o saldo real>" em vez de pular a checagem como os
     dois adaptadores atrás da mesma porta precisam concordar em fazer.
 
+    `p_counted_balance`, ao contrário, passa por `saldo_contado`, que
+    LEVANTA — nunca por `to_int`. Os dois parâmetros parecem simétricos e não
+    são: NULL no esperado significa "não quero a checagem de concorrência",
+    uma opção documentada, enquanto um contado ausente não significa nada.
+    `to_int(None)` devolveria `0` — que não chega ao banco como NULL, chega
+    como uma contagem válida de zero e esvazia o produto. Para o número que
+    decide quanto estoque sai, o padrão certo é não ter padrão.
+
     Detalhe vazio vira NULL, não string vazia, pelo mesmo motivo da nota em
     `movement_input_to_register_args`.
     """
@@ -204,7 +213,7 @@ def adjustment_input_to_args(data, company_id, product_id) -> dict:
     return {
         "p_company_id": company_id,
         "p_product_id": product_id,
-        "p_counted_balance": to_int(data.counted_balance),
+        "p_counted_balance": saldo_contado(data.counted_balance),
         "p_expected_balance": None if esperado is None else to_int(esperado),
         "p_reason": AdjustmentReason.from_value(data.reason).value,
         "p_detail": detalhe or None,
