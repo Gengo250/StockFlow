@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from stockflow.application.services.sale_service import SaleService
+from stockflow.application.services.sale_service import SEM_ITENS, SaleService
 from stockflow.infrastructure.repositories.demo_client_repository import (
     DemoClientRepository,
 )
@@ -186,7 +186,7 @@ def _itens(*pares):
 
 def test_servico_recusa_venda_sem_item(service, sessao_de_venda):
     cliente = DemoClientRepository().list_all()[0]
-    with pytest.raises(ValueError, match="ao menos um item"):
+    with pytest.raises(ValueError, match=re.escape(SEM_ITENS)):
         service.register_sale(sessao_de_venda, cliente.client_id, [])
 
 

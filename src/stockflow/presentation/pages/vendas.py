@@ -33,12 +33,16 @@ from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.application.services.sale_service import (
     FORMAS_DE_PAGAMENTO,
+    SEM_ITENS,
     SaleService,
     parse_price,
     parse_quantity,
     parse_total,
 )
 from stockflow.infrastructure.repositories.demo_client_repository import DemoClientRepository
+from stockflow.infrastructure.repositories.demo_movement_repository import (
+    DemoMovementRepository,
+)
 from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
 from stockflow.domain.permissions import can_manage_clients
 from stockflow.presentation.workers import executar_agora
@@ -143,6 +147,19 @@ class VendasPage(QWidget):
         # Mesmo contrato de `SuppliersPage.reload_table`: guarda o erro, deixa
         # as listas vazias e segue construindo a tela.
         self.last_error = None
+        if service is None:
+            self.movement_repository = DemoMovementRepository(self.products)
+            self.service = SaleService(
+                DemoSaleRepository(self.products, self.movement_repository),
+                DemoClientRepository(),
+                DemoProductRepository(self.products),
+            )
+        else:
+            self.service = service
+            self.movement_repository = getattr(
+                self.service.repository, "movements", None
+            )
+        self.client_repository = self.service.clients
         self.clientes = []
         self.historico_vendas = []
         # Carrinho da venda em montagem (US10). Vazio é o estado normal: a
@@ -753,7 +770,7 @@ class VendasPage(QWidget):
         if escolhido and not self._adicionar_item():
             return
         if not self.itens:
-            self.warning_label.setText("Selecione um produto ativo válido.")
+            self.warning_label.setText(SEM_ITENS)
             return
         itens = [{"codigo": i["codigo"], "quantidade": i["quantidade"]} for i in self.itens]
         session, client_id = self.session, data["id"]

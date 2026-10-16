@@ -27,6 +27,7 @@ BEGIN
         SELECT product_id, product_name, quantity
           FROM public.sale_items
          WHERE sale_id = NEW.id AND product_id IS NOT NULL
+          ORDER BY product_id, id
     LOOP
         -- Conferência explícita antes de inserir. Sem ela a falta de estoque
         -- apareceria como violação do CHECK `stock >= 0` de products, com
@@ -45,7 +46,7 @@ BEGIN
         ) VALUES (
             NEW.company_id, v_item.product_id, NEW.id, 'SAIDA',
             v_item.quantity, 'CONFIRMADA',
-            'Venda ' || NEW.id::text, NEW.created_by, now()
+            'SAIDA_VENDA - venda ' || NEW.id::text, NEW.created_by, now()
         );
     END LOOP;
 

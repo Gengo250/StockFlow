@@ -115,16 +115,19 @@ class CheckoutAPI:
     def __init__(self):
         self.calls = []
         self.receipt = {
-            "id": "sale-1", "client_name": "Cliente persistido", "total": "37.50",
+            "id": "sale-1", "cliente": "Cliente persistido",
+            "client_name": "Cliente persistido", "total": "37.50",
             "created_on": "2026-10-14T12:00:00+00:00", "status": "CONCLUIDA",
             "payment_method": "PIX", "discount": "2.50",
+            "items": [{"product_code": "PRD-009", "product_name": "Nome persistido",
+                       "quantity": 2, "unit_price": "20.00", "subtotal": "40.00"}],
             "sale_items": [{"product_code": "PRD-009", "product_name": "Nome persistido",
                             "quantity": 2, "unit_price": "20.00", "subtotal": "40.00"}],
         }
 
     def table(self, name):
         self.calls.append(("table", name))
-        self.data = [self.receipt] if name == "sales" else [{"id": "product-1", "barcode": "PRD-009"}]
+        self.data = [self.receipt] if name == "sales" else []
         return self
 
     def select(self, columns):
@@ -157,9 +160,12 @@ def test_supabase_checkout_uses_saved_receipt_without_second_read(vendas_page):
         [{"product": vendas_page.products["PRD-009"], "quantity": 2}], "PIX", Decimal("2.50"), Decimal("999"))
     assert row["total"] == "37.50"
     assert row["cliente"] == "Cliente persistido"
-    assert row["items"] == api.receipt["sale_items"]
-    assert api.calls[-1][0:2] == ("rpc", "fn_checkout_sale")
-    assert api.calls[-1][2]["p_items"] == [{"product_id": "product-1", "quantity": 2}]
+    assert row["itens_count"] == 1
+    assert row["payment_method"] == "PIX"
+    assert row["discount"] == "2.50"
+    assert row["items"] == api.receipt["items"]
+    assert api.calls[-1][0:2] == ("rpc", "fn_register_sale")
+    assert api.calls[-1][2]["p_items"] == [{"product_code": "PRD-009", "quantity": 2}]
 
 
 def test_reloaded_history_keeps_payment_and_item_details():
