@@ -285,6 +285,22 @@ def exercise(dsn):
           'Defining a cost for the first time is audited')
     check(primeira[0]['old_price'] is None,
           'A first-time cost reaches the query as absence, not zero')
+    # The screen, not just the function. A fake Supabase client cannot catch
+    # a translation that asks the catalogue repository for a uuid it does not
+    # carry -- that is exactly how the filtered page shipped empty.
+    window._carregar_historico_precos()
+    page=window.historico_precos_page
+    total=page.table.rowCount()
+    check(total>0,'Qt price history opens with rows')
+    page.produto_combo.setCurrentIndex(page.produto_combo.findData(code))
+    filtradas=page.table.rowCount()
+    check(filtradas>0,'Qt price history still lists rows when filtered by one product')
+    check(filtradas<=total,'Filtering never widens the result')
+    check(all(page.table.item(l,1).text().startswith(code) for l in range(filtradas)),
+          'Every filtered row belongs to the chosen product')
+    page.produto_combo.setCurrentIndex(page.produto_combo.findData(None))
+    check(page.table.rowCount()==total,'Going back to all products restores the full list')
+
     for papel in ('stock_auth','seller_auth'):
         with connect(papel) as outro:
             rejects(lambda c=outro: PostgresAPI(c).rpc('fn_list_price_edits',
