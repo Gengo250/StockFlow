@@ -24,6 +24,7 @@ como em `DemoProductRepository`.
 
 import dataclasses
 from datetime import datetime
+from functools import wraps
 from threading import RLock
 
 from stockflow.application.dto.movement_input import MovementInput
@@ -43,6 +44,25 @@ ID_PREFIX = "MOV-"
 ID_DIGITS = 3
 
 
+def _sob_o_lock(metodo):
+    """Serializa toda escrita no catálogo e no histórico.
+
+    `register_sale` desfaz o carrinho inteiro restaurando o dict de produtos
+    e a lista de movimentações como estavam antes. Só ele tomava o lock, então
+    uma confirmação ou um cancelamento que acontecesse entre a foto e o
+    rollback era apagado junto -- sem erro nenhum, e sem deixar rastro.
+
+    O `RLock` é reentrante de propósito: `register_sale` continua chamando
+    `register` por dentro do próprio bloco.
+    """
+    @wraps(metodo)
+    def interno(self, *args, **kwargs):
+        with self.lock:
+            return metodo(self, *args, **kwargs)
+
+    return interno
+
+
 class DemoMovementRepository:
     def __init__(self, products: dict, movements=None, agora=None, suppliers=None):
         self._products = products
@@ -55,6 +75,16 @@ class DemoMovementRepository:
         # `agora` de `formatar_ultimo_acesso`: sem ele o teste de "Hoje"
         # dependeria do relógio e do fuso da máquina.
         self._agora = agora
+
+    @property
+    def products(self) -> dict:
+        """O dict `code -> Product` que este repositório mutila.
+
+        Público porque o repositório de vendas precisa compartilhar
+        exatamente este, e não uma cópia: duas visões do catálogo divergem
+        em silêncio na primeira baixa.
+        """
+        return self._products
 
     # ======================================================
     # LEITURA
@@ -95,6 +125,7 @@ class DemoMovementRepository:
     # ESCRITA
     # ======================================================
 
+    @_sob_o_lock
     def register(self, data: MovementInput) -> str:
         """Registra e devolve o id. Nasce PENDENTE salvo `confirm=True`.
 
@@ -132,6 +163,7 @@ class DemoMovementRepository:
         self._movements.append(linha)
         return linha["id"]
 
+    @_sob_o_lock
     def confirm(self, movement_id: str) -> None:
         """Confirma uma pendente. É esta transição que altera o saldo."""
         linha = self._linha(movement_id)
@@ -149,6 +181,7 @@ class DemoMovementRepository:
         linha["status"] = MovementStatus.CONFIRMADA.value
         linha["confirmed_on"] = self._agora or datetime.now()
 
+    @_sob_o_lock
     def cancel(self, movement_id: str) -> None:
         """Cancela. Cancelar uma CONFIRMADA devolve o saldo.
 
@@ -165,6 +198,7 @@ class DemoMovementRepository:
             self._aplicar_no_saldo(linha, sentido=-1)
         linha["status"] = MovementStatus.CANCELADA.value
 
+    @_sob_o_lock
     def adjust(self, data) -> str:
         """Ajuste manual de inventário, imitando `fn_register_adjustment`.
 

@@ -30,7 +30,11 @@ def parse_total(value) -> Decimal:
     if text.upper().startswith("R$"):
         text = text[2:].strip()
     if not _MONEY_PATTERN.fullmatch(text):
-        raise ValueError("Preço do produto inválido.")
+        # Esta função também parseia o DESCONTO (`vendas.py` e
+        # `register_multiple`). Nomear o preço mandava o operador
+        # conferir um campo que ele não tinha tocado, e a mensagem
+        # deixava de dizer o que é um valor válido.
+        raise ValueError("Informe um valor válido, com até duas casas decimais.")
     if "," in text:
         text = text.replace(".", "").replace(",", ".")
     elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):

@@ -276,7 +276,6 @@ class MainWindow(QMainWindow):
         self.users_page.user_table.venda_requested.connect(
             self._associar_cliente_e_abrir_vendas
         )
-        self.vendas_page.sale_registered.connect(self._saldo_mudou)
         self.users_page.user_table.status_change_requested.connect(
             self._on_user_status_changed
         )

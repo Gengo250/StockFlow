@@ -161,7 +161,7 @@ faria a aplicação exigir rede numa máquina onde isso não foi pedido.
 Antes do primeiro login com o banco, três passos — nesta ordem:
 
 1. **Aplique as migrations** em ordem de timestamp, incluindo
-   `20261006120000_atomic_multi_item_sales.sql` para habilitar vendas
+   `20261016120000_atomic_multi_item_sales.sql` para habilitar vendas
    multi-item e baixa atômica. `20261004150000_minimum_stock_optional.sql`
    é **destrutiva por desenho**: ela converte todo `min_quantity = 0` em
    `NULL`, porque esses zeros foram gravados quando zero significava "não

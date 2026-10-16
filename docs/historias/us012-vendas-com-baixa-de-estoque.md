@@ -1,3 +1,5 @@
+# US012 — Venda com itens e baixa automática de estoque
+
 História
 Como vendedor, quero registrar uma venda com seus itens e confirmar a operação com validação e baixa automática do estoque, para calcular corretamente o total e vender somente as quantidades disponíveis.
 

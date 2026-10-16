@@ -61,12 +61,18 @@ class DemoSaleRepository:
         from stockflow.infrastructure.repositories.demo_movement_repository import DemoMovementRepository
         from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
-        self._products = products if products is not None else dict(DEMO_PRODUCTS)
-        self.movements = (
-            movement_repository
-            or movements
-            or DemoMovementRepository(self._products)
-        )
+        repositorio = movement_repository or movements
+        if products is not None:
+            self._products = products
+        elif repositorio is not None:
+            # Sem isto o repositório de vendas ficava com uma CÓPIA de
+            # DEMO_PRODUCTS enquanto o de movimentação baixava estoque noutro
+            # dict. As duas visões divergiam em silêncio: a venda gravava
+            # nomes velhos e o rollback restaurava os objetos errados.
+            self._products = getattr(repositorio, "products", None) or dict(DEMO_PRODUCTS)
+        else:
+            self._products = dict(DEMO_PRODUCTS)
+        self.movements = repositorio or DemoMovementRepository(self._products)
         self.rows = [
             sale_row("VND-1001", "Patrícia Lima", ["PRD-004"], ["Cabo HDMI 2m"], 450, "10/08/2026"),
             sale_row("VND-1002", "Ana Ferreira", ["PRD-007"], ["Mouse ergonômico"], 1290, "28/09/2026"),
@@ -115,13 +121,19 @@ class DemoSaleRepository:
         movements = self.movements
         sale_id = uuid4()
         with self._lock:
+            # O `in inventory` logo abaixo já admitia que o código pode faltar,
+            # mas as leituras seguintes indexavam direto: um produto retirado
+            # do catálogo entre a seleção e a confirmação virava
+            # `KeyError: 'PRD-007'`, que a tela mostrava cru no aviso.
+            ausentes = [i.product_code for i in items if i.product_code not in inventory]
+            if ausentes:
+                raise ValueError("Selecione um produto ativo válido.")
             snapshot_products = {
                 item.product_code: inventory[item.product_code]
                 for item in items
                 if item.product_code in inventory
             }
             snapshot_rows = list(self.rows)
-            snapshot_movements = list(movements._movements)
             try:
                 movement_items = [
                     {
@@ -158,6 +170,10 @@ class DemoSaleRepository:
             except Exception:
                 for code, product in snapshot_products.items():
                     inventory[code] = product
+                # `movements.register_sale` já desfaz o que escreveu, sob o
+                # mesmo lock. Refazer o rollback aqui, lendo e reescrevendo a
+                # lista privada dele, só acrescentava a chance de apagar
+                # movimentação alheia -- e quebrava com qualquer repositório
+                # de movimentação que não tivesse esse atributo.
                 self.rows[:] = snapshot_rows
-                movements._movements[:] = snapshot_movements
                 raise
