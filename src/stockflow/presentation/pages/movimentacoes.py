@@ -13,6 +13,7 @@ aconteceu. Para o caso comum, lançar algo que já ocorreu, há o atalho
 """
 
 from datetime import date, datetime, timedelta
+import re
 
 import qtawesome as qta
 from PySide6.QtCore import QDate, QSize, Qt, Signal
@@ -382,38 +383,56 @@ class MovimentacoesPage(QWidget):
         self.filtro_especie_combo.setAccessibleName("Filtrar por espécie")
         self.filtro_especie_combo.addItem("Todos os tipos", None)
         for especie in MovementKind:
-            self.filtro_especie_combo.addItem(especie.label, especie.value)
+            self.filtro_especie_combo.addItem(especie.label, especie)
         self.filtro_especie_combo.currentIndexChanged.connect(
             self._ao_alterar_filtro
         )
         fora.addWidget(self.filtro_especie_combo)
 
-        # Filtro por período: data de início.
+        # Filtro por período
+        self.filtro_periodo_combo = QComboBox()
+        self.filtro_periodo_combo.setFixedHeight(36)
+        self.filtro_periodo_combo.setAccessibleName("Filtrar por período")
+        self.filtro_periodo_combo.addItem("Todo o período", "todos")
+        self.filtro_periodo_combo.addItem("Hoje", "hoje")
+        self.filtro_periodo_combo.addItem("Ontem", "ontem")
+        self.filtro_periodo_combo.addItem("Últimos 7 dias", "7d")
+        self.filtro_periodo_combo.addItem("Últimos 30 dias", "30d")
+        self.filtro_periodo_combo.addItem("Este mês", "mes")
+        self.filtro_periodo_combo.addItem("Personalizado", "custom")
+        self.filtro_periodo_combo.currentIndexChanged.connect(
+            self._ao_alterar_periodo_combo
+        )
+        fora.addWidget(self.filtro_periodo_combo)
+
+        # Datas para o modo personalizado
         rotulo_de = QLabel("De:")
         rotulo_de.setStyleSheet("color: #64748B; font-size: 13px;")
         fora.addWidget(rotulo_de)
 
+        hoje_qd = QDate.currentDate()
         self.filtro_data_inicio = QDateEdit()
         self.filtro_data_inicio.setFixedHeight(36)
+        self.filtro_data_inicio.setDisplayFormat("dd/MM/yyyy")
         self.filtro_data_inicio.setCalendarPopup(True)
-        self.filtro_data_inicio.setSpecialValueText(" ")   # exibe vazio quando no mínimo
-        self.filtro_data_inicio.setDate(self.filtro_data_inicio.minimumDate())
+        self.filtro_data_inicio.setDate(hoje_qd)
+        self.filtro_data_inicio.setEnabled(False)
         self.filtro_data_inicio.setAccessibleName("Data de início do filtro")
-        self.filtro_data_inicio.dateChanged.connect(self._ao_alterar_filtro)
+        self.filtro_data_inicio.dateChanged.connect(self._ao_alterar_data_custom)
         fora.addWidget(self.filtro_data_inicio)
 
-        # Filtro por período: data de fim.
         rotulo_ate = QLabel("Até:")
         rotulo_ate.setStyleSheet("color: #64748B; font-size: 13px;")
         fora.addWidget(rotulo_ate)
 
         self.filtro_data_fim = QDateEdit()
         self.filtro_data_fim.setFixedHeight(36)
+        self.filtro_data_fim.setDisplayFormat("dd/MM/yyyy")
         self.filtro_data_fim.setCalendarPopup(True)
-        self.filtro_data_fim.setSpecialValueText(" ")
-        self.filtro_data_fim.setDate(self.filtro_data_fim.minimumDate())
+        self.filtro_data_fim.setDate(hoje_qd)
+        self.filtro_data_fim.setEnabled(False)
         self.filtro_data_fim.setAccessibleName("Data de fim do filtro")
-        self.filtro_data_fim.dateChanged.connect(self._ao_alterar_filtro)
+        self.filtro_data_fim.dateChanged.connect(self._ao_alterar_data_custom)
         fora.addWidget(self.filtro_data_fim)
 
         fora.addStretch()
@@ -562,6 +581,31 @@ class MovimentacoesPage(QWidget):
         self._pagina_atual = 0
         self._aplicar_filtros_e_paginar()
 
+    def _ao_alterar_periodo_combo(self, *_):
+        modo = self.filtro_periodo_combo.currentData()
+        e_custom = modo == "custom"
+        self._bloqueando_datas = True
+        self.filtro_data_inicio.setEnabled(e_custom)
+        self.filtro_data_fim.setEnabled(e_custom)
+        self._bloqueando_datas = False
+        self._pagina_atual = 0
+        self._aplicar_filtros_e_paginar()
+
+    def _ao_alterar_data_custom(self, *_):
+        if getattr(self, "_bloqueando_datas", False):
+            return
+        # Se alterou data via código ou UI diretamente, ativa o modo personalizado
+        if self.filtro_periodo_combo.currentData() != "custom":
+            idx = self.filtro_periodo_combo.findData("custom")
+            if idx >= 0:
+                self.filtro_periodo_combo.blockSignals(True)
+                self.filtro_periodo_combo.setCurrentIndex(idx)
+                self.filtro_data_inicio.setEnabled(True)
+                self.filtro_data_fim.setEnabled(True)
+                self.filtro_periodo_combo.blockSignals(False)
+        self._pagina_atual = 0
+        self._aplicar_filtros_e_paginar()
+
     def _aplicar_filtros_e_paginar(self):
         """Filtra, fatia e desenha a página atual.
 
@@ -577,35 +621,51 @@ class MovimentacoesPage(QWidget):
         self._atualizar_paginacao()
         self._atualizar_vazio()
 
+    def _intervalo_de_datas(self) -> tuple[date | None, date | None]:
+        modo = self.filtro_periodo_combo.currentData()
+        if modo == "todos" or modo is None:
+            return None, None
+        hoje = date.today()
+        if modo == "hoje":
+            return hoje, hoje
+        if modo == "ontem":
+            ontem = hoje - timedelta(days=1)
+            return ontem, ontem
+        if modo == "7d":
+            return hoje - timedelta(days=7), hoje
+        if modo == "30d":
+            return hoje - timedelta(days=30), hoje
+        if modo == "mes":
+            return hoje.replace(day=1), hoje
+        # custom
+        qd_ini = self.filtro_data_inicio.date()
+        qd_fim = self.filtro_data_fim.date()
+        d_ini = date(qd_ini.year(), qd_ini.month(), qd_ini.day())
+        d_fim = date(qd_fim.year(), qd_fim.month(), qd_fim.day())
+        return d_ini, d_fim
+
     def _filtrar(self, movs) -> tuple:
         """Aplica os filtros ativos sobre a tupla completa.
 
-        Cada filtro é opcional: data=None e combo no placeholder significam
-        "sem restrição". Não lança exceção — um valor ilegível de data ou
-        combo simplesmente não filtra.
+        Cada filtro é opcional: valor None significa sem restrição.
         """
         produto = self.filtro_produto_combo.currentData()
         especie = self.filtro_especie_combo.currentData()
-        data_inicio = _data_ativa(self.filtro_data_inicio)
-        data_fim = _data_ativa(self.filtro_data_fim)
+        data_inicio, data_fim = self._intervalo_de_datas()
 
         resultado = []
         for mov in movs:
             if produto and mov[MOV_CODE] != produto:
                 continue
-            if especie and mov[MOV_KIND] != especie:
+            if especie is not None and not _mesma_especie(mov[MOV_KIND], especie):
                 continue
-            # A coluna MOV_WHEN é uma string formatada (ex: "Hoje, 09:14",
-            # "12/08/2026"). A comparação de data é extraída da string bruta
-            # ou do objeto datetime original armazenado na tupla — aqui usamos
-            # a função auxiliar `_data_da_movimentacao` que tenta ambas.
-            if data_inicio is not None:
+            if data_inicio is not None or data_fim is not None:
                 data_mov = _data_da_movimentacao(mov[MOV_WHEN])
-                if data_mov is None or data_mov < data_inicio:
+                if data_mov is None:
                     continue
-            if data_fim is not None:
-                data_mov = _data_da_movimentacao(mov[MOV_WHEN])
-                if data_mov is None or data_mov > data_fim:
+                if data_inicio is not None and data_mov < data_inicio:
+                    continue
+                if data_fim is not None and data_mov > data_fim:
                     continue
             resultado.append(mov)
         return tuple(resultado)
@@ -662,23 +722,27 @@ class MovimentacoesPage(QWidget):
         """Reseta todos os filtros do histórico e volta à página 1.
 
         Usa `blockSignals` para evitar que cada reset dispare `_ao_alterar_filtro`
-        separadamente — quatro chamadas desnecessárias ao filtrar/paginar onde
+        separadamente — chamadas desnecessárias ao filtrar/paginar onde
         apenas uma basta ao final.
         """
         for widget in (
             self.filtro_produto_combo, self.filtro_especie_combo,
-            self.filtro_data_inicio, self.filtro_data_fim,
+            self.filtro_periodo_combo, self.filtro_data_inicio, self.filtro_data_fim,
         ):
             widget.blockSignals(True)
 
         self.filtro_produto_combo.setCurrentIndex(0)
         self.filtro_especie_combo.setCurrentIndex(0)
-        self.filtro_data_inicio.setDate(self.filtro_data_inicio.minimumDate())
-        self.filtro_data_fim.setDate(self.filtro_data_fim.minimumDate())
+        self.filtro_periodo_combo.setCurrentIndex(0)
+        hoje_qd = QDate.currentDate()
+        self.filtro_data_inicio.setDate(hoje_qd)
+        self.filtro_data_fim.setDate(hoje_qd)
+        self.filtro_data_inicio.setEnabled(False)
+        self.filtro_data_fim.setEnabled(False)
 
         for widget in (
             self.filtro_produto_combo, self.filtro_especie_combo,
-            self.filtro_data_inicio, self.filtro_data_fim,
+            self.filtro_periodo_combo, self.filtro_data_inicio, self.filtro_data_fim,
         ):
             widget.blockSignals(False)
 
@@ -739,8 +803,7 @@ class MovimentacoesPage(QWidget):
         return (
             self.filtro_produto_combo.currentData() is not None
             or self.filtro_especie_combo.currentData() is not None
-            or _data_ativa(self.filtro_data_inicio) is not None
-            or _data_ativa(self.filtro_data_fim) is not None
+            or (self.filtro_periodo_combo.currentData() not in (None, "todos"))
         )
 
 
@@ -965,18 +1028,36 @@ class MovimentacoesPage(QWidget):
         self._atualizar_previa()
 
 
-def _data_ativa(date_edit: QDateEdit | None) -> date | None:
-    """Devolve `datetime.date` se o QDateEdit tiver data selecionada, ou `None`."""
-    if date_edit is None:
+def _normalizar_especie(valor) -> MovementKind | None:
+    if isinstance(valor, MovementKind):
+        return valor
+    if not valor:
         return None
-    qd = date_edit.date()
-    if qd == date_edit.minimumDate():
+    texto = str(valor).strip().upper()
+    if texto in ("SAIDA", "SAÍDA"):
+        return MovementKind.SAIDA
+    if texto == "ENTRADA":
+        return MovementKind.ENTRADA
+    try:
+        return MovementKind.from_value(valor)
+    except ValueError:
         return None
-    return date(qd.year(), qd.month(), qd.day())
+
+
+def _mesma_especie(mov_kind, filtro_kind) -> bool:
+    """Verifica se o kind da movimentação coincide com o filtro de espécie."""
+    if filtro_kind is None:
+        return True
+    k1 = _normalizar_especie(mov_kind)
+    k2 = _normalizar_especie(filtro_kind)
+    if k1 is not None and k2 is not None:
+        return k1 == k2
+    return str(mov_kind).strip().casefold() == str(filtro_kind).strip().casefold()
+
 
 
 def _data_da_movimentacao(valor) -> date | None:
-    """Extrai `datetime.date` da coluna 'Quando' ou objeto datetime."""
+    """Extrai `datetime.date` da coluna 'Quando' ou objeto datetime/date."""
     if valor is None:
         return None
     if isinstance(valor, datetime):
@@ -986,18 +1067,28 @@ def _data_da_movimentacao(valor) -> date | None:
     texto = str(valor).strip()
     if not texto or texto == "—":
         return None
-    if texto.startswith("Hoje"):
+    if texto.lower().startswith("hoje"):
         return date.today()
-    if texto.startswith("Ontem"):
+    if texto.lower().startswith("ontem"):
         return date.today() - timedelta(days=1)
-    try:
-        primeira_parte = texto.split(",")[0].strip()
-        return datetime.strptime(primeira_parte, "%d/%m/%Y").date()
-    except ValueError:
-        pass
-    try:
-        return datetime.fromisoformat(texto).date()
-    except ValueError:
-        pass
+
+    # Procura formato DD/MM/AAAA (ex: "16/10/2026", "16/10/2026 17:11", "16/10/2026, 17:11")
+    match_br = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", texto)
+    if match_br:
+        dia, mes, ano = map(int, match_br.groups())
+        try:
+            return date(ano, mes, dia)
+        except ValueError:
+            pass
+
+    # Procura formato AAAA-MM-DD (ex: "2026-10-16", "2026-10-16T17:11:00")
+    match_iso = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", texto)
+    if match_iso:
+        ano, mes, dia = map(int, match_iso.groups())
+        try:
+            return date(ano, mes, dia)
+        except ValueError:
+            pass
+
     return None
 

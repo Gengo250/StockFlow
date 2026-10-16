@@ -229,8 +229,86 @@ def test_filtro_sem_resultado_mostra_mensagem_adequada(qapp, catalogo):
     page.set_movements(movs)
 
     # Filtra por espécie SAIDA quando só há ENTRADA
-    page.filtro_especie_combo.setCurrentIndex(page.filtro_especie_combo.findData(MovementKind.SAIDA.value))
+    page.filtro_especie_combo.setCurrentIndex(page.filtro_especie_combo.findData(MovementKind.SAIDA))
 
     assert page.table.rowCount() == 0
     assert page.list_state_label.isVisibleTo(page)
     assert "corresponde aos filtros" in page.list_state_label.text()
+
+
+def test_filtro_especie_com_rotulo_real_da_aplicacao(qapp, catalogo):
+    """Garante que tanto 'Entrada' quanto 'Saída' (rótulos da tabela) filtram perfeitamente."""
+    movs = (
+        ("1", "PRD-001", "Teclado", "Entrada", 5, "Confirmada", "—", "Hoje, 10:00", "—", "—"),
+        ("2", "PRD-001", "Teclado", "Saída", 2, "Confirmada", "—", "Hoje, 11:00", "—", "—"),
+    )
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+    assert page.table.rowCount() == 2
+
+    # Filtra por Entrada
+    page.filtro_especie_combo.setCurrentIndex(page.filtro_especie_combo.findData(MovementKind.ENTRADA))
+    assert page.table.rowCount() == 1
+    assert page.table.item(0, 1).text() == "Entrada"
+
+    # Filtra por Saída
+    page.filtro_especie_combo.setCurrentIndex(page.filtro_especie_combo.findData(MovementKind.SAIDA))
+    assert page.table.rowCount() == 1
+    assert page.table.item(0, 1).text() == "Saída"
+
+
+def test_filtro_periodo_presets(qapp, catalogo):
+    """Testa os seletores rápidos de período: Hoje, Últimos 7 dias, etc."""
+    hoje = date.today()
+    ontem = hoje - timedelta(days=1)
+    antiga = hoje - timedelta(days=20)
+
+    movs = (
+        ("1", "PRD-001", "P1", "Entrada", 1, "Confirmada", "—", f"Hoje, 10:00", "—", "—"),
+        ("2", "PRD-001", "P1", "Entrada", 1, "Confirmada", "—", f"Ontem, 15:00", "—", "—"),
+        ("3", "PRD-001", "P1", "Entrada", 1, "Confirmada", "—", antiga.strftime("%d/%m/%Y"), "—", "—"),
+    )
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+    assert page.table.rowCount() == 3
+
+    # Preset Hoje
+    page.filtro_periodo_combo.setCurrentIndex(page.filtro_periodo_combo.findData("hoje"))
+    assert page.table.rowCount() == 1
+    assert "Hoje" in page.table.item(0, 5).text()
+
+    # Preset Últimos 7 dias
+    page.filtro_periodo_combo.setCurrentIndex(page.filtro_periodo_combo.findData("7d"))
+    assert page.table.rowCount() == 2
+
+
+def test_novas_movimentacoes_aparecem_com_filtros_ativos(qapp, request):
+    """Novas movimentações registradas na tela aparecem sob filtros ativos de Tipo e Período."""
+    from stockflow.presentation.windows.main_window import MainWindow
+    from stockflow.presentation.demo_accounts import conta_por_papel
+    from stockflow.domain.enums.user_role import UserRole
+
+    window = MainWindow(conta_por_papel(UserRole.ADMIN).session())
+    request.addfinalizer(window.close)
+    window.show_page("movimentacoes")
+    page = window.movimentacoes_page
+
+    # Aplica filtro de Tipo: Entrada
+    page.filtro_especie_combo.setCurrentIndex(page.filtro_especie_combo.findData(MovementKind.ENTRADA))
+    # Aplica filtro de Período: Hoje
+    page.filtro_periodo_combo.setCurrentIndex(page.filtro_periodo_combo.findData("hoje"))
+
+    linhas_antes = page.table.rowCount()
+
+    # Lança nova movimentação de Entrada
+    page.produto_combo.setCurrentIndex(1)
+    page.especie_combo.setCurrentIndex(page.especie_combo.findData(MovementKind.ENTRADA))
+    page.fornecedor_combo.setCurrentIndex(1)
+    page.quantidade_input.setValue(3)
+    page.registrar_button.click()
+
+    # A nova movimentação DEVE aparecer na tabela mesmo com os filtros ativos!
+    assert page.table.rowCount() == linhas_antes + 1
+    assert page.table.item(0, 1).text() == "Entrada"
+    assert "Hoje" in page.table.item(0, 5).text()
+
