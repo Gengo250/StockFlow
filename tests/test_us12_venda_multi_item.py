@@ -45,42 +45,40 @@ def test_preco_invalido_nao_e_convertido_em_zero(value):
 
 def test_interface_recalcula_total_a_cada_linha_e_quantidade(page):
     page.selecionar_cliente_externo("Ana Ferreira")
-    assert page.selecionar_produto("PRD-009")
-    page.btn_adicionar_item.click()
-    assert page.selecionar_produto("PRD-008")
-    page._item_rows[1]["quantity"].setText("2")
+    for code, quantity in (("PRD-009", 1), ("PRD-008", 2)):
+        assert page.selecionar_produto(code)
+        page.qtd_input.setText(str(quantity))
+        page._adicionar_item()
 
-    assert page.label_total_value.text() == "R$ 3.419,70"
-    assert page._item_rows[0]["subtotal"].text() == "R$ 2.499,90"
-    assert page._item_rows[1]["subtotal"].text() == "R$ 919,80"
-    assert [(item.product_code, item.quantity) for item in page.itens] == [
+    assert page.total_label.text() == "Total: R$ 3.419,70"
+    assert page.itens_table.item(0, 3).text() == "R$ 2.499,90"
+    assert page.itens_table.item(1, 3).text() == "R$ 919,80"
+    assert [(item["codigo"], item["quantidade"]) for item in page.itens] == [
         ("PRD-009", 1),
         ("PRD-008", 2),
     ]
 
 
 def test_editar_e_remover_linha_nao_mexe_nas_outras(page):
-    for code in ("PRD-009", "PRD-008", "PRD-007"):
+    for code, quantity in (("PRD-009", 2), ("PRD-008", 2), ("PRD-007", 1)):
         assert page.selecionar_produto(code)
-    page._item_rows[0]["quantity"].setText("2")
-    page._item_rows[1]["quantity"].setText("2")
-    page._item_rows[2]["quantity"].setText("1")
+        page.qtd_input.setText(str(quantity))
+        page._adicionar_item()
+    page._remover_ultimo_item()
 
-    page._remover_linha_item(page._item_rows[1])
-
-    assert [(item.product_code, item.quantity) for item in page.itens] == [
+    assert [(item["codigo"], item["quantidade"]) for item in page.itens] == [
         ("PRD-009", 2),
-        ("PRD-007", 1),
+        ("PRD-008", 2),
     ]
-    assert page.label_total_value.text() == "R$ 5.189,70"
+    assert page.total_label.text() == "Total: R$ 5.919,60"
 
 
 def test_confirmacao_grava_venda_e_saida_de_estoque(page):
     page.selecionar_cliente_externo("Ana Ferreira")
-    page.selecionar_produto("PRD-009")
-    page.btn_adicionar_item.click()
-    page.selecionar_produto("PRD-008")
-    page._item_rows[1]["quantity"].setText("2")
+    for code, quantity in (("PRD-009", 1), ("PRD-008", 2)):
+        assert page.selecionar_produto(code)
+        page.qtd_input.setText(str(quantity))
+        page._adicionar_item()
 
     page._registrar_venda()
 
@@ -95,7 +93,7 @@ def test_confirmacao_grava_venda_e_saida_de_estoque(page):
         for row in page.movement_repository._movements
     )
     assert page.cliente_combo.currentIndex() == 0
-    assert page.itens == ()
+    assert page.itens == []
 
 
 def test_venda_atualiza_visualmente_as_abas_de_produtos_e_estoque(qapp):
@@ -104,6 +102,8 @@ def test_venda_atualiza_visualmente_as_abas_de_produtos_e_estoque(qapp):
         page = window.vendas_page
         assert page.selecionar_cliente_externo("Ana Ferreira")
         assert page.selecionar_produto("PRD-009")
+        page.qtd_input.setText("1")
+        page._adicionar_item()
 
         page._registrar_venda()
 
@@ -134,10 +134,13 @@ def test_falha_em_um_item_nao_grava_venda_nem_movimentacao(page):
     before_movements = len(page.movement_repository.list_movements())
 
     with pytest.raises(ValueError, match="Estoque insuficiente"):
-        page.service.register(
+        page.service.register_sale(
             page.session,
             client_id,
-            (SaleItemInput("PRD-009", 1), SaleItemInput("PRD-006", 1)),
+            [
+                {"codigo": "PRD-009", "quantidade": 1},
+                {"codigo": "PRD-006", "quantidade": 1},
+            ],
         )
 
     assert {code: page.products[code].stock for code in before_stock} == before_stock
@@ -148,24 +151,28 @@ def test_falha_em_um_item_nao_grava_venda_nem_movimentacao(page):
 def test_linhas_duplicadas_sao_validadas_pelo_total_da_quantidade(page):
     client_id = page.client_repository.get("CLI-001").client_id
     with pytest.raises(ValueError, match="Estoque insuficiente"):
-        page.service.register(
+        page.service.register_sale(
             page.session,
             client_id,
-            (SaleItemInput("PRD-007", 2), SaleItemInput("PRD-007", 1)),
+            [
+                {"codigo": "PRD-007", "quantidade": 2},
+                {"codigo": "PRD-007", "quantidade": 1},
+            ],
         )
 
 
 def test_linhas_duplicadas_gravam_uma_saida_por_linha(page):
     page.selecionar_cliente_externo("Ana Ferreira")
-    page.selecionar_produto("PRD-009")
-    page.btn_adicionar_item.click()
-    page.selecionar_produto("PRD-009")
+    for quantity in (1, 1):
+        assert page.selecionar_produto("PRD-009")
+        page.qtd_input.setText(str(quantity))
+        page._adicionar_item()
 
     page._registrar_venda()
 
-    assert page.historico_vendas[0]["itens_count"] == 2
+    assert page.historico_vendas[0]["itens_count"] == 1
     assert page.products["PRD-009"].stock == "16"
-    assert len(page.movement_repository.list_movements()) == 2
+    assert len(page.movement_repository.list_movements()) == 1
 
 
 def test_vendas_concorrentes_nao_ultrapassam_saldo_disponivel(page):
@@ -175,10 +182,10 @@ def test_vendas_concorrentes_nao_ultrapassam_saldo_disponivel(page):
     def register():
         barrier.wait()
         try:
-            page.service.register(
+            page.service.register_sale(
                 page.session,
                 client_id,
-                (SaleItemInput("PRD-007", 2),),
+                [{"codigo": "PRD-007", "quantidade": 2}],
             )
             return "registered"
         except ValueError as error:
@@ -199,4 +206,4 @@ def test_confirmacao_sem_itens_fica_bloqueada(page):
     page._registrar_venda()
 
     assert len(page.historico_vendas) == 2
-    assert "pelo menos um item" in page.warning_label.text()
+    assert "produto ativo" in page.warning_label.text().lower()

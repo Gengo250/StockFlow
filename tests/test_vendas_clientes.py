@@ -13,8 +13,10 @@ PRODUTO_ATIVO = "PRD-009"
 
 
 def produto_valido(page):
-    """Completa o campo que a US02 tornou obrigatório na venda nova."""
+    """Inclui um produto ativo no carrinho da venda."""
     assert page.selecionar_produto(PRODUTO_ATIVO) is True
+    page.qtd_input.setText("1")
+    page._adicionar_item()
 
 
 def itens_do_combo(page):
@@ -100,7 +102,7 @@ def test_venda_sem_item_e_bloqueada(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
     vendas_page._registrar_venda()
     assert len(vendas_page.historico_vendas) == 2
-    assert "pelo menos um item" in vendas_page.warning_label.text()
+    assert "produto ativo" in vendas_page.warning_label.text().lower()
 
 
 def test_venda_valida_entra_no_historico_com_o_cliente(vendas_page):
@@ -119,7 +121,7 @@ def test_formulario_e_limpo_apos_a_venda(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
     produto_valido(vendas_page)
     vendas_page._registrar_venda()
-    assert vendas_page.label_total_value.text() == "R$ 0,00"
+    assert vendas_page.total_label.text() == ""
     assert vendas_page.produto_combo.currentIndex() == 0
     assert vendas_page.cliente_combo.currentIndex() == 0
     assert vendas_page.warning_label.text() == ""

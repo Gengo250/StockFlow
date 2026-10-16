@@ -27,7 +27,9 @@ ALTER TABLE public.stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_items      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sales_log       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.role_change_log ENABLE ROW LEVEL SECURITY;
 
 -- register não tem coluna de empresa (tables/02_cash_register.sql: "Caixa.
 -- Independente das demais tabelas."), então não há como escopar por tenant.
@@ -63,9 +65,16 @@ GRANT SELECT ON public.company,
                 public.suppliers,
                 public.sales,
                 public.sale_items,
+                public.sales_log,
+                public.role_change_log,
                 public.vw_stock_situation,
                 public.vw_stock_alerts
   TO app_backend, authenticated;
+
+-- SELECT, e só. O log de permissões (H14) é escrito exclusivamente pelo
+-- trigger `trg_company_users_log_role`, que é SECURITY DEFINER e alcança a
+-- tabela como dono. Dar INSERT/UPDATE/DELETE aqui permitiria ao sistema
+-- auditado reescrever a própria auditoria.
 
 -- ----------------------------------------------------------------- policies
 
@@ -76,8 +85,10 @@ DROP POLICY IF EXISTS product_stock_select ON public.product_stock;
 DROP POLICY IF EXISTS stock_movements_select ON public.stock_movements;
 DROP POLICY IF EXISTS clients_select          ON public.clients;
 DROP POLICY IF EXISTS sales_select            ON public.sales;
-DROP POLICY IF EXISTS sale_items_select       ON public.sale_items;
+DROP POLICY IF EXISTS sale_items_select        ON public.sale_items;
+DROP POLICY IF EXISTS sales_log_select         ON public.sales_log;
 DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
+DROP POLICY IF EXISTS role_change_log_select  ON public.role_change_log;
 
 -- Policy é por role: o GRANT acima deixa `authenticated` chegar à tabela, mas
 -- sem aparecer no TO da policy ela veria zero linha. O predicado é o MESMO
@@ -107,13 +118,27 @@ CREATE POLICY sales_select ON public.sales
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
 
+-- sale_items e sales_log repetem company_id pela mesma razão de
+-- stock_movements: escopar por coluna própria evita entrar em `sales` a cada
+-- linha lida do histórico de vendas.
 CREATE POLICY sale_items_select ON public.sale_items
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_is_member(company_id));
+
+CREATE POLICY sales_log_select ON public.sales_log
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
 
 CREATE POLICY suppliers_select ON public.suppliers
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_has_role(company_id, ARRAY['ADMIN','STOCK']::public.user_role[]));
+
+-- Quem lê a auditoria de permissões é só o ADMIN da própria empresa — a
+-- mesma alçada de `fn_list_company_users`, porque o log diz exatamente quem
+-- recebeu qual acesso e quando.
+CREATE POLICY role_change_log_select ON public.role_change_log
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_has_role(company_id, ARRAY['ADMIN']::public.user_role[]));
 
 CREATE POLICY product_stock_select ON public.product_stock
   FOR SELECT TO app_backend, authenticated
@@ -161,6 +186,9 @@ DECLARE
     'fn_confirmed_balance',
     'fn_list_company_clients', 'fn_create_client', 'fn_update_client',
     'fn_set_client_active', 'fn_register_sale',
+    -- Venda com vários itens, desconto e forma de pagamento (US10) e edição
+    -- de estoque por código de barras (US09).
+    'fn_create_complete_sale', 'fn_edit_product_stock',
     'fn_list_company_suppliers', 'fn_create_supplier', 'fn_update_supplier',
     'fn_set_supplier_active', 'fn_set_product_supplier',
     'fn_register_supplier_movement', 'fn_save_product', 'fn_save_company_member'

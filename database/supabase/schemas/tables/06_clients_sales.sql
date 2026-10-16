@@ -77,6 +77,9 @@ CREATE TABLE public.clients (
                         length(regexp_replace(phone, '\D', '', 'g')) IN (10, 11))),
     notes        text NOT NULL DEFAULT '',
     active       boolean NOT NULL DEFAULT true,
+    -- Autor do cadastro (H14), por fn_current_user_id(). Mesma ausência de FK
+    -- de sales.created_by, logo abaixo.
+    created_by   uuid,
     created_on   timestamptz NOT NULL DEFAULT now(),
     updated_on   timestamptz NOT NULL DEFAULT now(),
     CHECK (document IS NULL OR
@@ -93,44 +96,96 @@ CREATE UNIQUE INDEX uq_clients_company_document
 CREATE INDEX idx_clients_company_name
     ON public.clients (company_id, lower(name));
 
+-- ------------------------------------------------------------------ vendas
+--
+-- Venda é CABEÇALHO + ITENS desde a US10: uma venda pode levar vários
+-- produtos, e o preço/nome/código de cada item é congelado na linha do item.
+-- Antes disso `sales` carregava um único produto em colunas próprias, o que
+-- obrigava a abrir uma venda por produto e perdia o vínculo entre os itens da
+-- mesma compra.
+--
+-- O snapshot continua sendo regra: `client_name` no cabeçalho e
+-- `product_name`/`product_code` no item sobrevivem à renomeação do cliente e
+-- à exclusão do produto. É por isso que a FK de produto é ON DELETE SET NULL
+-- enquanto a de cliente é RESTRICT — cliente com venda não some; produto sim,
+-- e a venda guarda o que foi vendido.
+
+CREATE TYPE public.sale_status AS ENUM ('PENDENTE', 'CONCLUIDA', 'CANCELADA');
+
+-- Segue a nomenclatura de movement_kind/movement_status: rótulo em português
+-- no banco, como o resto do domínio desta árvore.
+CREATE TYPE public.payment_method AS ENUM (
+    'DINHEIRO', 'DEBITO', 'CREDITO', 'PIX', 'VALE', 'OUTRO'
+);
+
 CREATE TABLE public.sales (
     id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id       uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
     client_id        uuid NOT NULL,
-    product_id       uuid,
     client_name      text NOT NULL,
-    product_name     text NOT NULL,
-    product_code     text NOT NULL,
+    payment_method   public.payment_method NOT NULL DEFAULT 'DINHEIRO',
+    -- Desconto do cabeçalho, já abatido em `total`. Guardado à parte porque a
+    -- soma dos subtotais dos itens menos o desconto é o que reconcilia o
+    -- total; sem a coluna não há como auditar a diferença.
+    discount         numeric(10,2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
     total            numeric(10,2) NOT NULL CHECK (total >= 0),
+    -- Nasce PENDENTE: montar o carrinho não é fechar a venda. A baixa de
+    -- estoque acontece na transição para CONCLUIDA (triggers/06).
+    status           public.sale_status NOT NULL DEFAULT 'PENDENTE',
+    -- Autor da venda (H14), por fn_current_user_id(). Sem FK, como
+    -- clients.created_by: a autoria precisa sobreviver à remoção da conta.
     created_by       uuid,
     created_on       timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (company_id, client_id)
         REFERENCES public.clients (company_id, id) ON DELETE RESTRICT,
-    FOREIGN KEY (product_id)
-        REFERENCES public.products (id) ON DELETE SET NULL
+    -- Alvo da FK composta de sale_items, que garante que item e venda
+    -- pertencem à mesma empresa.
+    UNIQUE (company_id, id)
 );
-ALTER TABLE public.sales
-    ADD CONSTRAINT uq_sales_company_id UNIQUE (company_id, id);
 CREATE INDEX idx_sales_company_created
     ON public.sales (company_id, created_on DESC);
 
 CREATE TABLE public.sale_items (
-    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id   uuid NOT NULL,
-    sale_id      uuid NOT NULL,
-    product_id   uuid,
-    product_code text NOT NULL,
-    product_name text NOT NULL,
-    line_number  integer NOT NULL CHECK (line_number > 0),
-    quantity     integer NOT NULL CHECK (quantity > 0),
-    unit_price   numeric(10,2) NOT NULL CHECK (unit_price >= 0),
-    subtotal     numeric(10,2) NOT NULL CHECK (subtotal >= 0),
-    created_on   timestamptz NOT NULL DEFAULT now(),
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- Redundante com sales.company_id, e proposital: a policy de RLS escopa
+    -- por esta coluna sem entrar em `sales` a cada linha, como já acontece em
+    -- stock_movements.
+    company_id    uuid NOT NULL,
+    sale_id       uuid NOT NULL,
+    product_id    uuid,
+    product_name  text NOT NULL,
+    product_code  text NOT NULL,
+    -- integer, como stock_movements.quantity: o item vira movimentação de
+    -- saída na conclusão da venda, e quantidade fracionária ali seria
+    -- truncada silenciosamente.
+    quantity      integer NOT NULL CHECK (quantity > 0),
+    unit_price    numeric(10,2) NOT NULL CHECK (unit_price >= 0),
+    subtotal      numeric(10,2) NOT NULL
+                  GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    created_on    timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (company_id, sale_id)
         REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
     FOREIGN KEY (product_id)
-        REFERENCES public.products (id) ON DELETE SET NULL,
-    UNIQUE (sale_id, line_number)
+        REFERENCES public.products (id) ON DELETE SET NULL
 );
-CREATE INDEX idx_sale_items_sale_created
-    ON public.sale_items (sale_id, line_number);
+CREATE INDEX idx_sale_items_sale ON public.sale_items (sale_id);
+CREATE INDEX idx_sale_items_company ON public.sale_items (company_id);
+
+-- Carimbo de conclusão. `sales.status` diz em que estado a venda está AGORA;
+-- esta tabela diz quando e por quem ela foi fechada, e sobrevive a uma
+-- reabertura ou cancelamento posterior.
+CREATE TABLE public.sales_log (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id  uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
+    sale_id     uuid NOT NULL REFERENCES public.sales(id) ON DELETE CASCADE,
+    created_by  uuid,
+    logged_on   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_sales_log_sale ON public.sales_log (sale_id);
+
+-- Liga a movimentação de saída à venda que a gerou. Fica aqui, e não em
+-- tables/05_movements.sql, porque `sales` só existe a partir deste arquivo na
+-- ordem de schema_paths.
+ALTER TABLE public.stock_movements
+    ADD COLUMN sale_id uuid REFERENCES public.sales(id) ON DELETE SET NULL;
+CREATE INDEX idx_stock_movements_sale ON public.stock_movements (sale_id);

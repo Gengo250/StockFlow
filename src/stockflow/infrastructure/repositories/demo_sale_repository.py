@@ -6,7 +6,10 @@ from uuid import uuid4
 from stockflow.domain.stock_level import derive_stock_status, to_int
 
 
-def sale_row(sale_id, client_name, product_codes, product_names, total, created_on):
+def sale_row(
+    sale_id, client_name, product_codes, product_names, total, created_on,
+    item_count=None,
+):
     if isinstance(product_codes, str):
         product_codes = [part.strip() for part in product_codes.split(",") if part.strip()]
     if isinstance(product_names, str):
@@ -24,8 +27,28 @@ def sale_row(sale_id, client_name, product_codes, product_names, total, created_
         "valor": f"R$ {formatted}",
         "data": str(created_on),
         "total": str(amount),
-        "itens_count": len(product_codes),
+        "itens_count": len(product_codes) if item_count is None else item_count,
     }
+
+
+def resumo_dos_itens(itens):
+    """Reduz os itens de uma venda ao par (código, descrição) da listagem.
+
+    O histórico tem uma linha por VENDA, não por item, e a coluna "Produto"
+    tem largura de nome de produto. Com um item só a linha continua idêntica
+    ao que a tela mostrava quando venda era sinônimo de produto; com vários,
+    o código perde sentido e sai de cena, porque não existe "o" código de uma
+    venda de três produtos.
+    """
+    if not itens:
+        return "", "—"
+    if len(itens) == 1:
+        item = itens[0]
+        nome = item["product_name"]
+        if int(item.get("quantity", 1)) > 1:
+            nome = f"{int(item['quantity'])}x {nome}"
+        return item["product_code"], nome
+    return "", f"{len(itens)} itens"
 
 
 class DemoSaleRepository:
@@ -46,11 +69,38 @@ class DemoSaleRepository:
         with self._lock:
             return list(self.rows)
 
-    def register_multiple(self, client, items: tuple, total: Decimal) -> dict:
+    def register(self, client, product, total):
+        from stockflow.application.dto.sale_item import SaleItemInput
+
+        return self.register_multiple(
+            client, (SaleItemInput(product.code, 1),), total
+        )
+
+    def register_items(self, client, itens, payment_method, discount, total):
+        from stockflow.application.dto.sale_item import SaleItemInput
+
+        items = tuple(
+            SaleItemInput(item["product"].code, item["quantity"])
+            for item in itens
+        )
+        return self.register_multiple(
+            client, items, total, payment_method, discount
+        )
+
+    def register_multiple(
+        self,
+        client,
+        items: tuple,
+        total: Decimal,
+        payment_method="DINHEIRO",
+        discount=Decimal("0"),
+    ) -> dict:
         inventory = self._products
         movements = self._movement_repository
         with self._lock:
-            touched_codes = {item.product_code for item in items}
+            touched_codes = {
+                item.product_code for item in items if item.product_code in inventory
+            }
             snapshot_products = {
                 code: inventory[code] for code in touched_codes
             }
@@ -61,16 +111,30 @@ class DemoSaleRepository:
             try:
                 if movements is not None:
                     movements.register_sale(items)
-                else:
+                elif inventory:
                     self._apply_stock(items, inventory)
+                summary = [
+                    {
+                        "product_code": item.product_code,
+                        "product_name": inventory[item.product_code].name
+                        if item.product_code in inventory
+                        else item.product_code,
+                        "quantity": item.quantity,
+                    }
+                    for item in items
+                ]
+                code, description = resumo_dos_itens(summary)
                 row = sale_row(
                     uuid4(),
                     client.name,
-                    [item.product_code for item in items],
-                    [inventory[item.product_code].name for item in items],
+                    code,
+                    description,
                     total,
                     datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    item_count=len(items),
                 )
+                row["payment_method"] = payment_method
+                row["discount"] = str(discount)
                 self.rows.insert(0, row)
                 return row
             except Exception:

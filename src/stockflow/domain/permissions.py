@@ -1,40 +1,136 @@
-"""Políticas de permissão da aplicação, espelhando as funções do banco.
+"""Matriz de perfis e permissões da aplicação (H14).
 
-Cada política abaixo nomeia a função SQL que é a sua fonte da verdade.
-Qualquer divergência aqui faz a UI liberar uma ação que o banco recusa — ou,
-pior, esconder da aplicação uma regra que só o banco conhece.
+`PERMISSION_MATRIX` é a fonte única: cada área declara quem a VÊ e quem GRAVA
+nela, e nomeia a função ou policy SQL que decide a mesma coisa no banco. Antes
+dela, a verdade de permissão vivia em seis lugares — os `frozenset` deste
+módulo, o `RESTRICTED_PAGES` da `MainWindow`, os toggles manuais de
+`apply_session`, as chamadas `sidebar.set_item_visible`, cada função SQL e cada
+policy — e nada forçava os seis a concordar.
 
-- Produto: `database/code/procedures/05_catalog.sql`, que exige
-  `fn_has_role(company_id, ARRAY['ADMIN','STOCK'])` para criar/editar.
-- Usuário: `database/code/procedures/03_users.sql`, que exige
-  `fn_is_admin(...)` em criar, editar, ativar/desativar e LISTAR.
-- Movimentação: `database/code/procedures/04a_movements.sql`, que exige
-  `fn_has_role(company_id, ARRAY['ADMIN','STOCK'])` em registrar, confirmar
-  e cancelar.
+Os dois níveis existem porque o banco já os distingue: `suppliers_select` exige
+ADMIN/STOCK para LER fornecedores, enquanto `clients_select` usa `fn_is_member`
+e deixa os três papéis lerem clientes. Uma matriz de um nível só teria que
+escolher entre mentir sobre a leitura ou mentir sobre a escrita.
 
-As duas regras NÃO são a mesma: o estoquista escreve no catálogo, mas não
-gerencia usuários. Reaproveitar uma lista no lugar da outra é o erro que os
-testes de política existem para pegar.
+As chaves são as mesmas de `MENU_ITEMS`/`SYSTEM_ITEMS` em
+`presentation/widgets/sidebar.py`, para que navegação e menu consultem a matriz
+sem tabela de tradução no meio — tradução é onde as duas voltariam a divergir.
+
+`tests/unit/test_permission_matrix.py` compara esta matriz com o SQL de
+`database/code/` e falha quando os dois discordam.
 """
+
+from dataclasses import dataclass
 
 from stockflow.domain.enums.user_role import UserRole
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 
-PRODUCT_WRITE_ROLES: frozenset[UserRole] = frozenset({UserRole.ADMIN, UserRole.STOCK})
-
-# `fn_is_admin` não tem lista: ou o papel na empresa é ADMIN, ou a função
-# levanta `insufficient_privilege`. Esta é a tradução literal disso.
-USER_MANAGEMENT_ROLES: frozenset[UserRole] = frozenset({UserRole.ADMIN})
-
-# Mesma lista de produto, e intencionalmente uma constante SEPARADA. As duas
-# coincidem hoje porque movimentar estoque e editar catálogo são a mesma
-# alçada; se um dia o vendedor puder lançar saída de venda, só esta muda.
-# Reaproveitar `PRODUCT_WRITE_ROLES` faria essa mudança vazar para o catálogo.
-MOVEMENT_ROLES: frozenset[UserRole] = frozenset({UserRole.ADMIN, UserRole.STOCK})
-
-SUPPLIER_MANAGEMENT_ROLES: frozenset[UserRole] = frozenset(
-    {UserRole.ADMIN, UserRole.STOCK}
+#: Os três papéis. Leitura liberada para todos continua sendo uma decisão
+#: explícita — por isso o nome, e não um `None` que significasse "sem regra".
+TODOS_OS_PAPEIS: frozenset[UserRole] = frozenset(
+    {UserRole.ADMIN, UserRole.STOCK, UserRole.SELLER}
 )
+
+
+@dataclass(frozen=True)
+class Area:
+    """Uma área do sistema e os papéis que a veem e que gravam nela.
+
+    `fonte_ver` e `fonte_gravar` não são comentário: o teste de espelhamento
+    usa esses nomes para achar a regra correspondente em `database/code/` e
+    comparar os papéis. Fonte errada aqui é teste verde sobre regra errada.
+    """
+
+    ver: frozenset[UserRole]
+    gravar: frozenset[UserRole]
+    fonte_ver: str
+    fonte_gravar: str
+
+
+_ADMIN = frozenset({UserRole.ADMIN})
+_ADMIN_STOCK = frozenset({UserRole.ADMIN, UserRole.STOCK})
+_ADMIN_SELLER = frozenset({UserRole.ADMIN, UserRole.SELLER})
+_NINGUEM: frozenset[UserRole] = frozenset()
+
+
+PERMISSION_MATRIX: dict[str, Area] = {
+    # Catálogo: o estoquista escreve, o vendedor só olha.
+    "estoque": Area(
+        ver=TODOS_OS_PAPEIS,
+        gravar=_ADMIN_STOCK,
+        fonte_ver="products_select",
+        fonte_gravar="fn_update_products",
+    ),
+    "produtos": Area(
+        ver=TODOS_OS_PAPEIS,
+        gravar=_ADMIN_STOCK,
+        fonte_ver="products_select",
+        fonte_gravar="fn_create_products",
+    ),
+    # Movimentação altera saldo, e saldo decide reposição e venda. A policy
+    # `stock_movements_select` usa `fn_is_member` e deixaria o vendedor LER o
+    # histórico; a aplicação é deliberadamente mais estrita, porque
+    # `fn_register_movement` recusa esse papel e uma tela que só lê um
+    # histórico que o usuário não pode movimentar não tem uso. A divergência é
+    # declarada como exceção nomeada no teste de espelhamento.
+    "movimentacoes": Area(
+        ver=_ADMIN_STOCK,
+        gravar=_ADMIN_STOCK,
+        fonte_ver="fn_register_movement",
+        fonte_gravar="fn_register_movement",
+    ),
+    # Fornecedor é o único caso em que o banco já restringe a LEITURA:
+    # `suppliers_select` e `fn_list_company_suppliers` exigem ADMIN/STOCK.
+    "fornecedores": Area(
+        ver=_ADMIN_STOCK,
+        gravar=_ADMIN_STOCK,
+        fonte_ver="suppliers_select",
+        fonte_gravar="fn_create_supplier",
+    ),
+    # Clientes e vendas invertem o par: quem vende escreve, quem cuida do
+    # estoque continua lendo — `clients_select` e `sales_select` usam
+    # `fn_is_member`.
+    "clientes": Area(
+        ver=TODOS_OS_PAPEIS,
+        gravar=_ADMIN_SELLER,
+        fonte_ver="clients_select",
+        fonte_gravar="fn_create_client",
+    ),
+    "vendas": Area(
+        ver=TODOS_OS_PAPEIS,
+        gravar=_ADMIN_SELLER,
+        fonte_ver="sales_select",
+        fonte_gravar="fn_register_sale",
+    ),
+    # A tela inteira é do ADMIN, não só os seus botões: `fn_list_company_users`
+    # recusa o não-admin, então nem a listagem existe para os outros papéis.
+    "usuarios": Area(
+        ver=_ADMIN,
+        gravar=_ADMIN,
+        fonte_ver="fn_list_company_users",
+        fonte_gravar="fn_save_company_member",
+    ),
+    # Áreas sem gate. `gravar` vazio significa que nada ali grava pela tela —
+    # não que a gravação seja livre.
+    "dashboard": Area(
+        ver=TODOS_OS_PAPEIS,
+        gravar=_NINGUEM,
+        fonte_ver="fn_stock_panel",
+        fonte_gravar="",
+    ),
+    "relatorios": Area(
+        ver=TODOS_OS_PAPEIS,
+        gravar=_NINGUEM,
+        fonte_ver="fn_company_stock_state",
+        fonte_gravar="",
+    ),
+    "configuracoes": Area(
+        ver=TODOS_OS_PAPEIS,
+        gravar=_NINGUEM,
+        fonte_ver="",
+        fonte_gravar="",
+    ),
+}
 
 
 def _papel_de(role_or_session) -> UserRole | None:
@@ -57,9 +153,68 @@ def _papel_de(role_or_session) -> UserRole | None:
         return None
 
 
+def _area(nome: str) -> Area:
+    """Área desconhecida nega tudo, em vez de liberar por omissão.
+
+    Chave errada é erro de programação, mas o custo dos dois modos de falhar
+    não é o mesmo: liberar por omissão entrega uma tela; negar por omissão
+    mostra uma recusa que aparece no primeiro teste manual.
+    """
+    return PERMISSION_MATRIX.get(nome, Area(_NINGUEM, _NINGUEM, "", ""))
+
+
+def pode_ver(role_or_session, area: str) -> bool:
+    """Quem pode ABRIR a área."""
+    return _papel_de(role_or_session) in _area(area).ver
+
+
+def pode_gravar(role_or_session, area: str) -> bool:
+    """Quem pode GRAVAR na área."""
+    return _papel_de(role_or_session) in _area(area).gravar
+
+
+def exigir_ver(session, area: str, action: str) -> None:
+    """Levanta `PermissionDeniedError` se a sessão não puder abrir a área."""
+    if not pode_ver(session, area):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
+
+
+def exigir_gravar(session, area: str, action: str) -> None:
+    """Levanta `PermissionDeniedError` se a sessão não puder gravar na área."""
+    if not pode_gravar(session, area):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
+
+
+# --------------------------------------------------------------------------
+# API por área, derivada da matriz.
+#
+# Continua existindo porque é o que os serviços e as telas já chamam, e porque
+# `ensure_can_manage_products(session)` lê melhor no meio de um serviço do que
+# `exigir_gravar(session, "produtos", "...")`. O que mudou é que estas funções
+# deixaram de ser a fonte: hoje todas perguntam à matriz.
+# --------------------------------------------------------------------------
+
+PRODUCT_WRITE_ROLES: frozenset[UserRole] = PERMISSION_MATRIX["produtos"].gravar
+
+# `fn_is_admin` não tem lista: ou o papel na empresa é ADMIN, ou a função
+# levanta `insufficient_privilege`. Esta é a tradução literal disso.
+USER_MANAGEMENT_ROLES: frozenset[UserRole] = PERMISSION_MATRIX["usuarios"].gravar
+
+# Mesma lista de produto, e intencionalmente uma ENTRADA SEPARADA na matriz.
+# As duas coincidem hoje porque movimentar estoque e editar catálogo são a
+# mesma alçada; se um dia o vendedor puder lançar saída de venda, só a entrada
+# de `movimentacoes` muda. Apontar as duas para a mesma área faria essa
+# mudança vazar para o catálogo.
+MOVEMENT_ROLES: frozenset[UserRole] = PERMISSION_MATRIX["movimentacoes"].gravar
+
+SUPPLIER_MANAGEMENT_ROLES: frozenset[UserRole] = PERMISSION_MATRIX["fornecedores"].gravar
+
+CLIENT_WRITE_ROLES: frozenset[UserRole] = PERMISSION_MATRIX["clientes"].gravar
+
+
 def can_manage_products(role_or_session) -> bool:
     """Quem pode cadastrar/editar produto: espelha `fn_has_role`."""
-    return _papel_de(role_or_session) in PRODUCT_WRITE_ROLES
+    return pode_gravar(role_or_session, "produtos")
 
 
 def ensure_can_manage_products(session, action: str = "gerenciar produtos") -> None:
@@ -69,8 +224,7 @@ def ensure_can_manage_products(session, action: str = "gerenciar produtos") -> N
     autenticado, e falhar aberto aqui deixaria a tela de estoque gravável
     para qualquer um.
     """
-    if not can_manage_products(session):
-        raise PermissionDeniedError(action, getattr(session, "role", None))
+    exigir_gravar(session, "produtos", action)
 
 
 def can_manage_users(role_or_session) -> bool:
@@ -79,7 +233,7 @@ def can_manage_users(role_or_session) -> bool:
     Inclui LISTAR. `fn_list_company_users` recusa o não-admin, então a tela
     inteira de usuários é privilégio de ADMIN — e não só os seus botões.
     """
-    return _papel_de(role_or_session) in USER_MANAGEMENT_ROLES
+    return pode_gravar(role_or_session, "usuarios")
 
 
 def ensure_can_manage_users(session, action: str = "gerenciar usuários") -> None:
@@ -87,8 +241,7 @@ def ensure_can_manage_users(session, action: str = "gerenciar usuários") -> Non
 
     Mesma regra de falha fechada do caminho de produto: sem sessão, nega.
     """
-    if not can_manage_users(session):
-        raise PermissionDeniedError(action, getattr(session, "role", None))
+    exigir_gravar(session, "usuarios", action)
 
 
 def can_move_stock(role_or_session) -> bool:
@@ -97,7 +250,7 @@ def can_move_stock(role_or_session) -> bool:
     Espelha o `fn_has_role(p_company_id, ARRAY['ADMIN','STOCK'])` que as três
     funções de movimentação checam antes de qualquer gravação.
     """
-    return _papel_de(role_or_session) in MOVEMENT_ROLES
+    return pode_gravar(role_or_session, "movimentacoes")
 
 
 def ensure_can_move_stock(session, action: str = "movimentar o estoque") -> None:
@@ -106,33 +259,27 @@ def ensure_can_move_stock(session, action: str = "movimentar o estoque") -> None
     Mesma falha fechada dos demais caminhos: sem sessão, nega. Movimentação
     altera saldo, e saldo é o número que decide reposição e venda.
     """
-    if not can_move_stock(session):
-        raise PermissionDeniedError(action, getattr(session, "role", None))
+    exigir_gravar(session, "movimentacoes", action)
 
 
 def can_manage_suppliers(role_or_session) -> bool:
     """Quem pode consultar e manter fornecedores: ADMIN e STOCK."""
-    return _papel_de(role_or_session) in SUPPLIER_MANAGEMENT_ROLES
+    return pode_gravar(role_or_session, "fornecedores")
 
 
 def ensure_can_manage_suppliers(
     session, action: str = "gerenciar fornecedores"
 ) -> None:
     """Negação fechada para sessão ausente e papéis sem alçada."""
-    if not can_manage_suppliers(session):
-        raise PermissionDeniedError(action, getattr(session, "role", None))
-
-
-CLIENT_WRITE_ROLES = frozenset({UserRole.ADMIN, UserRole.SELLER})
+    exigir_gravar(session, "fornecedores", action)
 
 
 def can_manage_clients(role_or_session) -> bool:
-    return _papel_de(role_or_session) in CLIENT_WRITE_ROLES
+    return pode_gravar(role_or_session, "clientes")
 
 
 def ensure_can_manage_clients(session, action="gerenciar clientes") -> None:
-    if not can_manage_clients(session):
-        raise PermissionDeniedError(action, getattr(session, "role", None))
+    exigir_gravar(session, "clientes", action)
 
 
 def ensure_can_register_sales(session) -> None:
