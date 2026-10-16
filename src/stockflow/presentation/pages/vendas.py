@@ -33,6 +33,7 @@ from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.application.services.sale_service import (
     FORMAS_DE_PAGAMENTO,
+    SEM_ITENS,
     SaleService,
     parse_price,
     parse_quantity,
@@ -769,7 +770,7 @@ class VendasPage(QWidget):
         if escolhido and not self._adicionar_item():
             return
         if not self.itens:
-            self.warning_label.setText("Selecione um produto ativo válido.")
+            self.warning_label.setText(SEM_ITENS)
             return
         itens = [{"codigo": i["codigo"], "quantidade": i["quantidade"]} for i in self.itens]
         session, client_id = self.session, data["id"]

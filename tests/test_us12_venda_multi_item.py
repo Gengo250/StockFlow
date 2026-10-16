@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QLabel
 
 from stockflow.application.dto.sale_item import SaleItemInput
 from stockflow.application.services.sale_service import (
+    SEM_ITENS,
     calculate_total_from_items,
     parse_total,
 )
@@ -206,4 +207,7 @@ def test_confirmacao_sem_itens_fica_bloqueada(page):
     page._registrar_venda()
 
     assert len(page.historico_vendas) == 2
-    assert "produto ativo" in page.warning_label.text().lower()
+    # Carrinho vazio não é produto inválido: a recusa tem que dizer o que
+    # falta fazer. Comparar com a constante impede a redação de divergir de
+    # novo entre tela, serviço e teste.
+    assert page.warning_label.text() == SEM_ITENS

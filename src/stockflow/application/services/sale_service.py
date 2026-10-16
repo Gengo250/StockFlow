@@ -17,6 +17,12 @@ _MONEY_PATTERN = re.compile(
 # diz ao operador qual é a forma válida.
 FORMAS_DE_PAGAMENTO = ("DINHEIRO", "DEBITO", "CREDITO", "PIX", "VALE", "OUTRO")
 
+# A recusa do carrinho vazio nasce aqui e em nenhum outro lugar. Ela já existiu
+# em quatro redações ao mesmo tempo -- tela, serviço, banco e teste -- e a
+# suíte ficou vermelha porque duas delas se contradiziam. Carrinho vazio não é
+# produto inválido: a tela que importar esta constante aponta o campo certo.
+SEM_ITENS = "Adicione pelo menos um item à venda."
+
 
 def parse_total(value) -> Decimal:
     """Converte um preço brasileiro ou decimal para centavos exatos."""
@@ -102,7 +108,7 @@ class SaleService:
         ensure_can_register_sales(session)
 
         if not itens:
-            raise ValueError("Adicione ao menos um item à venda.")
+            raise ValueError(SEM_ITENS)
         if payment_method not in FORMAS_DE_PAGAMENTO:
             raise ValueError("Selecione uma forma de pagamento válida.")
         for item in itens:
@@ -133,7 +139,7 @@ class SaleService:
         ensure_can_register_sales(session)
 
         if not items:
-            raise ValueError("Adicione ao menos um item à venda.")
+            raise ValueError(SEM_ITENS)
         if payment_method not in FORMAS_DE_PAGAMENTO:
             raise ValueError("Selecione uma forma de pagamento válida.")
         client = self._cliente_ativo(client_id)

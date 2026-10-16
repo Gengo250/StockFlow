@@ -9,6 +9,8 @@ produto em si mora em `test_us02_validacao_produto_ativo.py`.
 
 import pytest
 
+from stockflow.application.services.sale_service import SEM_ITENS
+
 PRODUTO_ATIVO = "PRD-009"
 
 
@@ -102,7 +104,7 @@ def test_venda_sem_item_e_bloqueada(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
     vendas_page._registrar_venda()
     assert len(vendas_page.historico_vendas) == 2
-    assert "produto ativo" in vendas_page.warning_label.text().lower()
+    assert vendas_page.warning_label.text() == SEM_ITENS
 
 
 def test_venda_nao_exige_redigitar_o_preco_do_catalogo(vendas_page):
