@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from stockflow.application.services.movement_service import MovementService
 from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.permissions import (
     PERMISSION_MATRIX,
     TODOS_OS_PAPEIS,
@@ -177,12 +178,12 @@ class MainWindow(QMainWindow):
         # catálogo como ele estava quando a janela abriu.
         from stockflow.application.services.sale_service import SaleService
         self.client_repository = build_client_repository(self.session)
+        self.sale_repository = build_sale_repository(self.session, self.products)
         self.movement_repository = build_movement_repository(
             self.session, self.products, self.supplier_repository
         )
-        self.sale_repository = build_sale_repository(
-            self.session, self.products, self.movement_repository
-        )
+        if not using_supabase():
+            self.sale_repository.movements = self.movement_repository
         self.sale_service = SaleService(self.sale_repository, self.client_repository, self.product_repository)
         self.vendas_page = VendasPage(self.products, service=self.sale_service, session=self.session)
         self.clientes_page = ClientesPage(sales_page=self.vendas_page, repository=self.client_repository, session=self.session)
@@ -191,6 +192,8 @@ class MainWindow(QMainWindow):
         # Movimentações recebe o MESMO catálogo: a oferta de produtos tem que
         # acompanhar desativações feitas no Estoque, pela mesma razão da tela
         # de Vendas (US02).
+        if using_supabase():
+            self.vendas_page.execute = lambda *args: self.executar_em_segundo_plano(*args)
         self.movement_service = MovementService(
             self.movement_repository, self.supplier_repository, self.product_repository
         )
@@ -283,7 +286,9 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.register_requested.connect(self._registrar_movimentacao)
         self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
         self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
+        self.movimentacoes_page.adjust_requested.connect(self._aplicar_ajuste)
         self.suppliers_page.suppliers_changed.connect(self._refresh_supplier_options)
+        self.vendas_page.sale_registered.connect(self._venda_registrada)
 
         self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
         self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
@@ -374,6 +379,13 @@ class MainWindow(QMainWindow):
     # MOVIMENTAÇÕES
     # ======================================================
 
+    def _venda_registrada(self, venda):
+        """Venda concluída invalida saldo, alertas e histórico de movimentos."""
+        self._saldo_mudou()
+        # Vendedores não têm acesso à listagem de movimentações.
+        if pode_ver(self.session, "movimentacoes"):
+            self._recarregar_movimentacoes()
+
     def _recarregar_movimentacoes(self):
         """Recarrega o histórico. A permissão já foi checada na navegação."""
         try:
@@ -408,6 +420,37 @@ class MainWindow(QMainWindow):
         self._recarregar_movimentacoes()
         if dados.confirm:
             self._saldo_mudou()
+
+    def _aplicar_ajuste(self, dados):
+        """Ajuste manual: grava e reconsulta, porque o saldo mudou na hora.
+
+        Ao contrário de `_registrar_movimentacao`, não há caso em que o saldo
+        fique parado: ajuste nasce confirmado. Então `_saldo_mudou()` é
+        incondicional.
+        """
+        try:
+            self.movement_service.adjust(self.session, dados)
+        except PermissionDeniedError as erro:
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            return
+        except SaldoDesatualizadoError as erro:
+            # Recontagem, não falha: a mensagem já diz os dois saldos, e
+            # recarregar o catálogo faz o campo "Saldo atual" mostrar o
+            # número novo antes da próxima tentativa.
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            self._saldo_mudou()
+            return
+        except ValueError as erro:
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            return
+        except Exception as erro:
+            self.last_save_error = erro
+            QMessageBox.critical(self, "Não foi possível ajustar", str(erro))
+            return
+
+        self.movimentacoes_page.limpar_ajuste()
+        self._recarregar_movimentacoes()
+        self._saldo_mudou()
 
     def _confirmar_movimentacao(self, movement_id):
         if not self._executar_movimentacao(

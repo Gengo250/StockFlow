@@ -6,6 +6,18 @@ from stockflow.infrastructure.repositories.demo_sale_repository import (
 )
 
 
+def _receipt_row(receipt):
+    itens = receipt.get("sale_items") or []
+    codigo, descricao = resumo_dos_itens(itens)
+    row = sale_row(receipt["id"], receipt["client_name"], codigo, descricao,
+                   Decimal(str(receipt["total"])), receipt["created_on"],
+                   item_count=len(itens))
+    row.update(payment_method=receipt.get("payment_method"),
+               discount=str(receipt.get("discount", 0)),
+               status=receipt.get("status", "CONCLUIDA"), items=itens)
+    return row
+
+
 class SupabaseSaleRepository:
     def __init__(self, client, company_id):
         self._client, self._company_id = client, company_id
@@ -15,44 +27,16 @@ class SupabaseSaleRepository:
         return getattr(response, "data", None) or []
 
     def list_all(self):
-        sales = self._rows(
-            self._client.table("sales")
-            .select("id,client_name,total,created_on,status,payment_method,discount")
-            .eq("company_id", self._company_id)
-            .order("created_on", desc=True)
-            .execute()
-        )
-        if not sales:
-            return []
-        sale_ids = [row["id"] for row in sales]
-        item_rows = self._rows(
-            self._client.table("sale_items")
-            .select("sale_id,product_code,product_name,quantity,created_on")
-            .in_("sale_id", sale_ids)
-            .order("created_on")
-            .order("id")
-            .execute()
-        )
-        items_by_sale = {}
-        for item in item_rows:
-            items_by_sale.setdefault(item["sale_id"], []).append(item)
-
-        result = []
-        for sale in sales:
-            items = items_by_sale.get(sale["id"], [])
-            codes, description = resumo_dos_itens(items)
-            row = sale_row(
-                sale["id"], sale["client_name"], codes, description,
-                Decimal(str(sale["total"])), sale["created_on"],
-                item_count=len(items),
-            )
-            row.update({
-                "status": sale["status"],
-                "payment_method": sale["payment_method"],
-                "discount": str(sale["discount"]),
-            })
-            result.append(row)
-        return result
+        # Os produtos vendidos moram em `sale_items` desde a US10. O embed do
+        # PostgREST traz os itens junto com o cabeçalho: uma ida ao banco por
+        # listagem, e não uma por venda.
+        rows = (self._client.table("sales")
+                .select("id,client_name,total,created_on,payment_method,discount,status,"
+                        "sale_items(product_name,product_code,quantity,unit_price,subtotal)")
+                .eq("company_id", self._company_id).eq("status", "CONCLUIDA")
+                .order("created_on", desc=True)
+                .execute().data or [])
+        return [_receipt_row(row) for row in rows]
 
     def register(self, client, product, total):
         rows = self._rows(
@@ -87,21 +71,33 @@ class SupabaseSaleRepository:
             {"product_code": item.product_code, "quantity": item.quantity}
             for item in items
         ]
-        saved = self._client.rpc("fn_register_sale", {
+        receipt = self._client.rpc("fn_register_sale", {
             "p_company_id": self._company_id,
             "p_client_id": client.client_id,
             "p_items": payload,
             "p_payment_method": payment_method,
             "p_discount": str(discount),
         }).execute().data
-        if not isinstance(saved, dict) or not isinstance(saved.get("items"), list):
+        if not isinstance(receipt, dict) or not isinstance(receipt.get("items"), list):
             raise RuntimeError("O banco retornou um registro de venda inválido.")
-        codes, description = resumo_dos_itens(saved["items"])
-        return sale_row(
-            saved["id"], saved["cliente"], codes, description,
-            Decimal(str(saved["total"])), saved["created_on"],
-            item_count=len(saved["items"]),
+        items = receipt["items"]
+        codes, description = resumo_dos_itens(items)
+        row = sale_row(
+            receipt["id"],
+            receipt["cliente"],
+            codes,
+            description,
+            Decimal(str(receipt["total"])),
+            receipt["created_on"],
+            item_count=len(items),
         )
+        row.update(
+            payment_method=payment_method,
+            discount=str(discount),
+            status="CONCLUIDA",
+            items=items,
+        )
+        return row
 
     def register_items(self, client, itens, payment_method, discount, total):
         from stockflow.application.dto.sale_item import SaleItemInput

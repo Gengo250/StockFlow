@@ -20,18 +20,28 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from stockflow.domain.enums.adjustment_reason import AdjustmentReason
 from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.enums.movement_status import MovementStatus
+from stockflow.domain.exceptions.adjustment_errors import AjusteSemEfeitoError
 from stockflow.domain.product_status import selectable_products
+from stockflow.domain.stock_adjustment import calcular_ajuste
+from stockflow.domain.stock_level import to_int
 from stockflow.presentation.styles import inventory
 
 COLUMNS = ("Produto", "Espécie", "Quantidade", "Situação", "Observação",
-           "Quando", "Fornecedor", "Ações")
+           "Quando", "Fornecedor", "Motivo", "Ações")
 ACTIONS_COLUMN = len(COLUMNS) - 1
 
-# Índices da tupla que o repositório devolve:
-# (id, código, nome do produto, espécie, quantidade, situação, nota, quando)
-MOV_ID, MOV_CODE, MOV_NAME, MOV_KIND, MOV_QTY, MOV_STATUS, MOV_NOTE, MOV_WHEN = range(8)
+# Índices da tupla que o repositório devolve. DEZ posições, sempre — ausência
+# é travessão. Ver a nota em `movement_mapper.row_to_movement`.
+(MOV_ID, MOV_CODE, MOV_NAME, MOV_KIND, MOV_QTY, MOV_STATUS, MOV_NOTE,
+ MOV_WHEN, MOV_SUPPLIER, MOV_REASON) = range(10)
+
+# Aparência do aviso de recusa. Constante porque os DOIS cards têm o seu, e
+# duas folhas de estilo copiadas fariam a mesma recusa parecer mais grave num
+# formulário do que no outro.
+AVISO_QSS = "color: #EF4444; font-size: 12px; font-weight: 500;"
 
 STATUS_COLORS = {
     MovementStatus.CONFIRMADA.label: ("#0F7B4F", "#E4F7EF"),
@@ -51,6 +61,7 @@ class MovimentacoesPage(QWidget):
     register_requested = Signal(object)     # MovementInput
     confirm_requested = Signal(str)         # id da movimentação
     cancel_requested = Signal(str)
+    adjust_requested = Signal(object)       # AdjustmentInput
 
     def __init__(self, products=None):
         super().__init__()
@@ -71,6 +82,7 @@ class MovimentacoesPage(QWidget):
         layout.setSpacing(18)
         layout.addLayout(self._create_header())
         layout.addWidget(self._create_form())
+        layout.addWidget(self._create_adjustment_form())
         layout.addWidget(self._create_table(), 1)
 
         self.list_state_label = QLabel()
@@ -120,6 +132,8 @@ class MovimentacoesPage(QWidget):
         linha.setSpacing(10)
 
         self.produto_combo = QComboBox()
+        self.produto_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.produto_combo.setMinimumContentsLength(12)
         self.produto_combo.setFixedHeight(42)
         self.produto_combo.setAccessibleName("Produto da movimentação")
 
@@ -131,6 +145,8 @@ class MovimentacoesPage(QWidget):
         self.especie_combo.currentIndexChanged.connect(self._update_supplier_enabled)
 
         self.fornecedor_combo = QComboBox()
+        self.fornecedor_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.fornecedor_combo.setMinimumContentsLength(12)
         self.fornecedor_combo.setFixedHeight(42)
         self.fornecedor_combo.setAccessibleName("Fornecedor da entrada")
         self.fornecedor_combo.addItem("Selecione um fornecedor...", None)
@@ -163,16 +179,107 @@ class MovimentacoesPage(QWidget):
         linha.addWidget(self.especie_combo, 1)
         linha.addWidget(self.fornecedor_combo, 2)
         linha.addWidget(self.quantidade_input, 1)
-        linha.addWidget(self.nota_input, 3)
-        linha.addWidget(self.registrar_button, 1)
-        linha.addWidget(self.registrar_confirmar_button, 1)
+        fora.addLayout(linha)
+        acoes = QHBoxLayout()
+        acoes.setSpacing(10)
+        acoes.addWidget(self.nota_input, 1)
+        acoes.addWidget(self.registrar_button)
+        acoes.addWidget(self.registrar_confirmar_button)
+        fora.addLayout(acoes)
+
+        # Aviso DESTE card. O de ajuste tem o seu
+        # (`ajuste_warning_label`): dois formulários dividindo um label só
+        # faziam a recusa de um aparecer sobre o outro, e `limpar_ajuste()`
+        # apagava a recusa de uma movimentação que ninguém chegou a ler.
+        self.warning_label = QLabel("")
+        self.warning_label.setStyleSheet(AVISO_QSS)
+        fora.addWidget(self.warning_label)
+        return card
+
+    def _create_adjustment_form(self):
+        """Ajuste manual de inventário (H11).
+
+        Card separado do de entrada/saída porque a pergunta é outra: lá se
+        informa o que ENTROU ou SAIU, aqui se informa o que EXISTE. Misturar
+        os dois num formulário só faria o campo de quantidade significar
+        coisas diferentes conforme o modo.
+        """
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet(inventory.TABLE_CARD_QSS)
+        fora = QVBoxLayout(card)
+        fora.setContentsMargins(18, 16, 18, 16)
+        fora.setSpacing(10)
+
+        titulo = QLabel("Ajuste manual de inventário")
+        titulo.setStyleSheet(inventory.SUBTITLE_QSS)
+        fora.addWidget(titulo)
+
+        linha = QHBoxLayout()
+        linha.setSpacing(10)
+
+        self.ajuste_produto_combo = QComboBox()
+        self.ajuste_produto_combo.setSizeAdjustPolicy(
+            QComboBox.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.ajuste_produto_combo.setMinimumContentsLength(12)
+        self.ajuste_produto_combo.setFixedHeight(42)
+        self.ajuste_produto_combo.setAccessibleName("Produto do ajuste")
+        self.ajuste_produto_combo.currentIndexChanged.connect(self._atualizar_previa)
+
+        self.ajuste_saldo_label = QLabel("Saldo atual: —")
+        self.ajuste_saldo_label.setAccessibleName("Saldo atual do produto")
+
+        self.ajuste_contado_input = QSpinBox()
+        self.ajuste_contado_input.setRange(0, 999999)
+        self.ajuste_contado_input.setFixedHeight(42)
+        self.ajuste_contado_input.setAccessibleName("Saldo contado")
+        self.ajuste_contado_input.valueChanged.connect(self._atualizar_previa)
+
+        self.ajuste_previa_label = QLabel("")
+        self.ajuste_previa_label.setAccessibleName("Prévia do ajuste")
+
+        linha.addWidget(self.ajuste_produto_combo, 3)
+        linha.addWidget(self.ajuste_saldo_label, 1)
+        linha.addWidget(self.ajuste_contado_input, 1)
+        linha.addWidget(self.ajuste_previa_label, 2)
         fora.addLayout(linha)
 
-        self.warning_label = QLabel("")
-        self.warning_label.setStyleSheet(
-            "color: #EF4444; font-size: 12px; font-weight: 500;"
-        )
-        fora.addWidget(self.warning_label)
+        acoes = QHBoxLayout()
+        acoes.setSpacing(10)
+
+        self.ajuste_motivo_combo = QComboBox()
+        self.ajuste_motivo_combo.setFixedHeight(42)
+        self.ajuste_motivo_combo.setAccessibleName("Motivo do ajuste")
+        for motivo in AdjustmentReason:
+            self.ajuste_motivo_combo.addItem(motivo.label, motivo)
+        self.ajuste_motivo_combo.currentIndexChanged.connect(self._atualizar_detalhe)
+
+        self.ajuste_detalhe_input = QLineEdit()
+        self.ajuste_detalhe_input.setFixedHeight(42)
+
+        self.ajuste_aplicar_button = QPushButton(" Aplicar ajuste")
+        self.ajuste_aplicar_button.setFixedHeight(42)
+        self.ajuste_aplicar_button.setStyleSheet(inventory.NEW_BUTTON_QSS)
+        self.ajuste_aplicar_button.setIcon(qta.icon("fa5s.balance-scale", color="white"))
+        self.ajuste_aplicar_button.setIconSize(QSize(13, 13))
+        self.ajuste_aplicar_button.clicked.connect(self._aplicar_ajuste)
+
+        acoes.addWidget(self.ajuste_motivo_combo, 1)
+        acoes.addWidget(self.ajuste_detalhe_input, 2)
+        acoes.addWidget(self.ajuste_aplicar_button)
+        fora.addLayout(acoes)
+
+        # Aviso PRÓPRIO, dentro do card do ajuste. Enquanto os dois
+        # formulários dividiam o `warning_label` do card de entrada/saída, o
+        # texto vermelho de uma recusa de ajuste nascia no card de cima —
+        # longe do botão que o usuário acabara de clicar — e cada card
+        # apagava a mensagem do outro ao limpar o seu próprio formulário.
+        self.ajuste_warning_label = QLabel("")
+        self.ajuste_warning_label.setStyleSheet(AVISO_QSS)
+        fora.addWidget(self.ajuste_warning_label)
+
+        self._atualizar_detalhe()
         return card
 
     def _create_table(self):
@@ -222,6 +329,19 @@ class MovimentacoesPage(QWidget):
             if indice >= 0:
                 self.produto_combo.setCurrentIndex(indice)
 
+        atual_ajuste = self.ajuste_produto_combo.currentData()
+        self.ajuste_produto_combo.clear()
+        self.ajuste_produto_combo.addItem("Selecione um produto...", None)
+        for produto in selectable_products(self.products):
+            self.ajuste_produto_combo.addItem(
+                f"{produto.code} — {produto.name}", produto.code
+            )
+        if atual_ajuste is not None:
+            indice = self.ajuste_produto_combo.findData(atual_ajuste)
+            if indice >= 0:
+                self.ajuste_produto_combo.setCurrentIndex(indice)
+        self._atualizar_previa()
+
     def set_suppliers(self, suppliers):
         """Oferece somente fornecedores ativos para novas entradas."""
         selected = self.fornecedor_combo.currentData()
@@ -260,8 +380,9 @@ class MovimentacoesPage(QWidget):
             self.table.setItem(row, 3, QTableWidgetItem(str(mov[MOV_STATUS])))
             self.table.setItem(row, 4, QTableWidgetItem(str(mov[MOV_NOTE] or "—")))
             self.table.setItem(row, 5, QTableWidgetItem(str(mov[MOV_WHEN])))
-            supplier_name = str(mov[8]) if len(mov) > 8 else "—"
-            self.table.setItem(row, 6, QTableWidgetItem(supplier_name))
+            self.table.setItem(row, 6, QTableWidgetItem(str(mov[MOV_SUPPLIER])))
+            motivo = QTableWidgetItem(str(mov[MOV_REASON]))
+            self.table.setItem(row, 7, motivo)
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._acoes(mov))
 
         self.table.setVisible(True)
@@ -376,6 +497,118 @@ class MovimentacoesPage(QWidget):
         self.warning_label.setText(str(mensagem))
 
     # ======================================================
+    # AJUSTE MANUAL DE INVENTÁRIO (H11)
+    # ======================================================
+
+    def _saldo_do_produto_de_ajuste(self):
+        """Saldo atual do produto escolhido, ou `None` se nenhum."""
+        codigo = self.ajuste_produto_combo.currentData()
+        produto = self.products.get(codigo) if codigo else None
+        return None if produto is None else to_int(produto.stock)
+
+    def _atualizar_previa(self, *_):
+        """Mostra o lançamento que o ajuste vai gerar, antes do clique.
+
+        Usa `calcular_ajuste`, a mesma função que o serviço chama: uma
+        segunda conta aqui é como a tela de Estoque divergiu de
+        `fn_stock_state` antes da US03.
+        """
+        atual = self._saldo_do_produto_de_ajuste()
+        if atual is None:
+            self.ajuste_saldo_label.setText("Saldo atual: —")
+            self.ajuste_previa_label.setText("")
+            self.ajuste_aplicar_button.setEnabled(False)
+            return
+
+        self.ajuste_saldo_label.setText(f"Saldo atual: {atual}")
+        try:
+            especie, quantidade = calcular_ajuste(
+                atual, self.ajuste_contado_input.value()
+            )
+        except AjusteSemEfeitoError:
+            self.ajuste_previa_label.setText("Sem diferença — nada a ajustar")
+            self.ajuste_aplicar_button.setEnabled(False)
+            return
+        except ValueError as erro:
+            self.ajuste_previa_label.setText(str(erro))
+            self.ajuste_aplicar_button.setEnabled(False)
+            return
+
+        self.ajuste_previa_label.setText(
+            f"→ {especie.label.upper()} de {quantidade}"
+        )
+        self.ajuste_aplicar_button.setEnabled(self._pode_movimentar)
+
+    def _motivo_selecionado(self):
+        """`AdjustmentReason` do combo, reconvertido de volta ao enum.
+
+        `AdjustmentReason` é um `StrEnum`, e o Qt guarda dado de item como
+        `QVariant`: ao ler de volta, devolve o `str` puro, não o membro do
+        enum. O combo de espécie nunca sentiu isso porque só faz `==`, que o
+        `StrEnum` atende sendo string; aqui o código precisa de
+        `.exige_detalhe` e de `is AdjustmentReason.X`, então a reconversão é
+        obrigatória, não cosmética.
+        """
+        valor = self.ajuste_motivo_combo.currentData()
+        return None if valor is None else AdjustmentReason.from_value(valor)
+
+    def _atualizar_detalhe(self, *_):
+        """O placeholder diz quando o detalhe deixa de ser opcional."""
+        motivo = self._motivo_selecionado()
+        obrigatorio = bool(motivo and motivo.exige_detalhe)
+        self.ajuste_detalhe_input.setPlaceholderText(
+            "Justificativa (obrigatória para \"Outro\")" if obrigatorio
+            else "Detalhe (opcional)"
+        )
+
+    def _aplicar_ajuste(self):
+        """Valida o que a tela sabe e pede. A recusa que vale é do serviço."""
+        from stockflow.application.dto.adjustment_input import AdjustmentInput
+
+        codigo = self.ajuste_produto_combo.currentData()
+        atual = self._saldo_do_produto_de_ajuste()
+        if not codigo or atual is None:
+            self.ajuste_warning_label.setText("Selecione um produto ativo para ajustar.")
+            return
+
+        motivo = self._motivo_selecionado()
+        detalhe = self.ajuste_detalhe_input.text().strip()
+        if motivo.exige_detalhe and not detalhe:
+            self.ajuste_warning_label.setText(
+                'O motivo "Outro" exige uma justificativa escrita.'
+            )
+            return
+
+        self.ajuste_warning_label.setText("")
+        self.adjust_requested.emit(AdjustmentInput(
+            product_code=codigo,
+            counted_balance=self.ajuste_contado_input.value(),
+            # O saldo que ESTA tela exibiu. É ele que a função compara com o
+            # saldo real para detectar que outra pessoa movimentou o produto
+            # entre a contagem e o clique.
+            expected_balance=atual,
+            reason=motivo,
+            detail=detalhe,
+        ))
+
+    def limpar_ajuste(self):
+        """Limpa SÓ o card do ajuste, aviso incluído.
+
+        O `warning_label` do card de entrada/saída fica intocado: um ajuste
+        bem-sucedido não é resposta para uma movimentação que o usuário
+        tentou lançar e foi recusada.
+        """
+        self.ajuste_contado_input.setValue(0)
+        self.ajuste_detalhe_input.clear()
+        self.ajuste_motivo_combo.setCurrentIndex(0)
+        self.ajuste_warning_label.setText("")
+        self._atualizar_previa()
+
+    def mostrar_recusa_de_ajuste(self, mensagem):
+        """A recusa aparece NO card do ajuste, ao lado do botão que a causou."""
+        self.ajuste_warning_label.setText(str(mensagem))
+
+    # ======================================================
     # PERMISSÃO
     # ======================================================
 
@@ -389,9 +622,16 @@ class MovimentacoesPage(QWidget):
         for widget in (self.produto_combo, self.especie_combo,
                        self.quantidade_input, self.nota_input,
                        self.fornecedor_combo,
-                       self.registrar_button, self.registrar_confirmar_button):
+                       self.registrar_button, self.registrar_confirmar_button,
+                       self.ajuste_produto_combo, self.ajuste_contado_input,
+                       self.ajuste_motivo_combo, self.ajuste_detalhe_input,
+                       self.ajuste_aplicar_button):
             widget.setEnabled(self._pode_movimentar)
         # Os botões da tabela nascem habilitados a cada redesenho; refazer as
         # linhas é o que reaplica a permissão neles.
         self.set_movements(self.movimentacoes)
         self._update_supplier_enabled()
+        # Sem isto, reativar o papel reabilitaria "Aplicar ajuste" mesmo sem
+        # diferença alguma a lançar — o botão voltaria antes da prévia dizer
+        # se há o que aplicar.
+        self._atualizar_previa()

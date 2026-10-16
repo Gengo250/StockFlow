@@ -3,8 +3,6 @@ from decimal import Decimal
 from threading import RLock
 from uuid import uuid4
 
-from stockflow.domain.stock_level import derive_stock_status, to_int
-
 
 def sale_row(
     sale_id, client_name, product_codes, product_names, total, created_on,
@@ -19,18 +17,25 @@ def sale_row(
     amount = Decimal(str(total)).quantize(Decimal("0.01"))
     formatted = f"{amount:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
     names = ", ".join(product_names)
+    date = str(created_on)
+    try:
+        date = (
+            datetime.fromisoformat(date.replace("Z", "+00:00"))
+            .astimezone()
+            .strftime("%d/%m/%Y %H:%M")
+        )
+    except ValueError:
+        pass
     return {
         "id": str(sale_id),
         "cliente": client_name,
         "produto_codigo": ", ".join(product_codes),
         "produto": names,
         "valor": f"R$ {formatted}",
-        "data": str(created_on),
+        "data": date,
         "total": str(amount),
         "itens_count": len(product_codes) if item_count is None else item_count,
     }
-
-
 def resumo_dos_itens(itens):
     """Reduz os itens de uma venda ao par (código, descrição) da listagem.
 
@@ -52,18 +57,29 @@ def resumo_dos_itens(itens):
 
 
 class DemoSaleRepository:
-    def __init__(self, products=None, movement_repository=None):
-        self._products = products if products is not None else {}
-        self._movement_repository = movement_repository
-        self._lock = (
-            movement_repository.lock
-            if movement_repository is not None
-            else RLock()
+    def __init__(self, products=None, movements=None, movement_repository=None):
+        from stockflow.infrastructure.repositories.demo_movement_repository import DemoMovementRepository
+        from stockflow.presentation.demo_products import DEMO_PRODUCTS
+
+        self._products = products if products is not None else dict(DEMO_PRODUCTS)
+        self.movements = (
+            movement_repository
+            or movements
+            or DemoMovementRepository(self._products)
         )
         self.rows = [
             sale_row("VND-1001", "Patrícia Lima", ["PRD-004"], ["Cabo HDMI 2m"], 450, "10/08/2026"),
             sale_row("VND-1002", "Ana Ferreira", ["PRD-007"], ["Mouse ergonômico"], 1290, "28/09/2026"),
         ]
+
+    @property
+    def movements(self):
+        return self._movement_repository
+
+    @movements.setter
+    def movements(self, repository):
+        self._movement_repository = repository
+        self._lock = getattr(repository, "lock", RLock())
 
     def list_all(self):
         with self._lock:
@@ -96,36 +112,36 @@ class DemoSaleRepository:
         discount=Decimal("0"),
     ) -> dict:
         inventory = self._products
-        movements = self._movement_repository
+        movements = self.movements
+        sale_id = uuid4()
         with self._lock:
-            touched_codes = {
-                item.product_code for item in items if item.product_code in inventory
-            }
             snapshot_products = {
-                code: inventory[code] for code in touched_codes
+                item.product_code: inventory[item.product_code]
+                for item in items
+                if item.product_code in inventory
             }
             snapshot_rows = list(self.rows)
-            snapshot_movements = (
-                list(movements._movements) if movements is not None else None
-            )
+            snapshot_movements = list(movements._movements)
             try:
-                if movements is not None:
-                    movements.register_sale(items)
-                elif inventory:
-                    self._apply_stock(items, inventory)
+                movement_items = [
+                    {
+                        "product": inventory[item.product_code],
+                        "quantity": item.quantity,
+                    }
+                    for item in items
+                ]
+                movements.register_sale(sale_id, movement_items)
                 summary = [
                     {
                         "product_code": item.product_code,
-                        "product_name": inventory[item.product_code].name
-                        if item.product_code in inventory
-                        else item.product_code,
+                        "product_name": inventory[item.product_code].name,
                         "quantity": item.quantity,
                     }
                     for item in items
                 ]
                 code, description = resumo_dos_itens(summary)
                 row = sale_row(
-                    uuid4(),
+                    sale_id,
                     client.name,
                     code,
                     description,
@@ -135,36 +151,13 @@ class DemoSaleRepository:
                 )
                 row["payment_method"] = payment_method
                 row["discount"] = str(discount)
+                row["status"] = "CONCLUIDA"
+                row["items"] = summary
                 self.rows.insert(0, row)
                 return row
             except Exception:
                 for code, product in snapshot_products.items():
                     inventory[code] = product
                 self.rows[:] = snapshot_rows
-                if movements is not None:
-                    movements._movements[:] = snapshot_movements
+                movements._movements[:] = snapshot_movements
                 raise
-
-    @staticmethod
-    def _apply_stock(items, products):
-        import dataclasses
-
-        quantities = {}
-        for item in items:
-            quantities[item.product_code] = quantities.get(item.product_code, 0) + item.quantity
-        updated = {}
-        for code, quantity in quantities.items():
-            product = products[code]
-            stock = to_int(product.stock)
-            if quantity > stock:
-                raise ValueError(
-                    f"Estoque insuficiente para o produto {code}: "
-                    f"solicitado {quantity}, disponível {stock}."
-                )
-            remaining = stock - quantity
-            updated[code] = dataclasses.replace(
-                product,
-                stock=str(remaining),
-                stock_status=derive_stock_status(remaining, product.minimum_stock),
-            )
-        products.update(updated)

@@ -1,4 +1,4 @@
-"""Regras de registro comercial e totalização de vendas."""
+"""Registro comercial; a conclusão baixa o estoque na mesma operação."""
 
 from decimal import Decimal, InvalidOperation
 import re
@@ -27,12 +27,14 @@ def parse_total(value) -> Decimal:
         raise ValueError("Preço do produto inválido.")
     if "," in text:
         text = text.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(?:\.\d{3})+", text):
+        text = text.replace(".", "")
     try:
         amount = Decimal(text)
     except InvalidOperation as error:
-        raise ValueError("Preço do produto inválido.") from error
-    if not amount.is_finite() or amount < 0:
-        raise ValueError("Preço do produto inválido.")
+        raise ValueError("Valor da venda inválido.") from error
+    if not amount.is_finite() or amount < 0 or amount >= Decimal("100000000"):
+        raise ValueError("Valor da venda inválido.")
     return amount.quantize(Decimal("0.01"))
 
 
@@ -154,6 +156,8 @@ class SaleService:
                 prices_by_code[item.product_code] = parse_total(product.sale_price)
 
         bruto = calculate_total_from_items(normalized_items, prices_by_code)
+        if bruto >= Decimal("100000000"):
+            raise ValueError("Total da venda acima do limite de R$ 99.999.999,99.")
         desconto = parse_total(discount or "0")
         if desconto > bruto:
             raise ValueError(

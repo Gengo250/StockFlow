@@ -355,7 +355,7 @@ BEGIN
     SELECT name, barcode INTO v_product_name, v_product_code
       FROM public.products
      WHERE id = p_product_id AND company_id = p_company_id AND active
-     FOR SHARE;
+     FOR UPDATE;
     IF v_product_name IS NULL THEN
         RAISE EXCEPTION 'Produto não encontrado, inativo ou sem permissão'
             USING ERRCODE = 'foreign_key_violation';
@@ -400,7 +400,7 @@ DECLARE
     v_name        text;
     v_code        text;
     v_price       numeric(10,2);
-    v_bruto       numeric(10,2) := 0;
+    v_bruto       numeric := 0;
     v_total       numeric(10,2);
 BEGIN
     IF NOT public.fn_has_role(p_company_id, ARRAY['ADMIN','SELLER']::public.user_role[]) THEN
@@ -414,6 +414,7 @@ BEGIN
     END IF;
 
     IF p_discount IS NULL OR p_discount < 0
+       OR p_discount >= 100000000 OR p_discount <> round(p_discount, 2)
        OR p_discount::text IN ('NaN', 'Infinity', '-Infinity') THEN
         RAISE EXCEPTION 'Desconto inválido' USING ERRCODE = 'check_violation';
     END IF;
@@ -426,6 +427,26 @@ BEGIN
         RAISE EXCEPTION 'Cliente não encontrado, inativo ou sem permissão'
             USING ERRCODE = 'foreign_key_violation';
     END IF;
+
+    IF p_payment_method IS NULL THEN
+        RAISE EXCEPTION 'Selecione uma forma de pagamento válida'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Trava TODOS os produtos em ordem estável antes de gravar. FOR SHARE
+    -- deixava duas vendas travarem na conversão para UPDATE do saldo.
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR COALESCE(v_item->>'quantity', '') !~ '^[0-9]+$'
+           OR (v_item->>'quantity')::numeric NOT BETWEEN 1 AND 1000000 THEN
+            RAISE EXCEPTION 'Quantidade deve ser inteira entre 1 e 1000000'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END LOOP;
+    PERFORM p.id FROM public.products p
+     WHERE p.company_id = p_company_id
+       AND p.id IN (SELECT (i->>'product_id')::uuid FROM jsonb_array_elements(p_items) i)
+     ORDER BY p.id FOR UPDATE;
 
     INSERT INTO public.sales (
         company_id, client_id, client_name, payment_method, discount,
@@ -450,8 +471,7 @@ BEGIN
         -- vender item alheio informando o id.
         SELECT name, barcode, sell_price INTO v_name, v_code, v_price
           FROM public.products
-         WHERE id = v_product_id AND company_id = p_company_id AND active
-          FOR SHARE;
+         WHERE id = v_product_id AND company_id = p_company_id AND active;
         IF v_name IS NULL THEN
             RAISE EXCEPTION 'Produto não encontrado, inativo ou sem permissão: %', v_product_id
                 USING ERRCODE = 'foreign_key_violation';
@@ -466,6 +486,10 @@ BEGIN
         );
 
         v_bruto := v_bruto + (v_quantity * v_price);
+        IF v_bruto >= 100000000 THEN
+            RAISE EXCEPTION 'Total da venda acima do limite de R$ 99.999.999,99'
+                USING ERRCODE = 'check_violation';
+        END IF;
     END LOOP;
 
     v_total := v_bruto - p_discount;
@@ -479,5 +503,31 @@ BEGIN
      WHERE id = v_id;
 
     RETURN v_id;
+END;
+$$;
+
+-- O recibo sai da mesma transação da venda. Assim a interface mostra os
+-- valores gravados mesmo quando o catálogo local está desatualizado.
+CREATE OR REPLACE FUNCTION public.fn_checkout_sale(
+    p_company_id uuid,
+    p_client_id uuid,
+    p_items jsonb,
+    p_payment_method public.payment_method DEFAULT 'DINHEIRO',
+    p_discount numeric DEFAULT 0
+) RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_id uuid;
+    v_receipt jsonb;
+BEGIN
+    v_id := public.fn_create_complete_sale(
+        p_company_id, p_client_id, p_items, p_payment_method, p_discount
+    );
+    SELECT to_jsonb(s) || jsonb_build_object('sale_items', (
+        SELECT jsonb_agg(to_jsonb(i) ORDER BY i.created_on, i.id)
+          FROM public.sale_items i WHERE i.sale_id = s.id
+    )) INTO v_receipt FROM public.sales s WHERE s.id = v_id;
+    RETURN v_receipt;
 END;
 $$;

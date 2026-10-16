@@ -3,6 +3,7 @@
 Only used by scripts/verify_postgres.py. Does not simulate SQL functions or RLS.
 """
 from types import SimpleNamespace
+import re
 
 from psycopg import sql
 from psycopg.rows import dict_row
@@ -49,8 +50,25 @@ class Query:
         return self
 
     def execute(self):
-        fields = sql.SQL('*') if self.fields == '*' else sql.SQL(',').join(map(sql.Identifier, self.fields.split(',')))
-        query = sql.SQL('SELECT {} FROM public.{}').format(fields, sql.Identifier(self.table))
+        selections = []
+        for field in re.split(r",(?![^()]*\))", self.fields):
+            embed = re.fullmatch(r"(\w+)\(([^()]+)\)", field)
+            if embed:
+                relation, columns = embed.groups()
+                if (self.table, relation) != ("sales", "sale_items"):
+                    raise ValueError(f"Unsupported embedded relation: {self.table}/{relation}")
+                pairs = sql.SQL(',').join(
+                    sql.SQL('{}, i.{}').format(sql.Literal(c), sql.Identifier(c))
+                    for c in columns.split(',')
+                )
+                selections.append(sql.SQL(
+                    "(SELECT coalesce(jsonb_agg(jsonb_build_object({})), '[]'::jsonb) "
+                    "FROM public.sale_items i WHERE i.sale_id = source.id) AS sale_items"
+                ).format(pairs))
+            else:
+                selections.append(sql.SQL('*') if field == '*' else sql.Identifier(field))
+        fields = sql.SQL(',').join(selections)
+        query = sql.SQL('SELECT {} FROM public.{} AS source').format(fields, sql.Identifier(self.table))
         if self.filters:
             query += sql.SQL(' WHERE ') + sql.SQL(' AND ').join(self.filters)
         if self.sort:

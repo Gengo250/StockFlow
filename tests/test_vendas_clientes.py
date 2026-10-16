@@ -105,6 +105,15 @@ def test_venda_sem_item_e_bloqueada(vendas_page):
     assert "produto ativo" in vendas_page.warning_label.text().lower()
 
 
+def test_venda_nao_exige_redigitar_o_preco_do_catalogo(vendas_page):
+    vendas_page.selecionar_cliente_externo("Ana Ferreira")
+    produto_valido(vendas_page)
+    vendas_page._registrar_venda()
+    assert len(vendas_page.historico_vendas) == 3
+    assert vendas_page.historico_vendas[0]["valor"] == "R$ 2.499,90"
+    assert vendas_page.warning_label.text() == ""
+
+
 def test_venda_valida_entra_no_historico_com_o_cliente(vendas_page):
     vendas_page.selecionar_cliente_externo("Juliana Ramos")
     produto_valido(vendas_page)

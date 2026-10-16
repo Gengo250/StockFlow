@@ -30,6 +30,7 @@ ALTER TABLE public.sale_items      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales_log       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.role_change_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.price_edit_log  ENABLE ROW LEVEL SECURITY;
 
 -- register não tem coluna de empresa (tables/02_cash_register.sql: "Caixa.
 -- Independente das demais tabelas."), então não há como escopar por tenant.
@@ -67,6 +68,7 @@ GRANT SELECT ON public.company,
                 public.sale_items,
                 public.sales_log,
                 public.role_change_log,
+                public.price_edit_log,
                 public.vw_stock_situation,
                 public.vw_stock_alerts
   TO app_backend, authenticated;
@@ -89,6 +91,7 @@ DROP POLICY IF EXISTS sale_items_select        ON public.sale_items;
 DROP POLICY IF EXISTS sales_log_select         ON public.sales_log;
 DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
 DROP POLICY IF EXISTS role_change_log_select  ON public.role_change_log;
+DROP POLICY IF EXISTS price_edit_log_select   ON public.price_edit_log;
 
 -- Policy é por role: o GRANT acima deixa `authenticated` chegar à tabela, mas
 -- sem aparecer no TO da policy ela veria zero linha. O predicado é o MESMO
@@ -140,6 +143,10 @@ CREATE POLICY role_change_log_select ON public.role_change_log
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_has_role(company_id, ARRAY['ADMIN']::public.user_role[]));
 
+CREATE POLICY price_edit_log_select ON public.price_edit_log
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_has_role(company_id, ARRAY['ADMIN']::public.user_role[]));
+
 CREATE POLICY product_stock_select ON public.product_stock
   FOR SELECT TO app_backend, authenticated
   USING (EXISTS (
@@ -183,12 +190,13 @@ DECLARE
     'fn_my_companies',
     -- Movimentações (US03): o saldo é a soma das confirmadas.
     'fn_register_movement', 'fn_confirm_movement', 'fn_cancel_movement',
+    'fn_register_adjustment',
     'fn_confirmed_balance',
     'fn_list_company_clients', 'fn_create_client', 'fn_update_client',
     'fn_set_client_active', 'fn_register_sale',
     -- Venda com vários itens, desconto e forma de pagamento (US10) e edição
     -- de estoque por código de barras (US09).
-    'fn_create_complete_sale', 'fn_edit_product_stock',
+    'fn_create_complete_sale', 'fn_checkout_sale', 'fn_edit_product_stock',
     'fn_list_company_suppliers', 'fn_create_supplier', 'fn_update_supplier',
     'fn_set_supplier_active', 'fn_set_product_supplier',
     'fn_register_supplier_movement', 'fn_save_product', 'fn_save_company_member'

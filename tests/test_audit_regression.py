@@ -58,17 +58,9 @@ def remote_window(qapp, monkeypatch):
     client = ClienteFalso(catalogo_falso(), rpc_resultados={
         "fn_list_company_clients": [{"client_id": "client-a", "name": "Cliente teste", "active": True}],
         "fn_register_sale": {
-            "id": "sale-a",
-            "cliente": "Cliente teste",
-            "total": 2499.90,
-            "created_on": "2026-10-12T12:00:00Z",
-            "items": [{
-                "product_code": "PRD-009",
-                "product_name": 'Monitor LG UltraWide 34"',
-                "quantity": 1,
-                "unit_price": 2499.90,
-                "subtotal": 2499.90,
-            }],
+            "id": "sale-a", "cliente": "Cliente teste", "total": "2499.90",
+            "created_on": "2026-10-13T12:00:00+00:00",
+            "items": [{"product_name": "Monitor", "product_code": "PRD-009", "quantity": 1}],
         },
     })
     monkeypatch.setenv('STOCKFLOW_BACKEND', 'supabase')
@@ -83,7 +75,7 @@ def remote_window(qapp, monkeypatch):
 def choose_sale(page):
     page.cliente_combo.setCurrentIndex(1)
     page.produto_combo.setCurrentIndex(1)
-    page._item_rows[0]["quantity"].setText("1")
+    page.qtd_input.setText("1")
     assert page.cliente_combo.currentData() and page.produto_combo.currentData()
 
 
@@ -98,6 +90,7 @@ def test_remote_sale_reaches_rpc(remote_window):
     client.chamadas_rpc.clear()
     w.vendas_page._registrar_venda()
     assert any(name == 'fn_register_sale' for name, _ in client.chamadas_rpc), 'Venda só altera historico_vendas em memória'
+    assert w.vendas_page.warning_label.text() == ''
 
 
 def test_new_client_becomes_selectable_in_sales(window, qapp):
@@ -126,10 +119,20 @@ def test_new_client_becomes_selectable_in_sales(window, qapp):
 def test_sale_rejects_invalid_quantity(window, quantity):
     page = window.vendas_page
     choose_sale(page)
-    page._item_rows[0]["quantity"].setText(quantity)
+    page.qtd_input.setText(quantity)
     before = len(page.historico_vendas)
     page._registrar_venda()
     assert len(page.historico_vendas) == before, f'Quantidade inválida aceita: {quantity}'
+
+
+@pytest.mark.parametrize('value', ['abc', '-10,00', 'NaN'])
+def test_sale_rejects_invalid_discount(window, value):
+    page = window.vendas_page
+    choose_sale(page)
+    page.desconto_input.setText(value)
+    before = len(page.historico_vendas)
+    page._registrar_venda()
+    assert len(page.historico_vendas) == before, f'Desconto inválido aceito: {value}'
 
 
 def test_sale_rechecks_inactive_client(window):

@@ -10,7 +10,7 @@ from stockflow.infrastructure.repositories.supabase_sale_repository import (
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = (
-    ROOT / "database/supabase/migrations/20261014120000_atomic_multi_item_sales.sql"
+    ROOT / "database/supabase/migrations/20261016120000_atomic_multi_item_sales.sql"
 )
 TABLES = ROOT / "database/code/tables/06_clients_sales.sql"
 PROCEDURES = ROOT / "database/code/procedures/07_clients_sales.sql"
@@ -60,6 +60,8 @@ def test_client_interface_does_not_supply_item_price_to_rpc():
     text = source_path.read_text(encoding="utf-8")
     request = text.split("def register_multiple(", 1)[1].split("}).execute()", 1)[0]
     assert '"p_items": payload' in request
+    assert '"product_code": item.product_code' in request
+    assert '"fn_register_sale"' in text
     assert '"p_payment_method": payment_method' in request
     assert '"p_discount": str(discount)' in request
     assert '"p_unit_price"' not in request
@@ -76,13 +78,10 @@ def test_supabase_repository_returns_rpc_snapshot_without_followup_reads():
                 "total": 29.98,
                 "created_on": "2026-10-12T12:00:00Z",
                 "items": [
-                    {"product_code": "P-1", "product_name": "Produto 1"},
-                    {"product_code": "P-2", "product_name": "Produto 2"},
+                    {"product_code": "P-1", "product_name": "Produto 1", "quantity": 1},
+                    {"product_code": "P-2", "product_name": "Produto 2", "quantity": 2},
                 ],
             }))
-
-        def table(self, _name):
-            raise AssertionError("A gravação deve usar só o retorno atômico da RPC.")
 
     client = Client()
     repo = SupabaseSaleRepository(client, "company-id")
