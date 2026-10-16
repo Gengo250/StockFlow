@@ -12,11 +12,13 @@ aconteceu. Para o caso comum, lançar algo que já ocorreu, há o atalho
 "Registrar e confirmar".
 """
 
+from datetime import date, datetime, timedelta
+
 import qtawesome as qta
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QDate, QSize, Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
+    QAbstractItemView, QComboBox, QDateEdit, QFrame, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
@@ -49,6 +51,33 @@ STATUS_COLORS = {
     MovementStatus.CANCELADA.label: ("#8A3B3B", "#FBE9E9"),
 }
 
+# Linhas por página do histórico. Valor fixo, deliberadamente não configurável
+# na tela: alterar o tamanho de página é uma decisão de produto, não de
+# sessão — se alguém quiser mudar, muda aqui e o comportamento é consistente
+# para todos os usuários.
+PAGE_SIZE = 50
+
+# QSS dos botões de navegação de página. Usam as mesmas cores do FILTER_QSS
+# (branco/azul) para sinalizar que são controles de navegação, e não de ação.
+PAGINACAO_BUTTON_QSS = """
+    QPushButton {
+        background-color: white;
+        color: #475569;
+        border: 1px solid #DBEAFE;
+        border-radius: 8px;
+        padding: 4px 14px;
+        font-size: 13px;
+    }
+    QPushButton:hover:enabled {
+        border: 1px solid #93C5FD;
+        color: #1D4ED8;
+    }
+    QPushButton:disabled {
+        color: #CBD5E1;
+        border: 1px solid #EFF6FF;
+    }
+"""
+
 
 class MovimentacoesPage(QWidget):
     """Lançamento e histórico. Não conhece repositório nem banco.
@@ -77,13 +106,23 @@ class MovimentacoesPage(QWidget):
         self._pode_movimentar = True
         self._suppliers = ()
 
+        # Estado de paginação. `_pagina_atual` é o índice base-zero da página
+        # visível; `_total_filtradas` é o total APÓS aplicar os filtros — é
+        # ele, e não `len(self.movimentacoes)`, que determina quantas páginas
+        # existem. Os dois são calculados em `_aplicar_filtros_e_paginar` e
+        # nunca escritos diretamente de fora.
+        self._pagina_atual = 0
+        self._total_filtradas = 0
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 22, 22, 22)
         layout.setSpacing(18)
         layout.addLayout(self._create_header())
         layout.addWidget(self._create_form())
         layout.addWidget(self._create_adjustment_form())
+        layout.addWidget(self._create_filter_bar())
         layout.addWidget(self._create_table(), 1)
+        layout.addLayout(self._create_pagination_controls())
 
         self.list_state_label = QLabel()
         self.list_state_label.setWordWrap(True)
@@ -99,6 +138,7 @@ class MovimentacoesPage(QWidget):
 
         self.reload_products(self.products)
         self.set_movements(())
+
 
     # ======================================================
     # MONTAGEM
@@ -302,6 +342,122 @@ class MovimentacoesPage(QWidget):
         fora.addWidget(self.table)
         return card
 
+    def _create_filter_bar(self):
+        """Barra de filtros do histórico: produto, espécie e período.
+
+        Os filtros operam sobre `self.movimentacoes` em memória — sem nova
+        chamada ao repositório. Cada mudança chama `_aplicar_filtros_e_paginar`,
+        que recomputa o slice visível e atualiza os controles de paginação.
+
+        A data de início e fim são opcionais: o `QDateEdit` nasce sem data
+        ativa (`_data_ativa` devolve `None` quando não há seleção).
+        """
+        card = QFrame()
+        card.setStyleSheet(inventory.TABLE_CARD_QSS)
+        fora = QHBoxLayout(card)
+        fora.setContentsMargins(14, 10, 14, 10)
+        fora.setSpacing(10)
+
+        rotulo_filtro = QLabel("Filtrar:")
+        rotulo_filtro.setStyleSheet("color: #64748B; font-size: 13px;")
+        fora.addWidget(rotulo_filtro)
+
+        # Filtro por produto — "Todos" é o placeholder (data=None).
+        self.filtro_produto_combo = QComboBox()
+        self.filtro_produto_combo.setFixedHeight(36)
+        self.filtro_produto_combo.setMinimumContentsLength(14)
+        self.filtro_produto_combo.setSizeAdjustPolicy(
+            QComboBox.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.filtro_produto_combo.setAccessibleName("Filtrar por produto")
+        self.filtro_produto_combo.addItem("Todos os produtos", None)
+        self.filtro_produto_combo.currentIndexChanged.connect(
+            self._ao_alterar_filtro
+        )
+        fora.addWidget(self.filtro_produto_combo)
+
+        # Filtro por espécie (ENTRADA / SAIDA).
+        self.filtro_especie_combo = QComboBox()
+        self.filtro_especie_combo.setFixedHeight(36)
+        self.filtro_especie_combo.setAccessibleName("Filtrar por espécie")
+        self.filtro_especie_combo.addItem("Todos os tipos", None)
+        for especie in MovementKind:
+            self.filtro_especie_combo.addItem(especie.label, especie.value)
+        self.filtro_especie_combo.currentIndexChanged.connect(
+            self._ao_alterar_filtro
+        )
+        fora.addWidget(self.filtro_especie_combo)
+
+        # Filtro por período: data de início.
+        rotulo_de = QLabel("De:")
+        rotulo_de.setStyleSheet("color: #64748B; font-size: 13px;")
+        fora.addWidget(rotulo_de)
+
+        self.filtro_data_inicio = QDateEdit()
+        self.filtro_data_inicio.setFixedHeight(36)
+        self.filtro_data_inicio.setCalendarPopup(True)
+        self.filtro_data_inicio.setSpecialValueText(" ")   # exibe vazio quando no mínimo
+        self.filtro_data_inicio.setDate(self.filtro_data_inicio.minimumDate())
+        self.filtro_data_inicio.setAccessibleName("Data de início do filtro")
+        self.filtro_data_inicio.dateChanged.connect(self._ao_alterar_filtro)
+        fora.addWidget(self.filtro_data_inicio)
+
+        # Filtro por período: data de fim.
+        rotulo_ate = QLabel("Até:")
+        rotulo_ate.setStyleSheet("color: #64748B; font-size: 13px;")
+        fora.addWidget(rotulo_ate)
+
+        self.filtro_data_fim = QDateEdit()
+        self.filtro_data_fim.setFixedHeight(36)
+        self.filtro_data_fim.setCalendarPopup(True)
+        self.filtro_data_fim.setSpecialValueText(" ")
+        self.filtro_data_fim.setDate(self.filtro_data_fim.minimumDate())
+        self.filtro_data_fim.setAccessibleName("Data de fim do filtro")
+        self.filtro_data_fim.dateChanged.connect(self._ao_alterar_filtro)
+        fora.addWidget(self.filtro_data_fim)
+
+        fora.addStretch()
+
+        # Botão para limpar todos os filtros de uma vez.
+        self.limpar_filtros_button = QPushButton("Limpar filtros")
+        self.limpar_filtros_button.setFixedHeight(36)
+        self.limpar_filtros_button.setAccessibleName("Limpar filtros do histórico")
+        self.limpar_filtros_button.setStyleSheet(inventory.FILTER_QSS)
+        self.limpar_filtros_button.clicked.connect(self.limpar_filtros)
+        fora.addWidget(self.limpar_filtros_button)
+
+        return card
+
+    def _create_pagination_controls(self):
+        """Linha de navegação de página: ‹ Anterior · página X de Y · Próximo ›."""
+        layout = QHBoxLayout()
+        layout.setSpacing(8)
+
+        self.anterior_button = QPushButton("‹ Anterior")
+        self.anterior_button.setFixedHeight(32)
+        self.anterior_button.setStyleSheet(PAGINACAO_BUTTON_QSS)
+        self.anterior_button.setAccessibleName("Página anterior")
+        self.anterior_button.clicked.connect(self._pagina_anterior)
+        layout.addWidget(self.anterior_button)
+
+        self.paginacao_label = QLabel()
+        self.paginacao_label.setStyleSheet("color: #64748B; font-size: 13px;")
+        self.paginacao_label.setAlignment(Qt.AlignCenter)
+        self.paginacao_label.setAccessibleName("Informação de paginação")
+        layout.addWidget(self.paginacao_label)
+
+        self.proximo_button = QPushButton("Próximo ›")
+        self.proximo_button.setFixedHeight(32)
+        self.proximo_button.setStyleSheet(PAGINACAO_BUTTON_QSS)
+        self.proximo_button.setAccessibleName("Próxima página")
+        self.proximo_button.clicked.connect(self._proxima_pagina)
+        layout.addWidget(self.proximo_button)
+
+        layout.addStretch()
+        return layout
+
+
+
     # ======================================================
     # DADOS
     # ======================================================
@@ -342,6 +498,21 @@ class MovimentacoesPage(QWidget):
                 self.ajuste_produto_combo.setCurrentIndex(indice)
         self._atualizar_previa()
 
+        if hasattr(self, "filtro_produto_combo"):
+            atual_filtro = self.filtro_produto_combo.currentData()
+            self.filtro_produto_combo.blockSignals(True)
+            self.filtro_produto_combo.clear()
+            self.filtro_produto_combo.addItem("Todos os produtos", None)
+            for produto in sorted(self.products.values(), key=lambda p: p.code):
+                self.filtro_produto_combo.addItem(
+                    f"{produto.code} — {produto.name}", produto.code
+                )
+            if atual_filtro is not None:
+                indice = self.filtro_produto_combo.findData(atual_filtro)
+                if indice >= 0:
+                    self.filtro_produto_combo.setCurrentIndex(indice)
+            self.filtro_produto_combo.blockSignals(False)
+
     def set_suppliers(self, suppliers):
         """Oferece somente fornecedores ativos para novas entradas."""
         selected = self.fornecedor_combo.currentData()
@@ -361,17 +532,92 @@ class MovimentacoesPage(QWidget):
         self.fornecedor_combo.setEnabled(is_entry and self._pode_movimentar)
 
     def set_movements(self, movimentacoes):
-        """Redesenha o histórico inteiro a partir das tuplas recebidas."""
+        """Armazena o histórico completo, preserva filtros e vai para a página 1.
+
+        Não reseta os filtros ativos: quem está vendo "só PRD-009 no último
+        mês" e confirma uma movimentação (que dispara `_recarregar_movimentacoes`)
+        deve continuar no mesmo filtro — sem precisar reaplicá-lo.
+
+        A paginação SEMPRE volta à página 1 ao receber dados novos, porque a
+        ordenação pode ter mudado e a página anterior pode não existir mais.
+        """
         self.movimentacoes = tuple(movimentacoes)
         self._list_state_error = False
         self.load_error_label.setVisible(False)
 
+        if hasattr(self, "filtro_produto_combo"):
+            for mov in self.movimentacoes:
+                code = mov[MOV_CODE]
+                if code and code != "—" and self.filtro_produto_combo.findData(code) < 0:
+                    name = mov[MOV_NAME] if mov[MOV_NAME] != "—" else code
+                    self.filtro_produto_combo.addItem(f"{code} — {name}", code)
+
+        self._pagina_atual = 0
+        self._aplicar_filtros_e_paginar()
+
+    # -------------------------------------------------------------- filtros
+
+    def _ao_alterar_filtro(self, *_):
+        """Qualquer mudança de filtro reseta para a página 1 e redesenha."""
+        self._pagina_atual = 0
+        self._aplicar_filtros_e_paginar()
+
+    def _aplicar_filtros_e_paginar(self):
+        """Filtra, fatia e desenha a página atual.
+
+        É o único lugar que modifica `_total_filtradas`: centralizar garante
+        que paginação e label de estado sempre concordem sobre quantos itens
+        restam após o filtro.
+        """
+        filtradas = self._filtrar(self.movimentacoes)
+        self._total_filtradas = len(filtradas)
+        inicio = self._pagina_atual * PAGE_SIZE
+        pagina = filtradas[inicio: inicio + PAGE_SIZE]
+        self._desenhar_pagina(pagina)
+        self._atualizar_paginacao()
+        self._atualizar_vazio()
+
+    def _filtrar(self, movs) -> tuple:
+        """Aplica os filtros ativos sobre a tupla completa.
+
+        Cada filtro é opcional: data=None e combo no placeholder significam
+        "sem restrição". Não lança exceção — um valor ilegível de data ou
+        combo simplesmente não filtra.
+        """
+        produto = self.filtro_produto_combo.currentData()
+        especie = self.filtro_especie_combo.currentData()
+        data_inicio = _data_ativa(self.filtro_data_inicio)
+        data_fim = _data_ativa(self.filtro_data_fim)
+
+        resultado = []
+        for mov in movs:
+            if produto and mov[MOV_CODE] != produto:
+                continue
+            if especie and mov[MOV_KIND] != especie:
+                continue
+            # A coluna MOV_WHEN é uma string formatada (ex: "Hoje, 09:14",
+            # "12/08/2026"). A comparação de data é extraída da string bruta
+            # ou do objeto datetime original armazenado na tupla — aqui usamos
+            # a função auxiliar `_data_da_movimentacao` que tenta ambas.
+            if data_inicio is not None:
+                data_mov = _data_da_movimentacao(mov[MOV_WHEN])
+                if data_mov is None or data_mov < data_inicio:
+                    continue
+            if data_fim is not None:
+                data_mov = _data_da_movimentacao(mov[MOV_WHEN])
+                if data_mov is None or data_mov > data_fim:
+                    continue
+            resultado.append(mov)
+        return tuple(resultado)
+
+    def _desenhar_pagina(self, pagina):
+        """Renderiza somente as movimentações da página atual na tabela."""
         for row in range(self.table.rowCount()):
             self.table.removeCellWidget(row, ACTIONS_COLUMN)
         self.table.clearContents()
-        self.table.setRowCount(len(self.movimentacoes))
+        self.table.setRowCount(len(pagina))
 
-        for row, mov in enumerate(self.movimentacoes):
+        for row, mov in enumerate(pagina):
             produto = QTableWidgetItem(f"{mov[MOV_CODE]} — {mov[MOV_NAME]}")
             produto.setForeground(Qt.blue)
             self.table.setItem(row, 0, produto)
@@ -381,12 +627,63 @@ class MovimentacoesPage(QWidget):
             self.table.setItem(row, 4, QTableWidgetItem(str(mov[MOV_NOTE] or "—")))
             self.table.setItem(row, 5, QTableWidgetItem(str(mov[MOV_WHEN])))
             self.table.setItem(row, 6, QTableWidgetItem(str(mov[MOV_SUPPLIER])))
-            motivo = QTableWidgetItem(str(mov[MOV_REASON]))
-            self.table.setItem(row, 7, motivo)
+            self.table.setItem(row, 7, QTableWidgetItem(str(mov[MOV_REASON])))
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._acoes(mov))
 
         self.table.setVisible(True)
-        self._atualizar_vazio()
+
+    # ----------------------------------------------------------- paginação
+
+    def _atualizar_paginacao(self):
+        """Atualiza label e habilita/desabilita botões conforme a página atual."""
+        total_paginas = max(1, -(-self._total_filtradas // PAGE_SIZE))   # ceil division
+        pagina_exibida = self._pagina_atual + 1
+        self.paginacao_label.setText(
+            f"Página {pagina_exibida} de {total_paginas}"
+            f"  ({self._total_filtradas} registro(s))"
+        )
+        self.anterior_button.setEnabled(self._pagina_atual > 0)
+        self.proximo_button.setEnabled(
+            pagina_exibida < total_paginas
+        )
+
+    def _pagina_anterior(self):
+        if self._pagina_atual > 0:
+            self._pagina_atual -= 1
+            self._aplicar_filtros_e_paginar()
+
+    def _proxima_pagina(self):
+        total_paginas = max(1, -(-self._total_filtradas // PAGE_SIZE))
+        if self._pagina_atual + 1 < total_paginas:
+            self._pagina_atual += 1
+            self._aplicar_filtros_e_paginar()
+
+    def limpar_filtros(self):
+        """Reseta todos os filtros do histórico e volta à página 1.
+
+        Usa `blockSignals` para evitar que cada reset dispare `_ao_alterar_filtro`
+        separadamente — quatro chamadas desnecessárias ao filtrar/paginar onde
+        apenas uma basta ao final.
+        """
+        for widget in (
+            self.filtro_produto_combo, self.filtro_especie_combo,
+            self.filtro_data_inicio, self.filtro_data_fim,
+        ):
+            widget.blockSignals(True)
+
+        self.filtro_produto_combo.setCurrentIndex(0)
+        self.filtro_especie_combo.setCurrentIndex(0)
+        self.filtro_data_inicio.setDate(self.filtro_data_inicio.minimumDate())
+        self.filtro_data_fim.setDate(self.filtro_data_fim.minimumDate())
+
+        for widget in (
+            self.filtro_produto_combo, self.filtro_especie_combo,
+            self.filtro_data_inicio, self.filtro_data_fim,
+        ):
+            widget.blockSignals(False)
+
+        self._pagina_atual = 0
+        self._aplicar_filtros_e_paginar()
 
     def show_load_error(self, erro):
         """Falha fica NA ÁREA DA LISTA, pelo mesmo motivo da tela de Estoque.
@@ -404,18 +701,49 @@ class MovimentacoesPage(QWidget):
         self.table.setVisible(False)
 
     def _atualizar_vazio(self):
-        vazio = not self.movimentacoes
-        if vazio:
-            self.list_state_label.setText(
-                "Nenhuma movimentação registrada. Lance uma entrada ou saída "
-                "acima — o saldo do produto é a soma das confirmadas."
+        """Mensagem de estado vazio usa o total filtrado, não o bruto.
+
+        Sem filtro e histórico vazio → mensagem de "ainda não há movimentações".
+        Com filtro ativo e resultado vazio → mensagem de "nenhum resultado".
+        Com resultados → subtitle mostra o total filtrado vs. total bruto.
+        """
+        sem_resultado = self._total_filtradas == 0
+        filtro_ativo = self._algum_filtro_ativo()
+
+        if sem_resultado:
+            if filtro_ativo:
+                self.list_state_label.setText(
+                    "Nenhuma movimentação corresponde aos filtros aplicados."
+                )
+            else:
+                self.list_state_label.setText(
+                    "Nenhuma movimentação registrada. Lance uma entrada ou saída "
+                    "acima — o saldo do produto é a soma das confirmadas."
+                )
+        self.list_state_label.setVisible(sem_resultado)
+
+        total_bruto = len(self.movimentacoes)
+        if sem_resultado and not filtro_ativo:
+            self.subtitle.setText("Entradas e saídas que compõem o saldo")
+        elif filtro_ativo:
+            self.subtitle.setText(
+                f"{self._total_filtradas} de {total_bruto} movimentação(ões) · filtro ativo"
             )
-        self.list_state_label.setVisible(vazio)
-        self.subtitle.setText(
-            "Entradas e saídas que compõem o saldo"
-            if vazio else
-            f"{len(self.movimentacoes)} movimentação(ões) · só as confirmadas somam"
+        else:
+            self.subtitle.setText(
+                f"{total_bruto} movimentação(ões) · só as confirmadas somam"
+            )
+
+    def _algum_filtro_ativo(self) -> bool:
+        """Devolve `True` se qualquer filtro está com valor diferente do padrão."""
+        return (
+            self.filtro_produto_combo.currentData() is not None
+            or self.filtro_especie_combo.currentData() is not None
+            or _data_ativa(self.filtro_data_inicio) is not None
+            or _data_ativa(self.filtro_data_fim) is not None
         )
+
+
 
     # ======================================================
     # AÇÕES
@@ -635,3 +963,41 @@ class MovimentacoesPage(QWidget):
         # diferença alguma a lançar — o botão voltaria antes da prévia dizer
         # se há o que aplicar.
         self._atualizar_previa()
+
+
+def _data_ativa(date_edit: QDateEdit | None) -> date | None:
+    """Devolve `datetime.date` se o QDateEdit tiver data selecionada, ou `None`."""
+    if date_edit is None:
+        return None
+    qd = date_edit.date()
+    if qd == date_edit.minimumDate():
+        return None
+    return date(qd.year(), qd.month(), qd.day())
+
+
+def _data_da_movimentacao(valor) -> date | None:
+    """Extrai `datetime.date` da coluna 'Quando' ou objeto datetime."""
+    if valor is None:
+        return None
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
+    texto = str(valor).strip()
+    if not texto or texto == "—":
+        return None
+    if texto.startswith("Hoje"):
+        return date.today()
+    if texto.startswith("Ontem"):
+        return date.today() - timedelta(days=1)
+    try:
+        primeira_parte = texto.split(",")[0].strip()
+        return datetime.strptime(primeira_parte, "%d/%m/%Y").date()
+    except ValueError:
+        pass
+    try:
+        return datetime.fromisoformat(texto).date()
+    except ValueError:
+        pass
+    return None
+
