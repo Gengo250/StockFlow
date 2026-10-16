@@ -199,7 +199,11 @@ DECLARE
     'fn_create_complete_sale', 'fn_checkout_sale', 'fn_edit_product_stock',
     'fn_list_company_suppliers', 'fn_create_supplier', 'fn_update_supplier',
     'fn_set_supplier_active', 'fn_set_product_supplier',
-    'fn_register_supplier_movement', 'fn_save_product', 'fn_save_company_member'
+    'fn_register_supplier_movement', 'fn_save_product', 'fn_save_company_member',
+    -- Histórico cronológico de preço e custo (H09). Só leitura, e só do ADMIN:
+    -- a própria função repete a alçada de `price_edit_log_select`, porque
+    -- SECURITY DEFINER passa por cima da RLS que protege a tabela.
+    'fn_list_price_edits'
   ];
   v_name    text;
   v_sig     regprocedure;

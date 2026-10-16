@@ -633,3 +633,50 @@ def test_h09_relaxa_o_par_de_valores_para_o_custo_ausente():
     assert "ck_price_edit_log_value_present" in texto, (
         "relaxar os dois lados sem o CHECK deixa passar linha sem valor nenhum"
     )
+
+
+# ------------------------------------------- H09 · consulta do histórico
+
+HISTORICO = "h09_price_history_query"
+
+
+def arquivo_historico():
+    achados = [f for f in arquivos() if HISTORICO in f.name]
+    assert achados, f"migration {HISTORICO} não encontrada"
+    return achados[0]
+
+
+def test_historico_vem_depois_da_coluna_que_ele_le():
+    """A consulta devolve `field`, que a migration da auditoria acrescenta."""
+    nomes = [f.name for f in arquivos()]
+
+    assert nomes.index(arquivo_historico().name) > nomes.index(arquivo_h09().name)
+
+
+def test_historico_abre_a_propria_transacao():
+    texto = arquivo_historico().read_text(encoding="utf-8")
+
+    assert re.search(r"^\s*BEGIN;", texto, re.M)
+    assert re.search(r"^\s*COMMIT;", texto, re.M)
+
+
+def test_historico_cria_a_funcao_e_repete_a_varredura_de_permissao():
+    """Função nova nasce com EXECUTE para PUBLIC se a migration não revogar.
+
+    `database/code/policies/01_security.sql` registra esse buraco pelo nome:
+    foi assim que `fn_update_products` ficou chamável pelo anônimo. A
+    varredura não é opcional em migration que cria função.
+    """
+    texto = sem_comentarios(arquivo_historico().read_text(encoding="utf-8"))
+
+    assert "CREATE OR REPLACE FUNCTION public.fn_list_price_edits" in texto
+    assert re.search(
+        r"REVOKE ALL ON FUNCTION public\.fn_list_price_edits[^;]*FROM[^;]*PUBLIC",
+        texto,
+        re.S | re.I,
+    ), "sem REVOKE, a função nasce executável pelo anônimo"
+    assert re.search(
+        r"GRANT EXECUTE ON FUNCTION public\.fn_list_price_edits[^;]*TO[^;]*authenticated",
+        texto,
+        re.S | re.I,
+    ), "sem GRANT a função aplica no banco e o app quebra em runtime"

@@ -20,9 +20,11 @@ from postgres_api import PostgresAPI
 # dado histórico e só então estas. A H09 (20261015103000) precisa entrar aqui
 # por dependência, não só por estar pendente: 20261014120000 recria
 # `trg_log_price_edit` com CREATE OR REPLACE, então aplicá-la depois da H09
-# apagaria a auditoria de custo sem erro nenhum.
+# apagaria a auditoria de custo sem erro nenhum. A 20261015143000 entra
+# pela mesma corrente: ela declara uma função que devolve `price_edit_field`,
+# o tipo que a 20261015103000 cria.
 PENDING_VERSIONS = {"20261013120000", "20261013140000", "20261014120000",
-                    "20261015103000"}
+                    "20261015103000", "20261015143000"}
 
 
 def run():
