@@ -23,8 +23,13 @@ from postgres_api import PostgresAPI
 # apagaria a auditoria de custo sem erro nenhum. A 20261015143000 entra
 # pela mesma corrente: ela declara uma função que devolve `price_edit_field`,
 # o tipo que a 20261015103000 cria.
+# A 20261016120000 entra pela mesma corrente: ela declara
+# `p_payment_method public.payment_method DEFAULT 'DINHEIRO'`, e o tipo com
+# esse rótulo nasce na 20261013140000, que é pendente. Aplicada no lote que
+# simula o remoto, o ensaio morria em
+# `invalid input value for enum payment_method: "DINHEIRO"`.
 PENDING_VERSIONS = {"20261013120000", "20261013140000", "20261014120000",
-                    "20261015103000", "20261015143000"}
+                    "20261015103000", "20261015143000", "20261016120000"}
 
 
 def run():
@@ -140,6 +145,92 @@ def exercise(dsn):
             check(conn.execute("SELECT count(*) FROM price_edit_log").fetchone()[0] == 0, 'SELLER cannot read the administrative price audit')
         with connect(stock_auth) as conn:
             rejects(lambda: checkout(conn,[item(product,1)]),'42501','STOCK cannot checkout')
+
+        # `fn_register_sale` é a porta do desktop e a função que esta entrega
+        # recria com assinatura nova. Ela recebe itens por CÓDIGO, não por id,
+        # então nada do bloco de `fn_checkout_sale` acima a exercita. Os testes
+        # de unidade da US012 falam com um cliente Supabase falso, que aceita
+        # qualquer payload e não tem schema — é exatamente o tipo de cobertura
+        # que deixou a tela de histórico de preços abrir vazia contra o banco.
+        def vender(conn, itens, **extra):
+            args = dict(p_company_id=str(company), p_client_id=str(client),
+                        p_items=itens, p_payment_method='DINHEIRO', p_discount='0')
+            args.update(extra)
+            return PostgresAPI(conn).rpc('fn_register_sale', args).execute().data
+
+        def linha(code, quantity):
+            return {'product_code': code, 'quantity': quantity}
+
+        FECHAMENTO = ("SELECT s.total, s.discount,"
+                      " (SELECT sum(subtotal) FROM sale_items WHERE sale_id=s.id)"
+                      " FROM sales s WHERE s.id=%s")
+
+        with connect(seller_auth) as conn:
+            antes = db.execute("SELECT stock FROM products WHERE id=%s",(product,)).fetchone()[0]
+            venda = vender(conn, [linha('SALE-1',2), linha('SALE-2',1)], p_discount='5')
+            check(Decimal(str(venda['total']))==Decimal('55'),
+                  'Desktop multi-item sale returns the canonical total')
+            check(len(venda['items'])==2, 'Desktop sale snapshots every item')
+            check(db.execute("SELECT stock FROM products WHERE id=%s",(product,)).fetchone()[0]==antes-2,
+                  'Desktop sale deducts the requested quantity')
+            total, desconto, subtotais = db.execute(FECHAMENTO,(venda['id'],)).fetchone()
+            check(subtotais - desconto == total,
+                  'The stored sale reconciles: sum(subtotal) - discount = total')
+
+            vendas_antes = db.execute("SELECT count(*) FROM sales").fetchone()[0]
+            saldo_antes = db.execute("SELECT stock FROM products WHERE id=%s",(product,)).fetchone()[0]
+            rejects(lambda: vender(conn,[linha('SALE-1',1), linha('SALE-2',999)]),'23514',
+                    'Insufficient stock rolls back the whole desktop cart')
+            check(db.execute("SELECT count(*) FROM sales").fetchone()[0]==vendas_antes
+                  and db.execute("SELECT stock FROM products WHERE id=%s",(product,)).fetchone()[0]==saldo_antes,
+                  'Refused desktop cart leaves neither header nor partial withdrawal')
+
+            # Os dois limites que `fn_create_complete_sale` já exigia e que
+            # esta função aceitava: desconto de sub-centavo grava uma linha que
+            # não fecha, e a quantidade ia até o teto de `integer`.
+            rejects(lambda: vender(conn,[linha('SALE-1',1)],p_discount='10.005'),'23514',
+                    'Sub-cent discount is rejected by the desktop entry point')
+            rejects(lambda: vender(conn,[linha('SALE-1',1)],p_discount='0.001'),'23514',
+                    'Discount below one cent is rejected')
+            rejects(lambda: vender(conn,[linha('SALE-1',1000001)]),'23514',
+                    'Quantity above the shared 1000000 ceiling is rejected')
+            rejects(lambda: vender(conn,[linha('NAO-EXISTE',1)]),'23503',
+                    'Unknown product code is refused by code, not by a NOT NULL crash')
+            rejects(lambda: vender(conn,[]),'23514','Desktop sale without items is refused')
+            rejects(lambda: vender(conn,[linha('SALE-1',1)],p_company_id=str(other)),'42501',
+                    'SELLER cannot register a desktop sale for another company')
+
+        with connect(stock_auth) as conn:
+            rejects(lambda: vender(conn,[linha('SALE-1',1)]),'42501',
+                    'STOCK cannot register a desktop sale')
+
+        # O critério de aceite diz "inclusive em vendas concorrentes". Duas
+        # vendas disputando o último saldo: uma passa, uma é recusada, e o
+        # saldo nunca fica negativo.
+        # Produto próprio para a disputa: esvaziar um do fixture compartilhado
+        # deixaria sem saldo o checkout Qt que roda logo abaixo.
+        disputado = uuid4()
+        db.execute("INSERT INTO products(id,company_id,barcode,name,sell_price)"
+                   " VALUES (%s,%s,'SALE-3','SALE-3',20)", (disputado, company))
+        db.execute("INSERT INTO stock_movements(company_id,product_id,kind,quantity,status)"
+                   " VALUES (%s,%s,'ENTRADA',4,'CONFIRMADA')", (company, disputado))
+        portao = Barrier(2)
+
+        def disputar(_):
+            with connect(seller_auth) as conn:
+                portao.wait(timeout=5)
+                try:
+                    vender(conn, [linha('SALE-3', 4)])
+                    return 'ok'
+                except psycopg.Error as erro:
+                    return erro.sqlstate
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            disputa = sorted(pool.map(disputar, range(2)))
+        check(disputa == ['23514','ok'],
+              'Concurrent desktop sales cannot sell the same remaining stock twice')
+        check(db.execute("SELECT stock FROM products WHERE id=%s",(disputado,)).fetchone()[0]==0,
+              'The contested product lands exactly at zero, never below')
         with connect() as conn:
             movement = db.execute("SELECT id FROM stock_movements WHERE sale_id=%s",(receipt['id'],)).fetchone()[0]
             rejects(lambda: PostgresAPI(conn).rpc('fn_cancel_movement',{'p_movement_id':str(movement)}).execute(),'23514','A sale withdrawal cannot be cancelled independently')
