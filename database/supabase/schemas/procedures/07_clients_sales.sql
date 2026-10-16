@@ -124,9 +124,16 @@ BEGIN
         RAISE EXCEPTION 'A venda deve ter pelo menos um item'
             USING ERRCODE = 'check_violation';
     END IF;
+    -- `round(p_discount, 2)` é o mesmo teto de precisão que
+    -- `fn_create_complete_sale` já exigia, e ele não é cosmético: `discount` e
+    -- `total` são numeric(10,2), mas arredondam por caminhos diferentes. Com
+    -- 10.005 o banco gravava discount=10.01 e total=90.00 sobre subtotal
+    -- 100.00 -- a linha deixava de fechar por R$ 0,01, justamente a
+    -- reconciliação que a coluna `discount` existe para permitir auditar.
     IF p_payment_method IS NULL
        OR p_discount IS NULL OR p_discount < 0
-       OR p_discount::text IN ('NaN', 'Infinity', '-Infinity') THEN
+       OR p_discount::text IN ('NaN', 'Infinity', '-Infinity')
+       OR p_discount >= 100000000 OR p_discount <> round(p_discount, 2) THEN
         RAISE EXCEPTION 'Forma de pagamento ou desconto inválido'
             USING ERRCODE = 'check_violation';
     END IF;
@@ -140,6 +147,21 @@ BEGIN
             OR COALESCE(entry.value->>'quantity', '') !~ '^[1-9][0-9]*$'
     ) THEN
         RAISE EXCEPTION 'Produto e quantidade inteira positiva são obrigatórios'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- Bloco separado de propósito: só aqui a quantidade já passou pelo regex
+    -- de dígitos acima, e o PostgreSQL não garante ordem de avaliação dentro
+    -- de um mesmo OR -- juntar o cast ao teste de formato arriscaria estourar
+    -- na conversão antes da recusa. O teto é o mesmo de
+    -- `fn_create_complete_sale` e de `parse_quantity`; esta função aceitava
+    -- até o limite de `integer`, e os três caminhos recusavam valores
+    -- diferentes.
+    IF EXISTS (
+        SELECT 1
+          FROM jsonb_array_elements(p_items) AS entry(value)
+         WHERE (entry.value->>'quantity')::numeric > 1000000
+    ) THEN
+        RAISE EXCEPTION 'Quantidade deve ser inteira entre 1 e 1000000'
             USING ERRCODE = 'check_violation';
     END IF;
 

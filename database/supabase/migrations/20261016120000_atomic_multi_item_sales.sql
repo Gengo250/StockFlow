@@ -15,8 +15,11 @@ BEGIN
         SELECT product_id, product_name, quantity
           FROM public.sale_items
          WHERE sale_id = NEW.id AND product_id IS NOT NULL
-         ORDER BY product_id, id
+          ORDER BY product_id, id
     LOOP
+        -- Conferência explícita antes de inserir. Sem ela a falta de estoque
+        -- apareceria como violação do CHECK `stock >= 0` de products, com
+        -- mensagem que não diz qual produto faltou.
         v_balance := public.fn_confirmed_balance(v_item.product_id);
         IF v_balance < v_item.quantity THEN
             RAISE EXCEPTION
@@ -31,8 +34,7 @@ BEGIN
         ) VALUES (
             NEW.company_id, v_item.product_id, NEW.id, 'SAIDA',
             v_item.quantity, 'CONFIRMADA',
-            'SAIDA_VENDA - venda ' || NEW.id::text,
-            NEW.created_by, now()
+            'SAIDA_VENDA - venda ' || NEW.id::text, NEW.created_by, now()
         );
     END LOOP;
 
@@ -55,10 +57,15 @@ DECLARE
     v_client_name text;
     v_item record;
     v_product record;
-    v_line record;
+    v_product_ids uuid[] := ARRAY[]::uuid[];
+    v_product_codes text[] := ARRAY[]::text[];
+    v_product_names text[] := ARRAY[]::text[];
+    v_unit_prices numeric[] := ARRAY[]::numeric[];
     v_gross_total numeric := 0;
     v_total numeric;
+    v_index integer;
     v_created_on timestamptz;
+    v_line record;
 BEGIN
     IF NOT public.fn_has_role(p_company_id, ARRAY['ADMIN','SELLER']::public.user_role[]) THEN
         RAISE EXCEPTION 'Sem permissão para registrar vendas nesta empresa'
@@ -69,9 +76,16 @@ BEGIN
         RAISE EXCEPTION 'A venda deve ter pelo menos um item'
             USING ERRCODE = 'check_violation';
     END IF;
+    -- `round(p_discount, 2)` é o mesmo teto de precisão que
+    -- `fn_create_complete_sale` já exigia, e ele não é cosmético: `discount` e
+    -- `total` são numeric(10,2), mas arredondam por caminhos diferentes. Com
+    -- 10.005 o banco gravava discount=10.01 e total=90.00 sobre subtotal
+    -- 100.00 -- a linha deixava de fechar por R$ 0,01, justamente a
+    -- reconciliação que a coluna `discount` existe para permitir auditar.
     IF p_payment_method IS NULL
        OR p_discount IS NULL OR p_discount < 0
-       OR p_discount::text IN ('NaN', 'Infinity', '-Infinity') THEN
+       OR p_discount::text IN ('NaN', 'Infinity', '-Infinity')
+       OR p_discount >= 100000000 OR p_discount <> round(p_discount, 2) THEN
         RAISE EXCEPTION 'Forma de pagamento ou desconto inválido'
             USING ERRCODE = 'check_violation';
     END IF;
@@ -85,6 +99,21 @@ BEGIN
             OR COALESCE(entry.value->>'quantity', '') !~ '^[1-9][0-9]*$'
     ) THEN
         RAISE EXCEPTION 'Produto e quantidade inteira positiva são obrigatórios'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- Bloco separado de propósito: só aqui a quantidade já passou pelo regex
+    -- de dígitos acima, e o PostgreSQL não garante ordem de avaliação dentro
+    -- de um mesmo OR -- juntar o cast ao teste de formato arriscaria estourar
+    -- na conversão antes da recusa. O teto é o mesmo de
+    -- `fn_create_complete_sale` e de `parse_quantity`; esta função aceitava
+    -- até o limite de `integer`, e os três caminhos recusavam valores
+    -- diferentes.
+    IF EXISTS (
+        SELECT 1
+          FROM jsonb_array_elements(p_items) AS entry(value)
+         WHERE (entry.value->>'quantity')::numeric > 1000000
+    ) THEN
+        RAISE EXCEPTION 'Quantidade deve ser inteira entre 1 e 1000000'
             USING ERRCODE = 'check_violation';
     END IF;
 
@@ -104,7 +133,7 @@ BEGIN
          GROUP BY entry.value->>'product_code'
          ORDER BY entry.value->>'product_code'
     LOOP
-        SELECT id, name, sell_price, stock
+        SELECT id, name, barcode, sell_price, stock
           INTO v_product
           FROM public.products
          WHERE company_id = p_company_id
@@ -122,6 +151,11 @@ BEGIN
                 v_item.product_code, v_item.quantity, v_product.stock
                 USING ERRCODE = 'check_violation';
         END IF;
+
+        v_product_ids := array_append(v_product_ids, v_product.id);
+        v_product_codes := array_append(v_product_codes, v_product.barcode);
+        v_product_names := array_append(v_product_names, v_product.name);
+        v_unit_prices := array_append(v_unit_prices, v_product.sell_price);
         v_gross_total := v_gross_total + v_product.sell_price * v_item.quantity;
     END LOOP;
 
@@ -145,19 +179,14 @@ BEGIN
                (entry.value->>'quantity')::integer AS quantity
           FROM jsonb_array_elements(p_items) AS entry(value)
     LOOP
-        SELECT id, name, barcode, sell_price
-          INTO v_product
-          FROM public.products
-         WHERE company_id = p_company_id
-           AND barcode = v_line.product_code
-           AND active;
-
+        v_index := array_position(v_product_codes, v_line.product_code);
         INSERT INTO public.sale_items (
             company_id, sale_id, product_id, product_name, product_code,
             quantity, unit_price
         ) VALUES (
-            p_company_id, v_id, v_product.id, v_product.name,
-            v_product.barcode, v_line.quantity, v_product.sell_price
+            p_company_id, v_id, v_product_ids[v_index],
+            v_product_names[v_index], v_product_codes[v_index],
+            v_line.quantity, v_unit_prices[v_index]
         );
     END LOOP;
 

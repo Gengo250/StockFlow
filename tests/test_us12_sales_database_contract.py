@@ -100,3 +100,50 @@ def test_supabase_repository_returns_rpc_snapshot_without_followup_reads():
     assert sale["produto_codigo"] == ""
     assert sale["produto"] == "2 itens"
     assert sale["valor"] == "R$ 29,98"
+
+
+def corpo_da_funcao(caminho, cabeca):
+    """Texto da função, do CREATE até o `$$;` que a fecha."""
+    texto = caminho.read_text(encoding="utf-8")
+    inicio = texto.index(cabeca)
+    return texto[inicio:texto.index("\n$$;", inicio) + len("\n$$;")]
+
+
+REGISTER_SALE = (
+    "CREATE OR REPLACE FUNCTION public.fn_register_sale(\n"
+    "    p_company_id uuid,\n    p_client_id uuid,\n    p_items jsonb"
+)
+SALE_COMPLETION = "CREATE OR REPLACE FUNCTION public.fn_process_sale_completion()"
+
+
+def test_a_migration_entrega_a_mesma_funcao_que_a_fonte_declarativa():
+    """`database/code` é a fonte, mas quem roda em produção é a migration.
+
+    As duas chegaram a ser implementações diferentes da mesma função: a
+    declarativa cacheia os produtos travados em arrays, a da migration
+    reconsultava produto a produto sem `FOR UPDATE` e sem `IF NOT FOUND` --
+    bastava a releitura falhar para a gravação morrer em
+    `sale_items.product_name NOT NULL` em vez da recusa pretendida.
+
+    Comparar os dois arquivos é o que impede a próxima correção de ser
+    aplicada só de um lado. Os testes vizinhos verificam cada arquivo
+    isoladamente e por isso não viam a divergência.
+    """
+    for cabeca in (REGISTER_SALE, SALE_COMPLETION):
+        assert corpo_da_funcao(MIGRATION, cabeca) == corpo_da_funcao(
+            PROCEDURES if cabeca is REGISTER_SALE else COMPLETION, cabeca
+        ), f"a migration divergiu da fonte declarativa em {cabeca.splitlines()[0]}"
+
+
+def test_o_desconto_nao_pode_ter_mais_de_duas_casas():
+    """numeric(10,2) arredonda `discount` e `total` por caminhos diferentes.
+
+    Com 10.005 sobre subtotal 100.00 o banco gravava discount=10.01 e
+    total=90.00: a linha deixava de fechar por R$ 0,01, que é exatamente a
+    reconciliação que a coluna `discount` existe para permitir auditar.
+    `fn_create_complete_sale` já exigia isso; `fn_register_sale` não.
+    """
+    for caminho in (PROCEDURES, MIGRATION):
+        corpo = corpo_da_funcao(caminho, REGISTER_SALE)
+        assert "p_discount <> round(p_discount, 2)" in corpo, caminho
+        assert "(entry.value->>'quantity')::numeric > 1000000" in corpo, caminho
