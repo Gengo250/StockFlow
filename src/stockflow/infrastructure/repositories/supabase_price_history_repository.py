@@ -18,9 +18,18 @@ class SupabasePriceHistoryRepository:
     def __init__(self, client, company_id, products=None):
         self._client = client
         self._company_id = company_id
+        # `products` é aceito e IGNORADO de propósito. A tradução do código
+        # para uuid não pode sair do repositório de catálogo: ele devolve
+        # `Product`, que não carrega o uuid — e `getattr(produto, "id")`
+        # respondia `None` para todo código, transformando "este produto" em
+        # "nenhum produto" e abrindo a tela filtrada vazia.
+        #
+        # O argumento continua na assinatura porque `build_price_history_
+        # repository` o passa para o adaptador de demonstração, que de fato
+        # precisa dele.
+        self._products = products
         # Cache `barcode -> id`, como nos adaptadores de catálogo e de
         # movimentação: a tela trabalha com o código e a função exige o uuid.
-        self._products = products
         self._ids = {}
 
     def list_price_edits(self, product_code: str | None = None) -> tuple[PriceChange, ...]:
@@ -43,28 +52,26 @@ class SupabasePriceHistoryRepository:
         # fora do banco.
         return tuple(_para_mudanca(linha) for linha in (getattr(resposta, "data", None) or []))
 
-    def _product_id(self, product_code: str):
-        if product_code in self._ids:
-            return self._ids[product_code]
+    def _product_id(self, code: str):
+        """uuid do produto, consultando só quando o cache não tem.
 
-        produto = None
-        if self._products is not None:
-            produto = self._products.get(product_code)
-        if produto is None:
+        Guarda apenas o ACERTO. Cachear a ausência tornaria permanente uma
+        resposta temporária: um produto que ainda não existia na primeira
+        consulta continuaria sem histórico até a janela ser reaberta.
+        """
+        if code not in self._ids:
             linhas = (
                 self._client.table("products")
-                .select("id,barcode")
+                .select("id")
                 .eq("company_id", self._company_id)
-                .eq("barcode", product_code)
+                .eq("barcode", code)
+                .limit(1)
                 .execute()
             )
             linhas = getattr(linhas, "data", None) or []
-            produto_id = linhas[0]["id"] if linhas else None
-        else:
-            produto_id = getattr(produto, "id", None)
-
-        self._ids[product_code] = produto_id
-        return produto_id
+            if linhas:
+                self._ids[code] = linhas[0]["id"]
+        return self._ids.get(code)
 
 
 def _para_mudanca(linha) -> PriceChange:

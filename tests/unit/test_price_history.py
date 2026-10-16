@@ -39,6 +39,9 @@ from stockflow.infrastructure.repositories.demo_product_repository import (
 from stockflow.infrastructure.repositories.supabase_price_history_repository import (
     SupabasePriceHistoryRepository,
 )
+from stockflow.infrastructure.repositories.supabase_product_repository import (
+    SupabaseProductRepository,
+)
 
 from test_supabase_product_repository import COMPANY, PRODUTO_ID, ClienteFalso, catalogo_falso
 
@@ -327,3 +330,48 @@ def test_custo_informado_pela_primeira_vez_chega_como_ausencia():
 
     assert linha.old_price is None
     assert linha.new_price == Decimal("25.00")
+
+
+def test_o_filtro_resolve_o_uuid_com_o_catalogo_injetado():
+    """Regressão: a tela filtrada abria vazia contra o banco.
+
+    `build_price_history_repository` INJETA o repositório de catálogo, e
+    `Product` não tem uuid — `getattr(produto, "id", None)` devolvia None
+    para todo código, o filtro virava "nenhum produto" e a consulta
+    respondia vazio.
+
+    O teste anterior passava porque construía o adaptador com
+    `products=None`, caindo no caminho de consulta que o app nunca percorre.
+    Este monta o adaptador como `backend.py` o monta.
+    """
+    cliente = cliente_com_historico([linha_crua()])
+    catalogo = SupabaseProductRepository(cliente, COMPANY)
+
+    linhas = SupabasePriceHistoryRepository(
+        cliente, COMPANY, catalogo
+    ).list_price_edits("PRD-009")
+
+    assert cliente.chamadas_rpc, "o filtro nem chegou a consultar"
+    assert cliente.chamadas_rpc[0][1]["p_product_id"] == PRODUTO_ID
+    assert len(linhas) == 1
+
+
+def test_produto_criado_depois_deixa_de_ser_invisivel():
+    """Cachear a AUSÊNCIA tornaria permanente uma resposta temporária.
+
+    O código some da primeira consulta só porque ainda não existia; com o
+    `None` guardado no cache, o produto criado em seguida continuaria sem
+    histórico até a janela ser reaberta.
+    """
+    cliente = cliente_com_historico([linha_crua()])
+    repositorio = SupabasePriceHistoryRepository(cliente, COMPANY)
+
+    assert repositorio.list_price_edits("PRD-NOVO") == ()
+
+    cliente.tabelas["products"].append(
+        {"id": PRODUTO_ID, "company_id": COMPANY, "barcode": "PRD-NOVO",
+         "name": "Criado depois", "sell_price": "10.00", "buy_price": None,
+         "unit": "UN", "stock": 0, "item_category": None, "active": True}
+    )
+
+    assert repositorio.list_price_edits("PRD-NOVO") != ()
