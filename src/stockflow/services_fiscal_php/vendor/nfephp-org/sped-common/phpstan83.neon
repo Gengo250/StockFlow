@@ -1,0 +1,6 @@
+includes:
+    - phpstan-baseline83.neon
+
+parameters:
+    level: 5
+    treatPhpDocTypesAsCertain: false
