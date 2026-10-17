@@ -244,11 +244,8 @@ class DemoProductRepository:
 
     def _to_product(self, data: ProductInput) -> Product:
         stock = _para_inteiro(data.stock)
-        # O mínimo vem do PRODUTO (US04); `self._minimum_stock` só entra
-        # quando o chamador não declara um — importação, API ou qualquer
-        # DTO anterior ao campo existir. Usar sempre o do repositório
-        # devolveria o limiar global que a US04 veio substituir.
         minimo = getattr(data, "minimum_stock", _SEM_CAMPO)
+        maximo = getattr(data, "maximum_stock", None)
         if minimo is _SEM_CAMPO:
             minimo = self._minimum_stock
         return Product(
@@ -262,6 +259,7 @@ class DemoProductRepository:
             stock=str(stock),
             stock_status=derive_stock_status(stock, minimo),
             minimum_stock=to_min(minimo),
+            maximum_stock=to_min(maximo),
             supplier_id=getattr(data, "supplier_id", None),
             description=getattr(data, "description", ""),
             ncm=getattr(data, "ncm", ""),
@@ -269,5 +267,4 @@ class DemoProductRepository:
             location=getattr(data, "location", ""),
             low_stock_alert=getattr(data, "low_stock_alert", True),
             image_data=getattr(data, "image_data", ""),
-
         )
