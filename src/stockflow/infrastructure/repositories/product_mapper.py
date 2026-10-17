@@ -91,22 +91,14 @@ def money_to_label(valor) -> str:
     return "R$ " + bruto.replace(",", "\x00").replace(".", ",").replace("\x00", ".")
 
 
-def row_to_product(row, category_name=None, minimum_stock=None) -> Product:
-    """Linha de `products` (+ nome da categoria e mínimo) para `Product`.
-
-    `category_name` e `minimum_stock` chegam de fora porque moram em outras
-    tabelas (`categories` e `product_stock`). Resolver cada um com uma consulta
-    por produto daria N+1; quem chama resolve em lote e passa pronto.
-
-    O `stock_status` é DERIVADO aqui, nunca lido: o banco não guarda o rótulo
-    (a view `vw_stock_situation` também o calcula), e inventar um campo
-    persistido criaria uma segunda verdade sobre a mesma coisa.
-    """
+def row_to_product(row, category_name=None, minimum_stock=None, maximum_stock=None) -> Product:
+    """Linha de `products` (+ nome da categoria, mínimo e máximo) para `Product`."""
     # Ausente PERMANECE ausente. `product_stock.min_quantity` é nullable, e
     # produto sem linha também chega como `None` — os dois casos significam
     # "sem limiar" e não podem virar zero, que agora é uma configuração que
     # alerta ao zerar o saldo.
     minimo = to_min(minimum_stock)
+    maximo = to_min(maximum_stock)
     estoque = to_int(row.get("stock"))
     return Product(
         code=row.get("barcode") or "",
@@ -119,12 +111,12 @@ def row_to_product(row, category_name=None, minimum_stock=None) -> Product:
         stock=str(estoque),
         stock_status=derive_stock_status(estoque, minimo),
         minimum_stock=minimo,
+        maximum_stock=maximo,
         supplier_id=row.get("supplier_id"),
         description=row.get("description") or "", ncm=row.get("ncm") or "",
         ean=row.get("ean") or "", location=row.get("location") or "",
         low_stock_alert=bool(row.get("low_stock_alert", True)),
         image_data=row.get("image_data") or "",
-
     )
 
 
