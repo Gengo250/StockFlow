@@ -4,25 +4,16 @@ Cobre a navegação entre páginas, filtros (produto, espécie, período),
 preservação de filtros em recargas e estados vazios.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 import pytest
 from PySide6.QtCore import QDate
+from PySide6.QtWidgets import QMessageBox, QPushButton
 
 from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.enums.movement_status import MovementStatus
 from stockflow.presentation.demo_products import Product
 from stockflow.presentation.pages.movimentacoes import (
-    COLUMNS,
-    MOV_CODE,
-    MOV_ID,
-    MOV_KIND,
-    MOV_NAME,
-    MOV_NOTE,
-    MOV_QTY,
-    MOV_REASON,
-    MOV_STATUS,
-    MOV_SUPPLIER,
-    MOV_WHEN,
+    ACTIONS_COLUMN,
     PAGE_SIZE,
     MovimentacoesPage,
 )
@@ -52,6 +43,21 @@ def _criar_movimento(
         supplier or "—",
         reason or "—",
     )
+
+
+@pytest.fixture
+def sem_dialogos(monkeypatch):
+    """Diálogo modal em teste offscreen trava a suíte: ninguém o fecha.
+
+    Mesma proteção que os demais testes de `MainWindow` usam. Sem ela, uma
+    falha inesperada no registro vira execução pendurada em vez de teste
+    vermelho — e no CI isso custa o job inteiro.
+    """
+    avisos = []
+    for nome in ("critical", "warning", "information"):
+        monkeypatch.setattr(QMessageBox, nome,
+                            staticmethod(lambda *a, _n=nome, **k: avisos.append(_n)))
+    return avisos
 
 
 @pytest.fixture
@@ -169,12 +175,17 @@ def test_filtro_por_periodo(qapp, catalogo):
     page = MovimentacoesPage(catalogo)
     page.set_movements(movs)
 
-    # Filtra período cobrindo de ontem até hoje
+    # Abre o intervalo em ontem: a antiga sai, hoje e ontem ficam.
     page.filtro_data_inicio.setDate(QDate(ontem.year, ontem.month, ontem.day))
-    page.filtro_data_fim.setDate(QDate(hoje.year, hoje.month, hoje.day))
-
     assert page.table.rowCount() == 2
     assert "2 registro(s)" in page.paginacao_label.text()
+
+    # Fecha o intervalo em ontem. Repare que o valor PRECISA mudar: os dois
+    # QDateEdit nascem com a data de hoje, e `setDate(hoje)` não emitiria
+    # `dateChanged` — a asserção passaria sem nunca exercitar o limite.
+    page.filtro_data_fim.setDate(QDate(ontem.year, ontem.month, ontem.day))
+    assert page.table.rowCount() == 1
+    assert ontem.strftime("%d/%m/%Y") in page.table.item(0, 5).text()
 
 
 def test_limpar_filtros(qapp, catalogo):
@@ -264,8 +275,8 @@ def test_filtro_periodo_presets(qapp, catalogo):
     antiga = hoje - timedelta(days=20)
 
     movs = (
-        ("1", "PRD-001", "P1", "Entrada", 1, "Confirmada", "—", f"Hoje, 10:00", "—", "—"),
-        ("2", "PRD-001", "P1", "Entrada", 1, "Confirmada", "—", f"Ontem, 15:00", "—", "—"),
+        ("1", "PRD-001", "P1", "Entrada", 1, "Confirmada", "—", "Hoje, 10:00", "—", "—"),
+        ("2", "PRD-001", "P1", "Entrada", 1, "Confirmada", "—", "Ontem, 15:00", "—", "—"),
         ("3", "PRD-001", "P1", "Entrada", 1, "Confirmada", "—", antiga.strftime("%d/%m/%Y"), "—", "—"),
     )
     page = MovimentacoesPage(catalogo)
@@ -282,7 +293,7 @@ def test_filtro_periodo_presets(qapp, catalogo):
     assert page.table.rowCount() == 2
 
 
-def test_novas_movimentacoes_aparecem_com_filtros_ativos(qapp, request):
+def test_novas_movimentacoes_aparecem_com_filtros_ativos(qapp, request, sem_dialogos):
     """Novas movimentações registradas na tela aparecem sob filtros ativos de Tipo e Período."""
     from stockflow.presentation.windows.main_window import MainWindow
     from stockflow.presentation.demo_accounts import conta_por_papel
@@ -308,7 +319,123 @@ def test_novas_movimentacoes_aparecem_com_filtros_ativos(qapp, request):
     page.registrar_button.click()
 
     # A nova movimentação DEVE aparecer na tabela mesmo com os filtros ativos!
+    assert sem_dialogos == [], f"a tela recusou o lançamento: {sem_dialogos}"
     assert page.table.rowCount() == linhas_antes + 1
     assert page.table.item(0, 1).text() == "Entrada"
     assert "Hoje" in page.table.item(0, 5).text()
 
+
+def test_preset_de_7_dias_cobre_sete_dias_e_nao_oito(qapp, catalogo):
+    """O preset de 7 dias inclui hoje e os 6 anteriores; o sétimo dia atrás fica fora."""
+    hoje = date.today()
+    movs = (
+        _criar_movimento("MOV-001", when=(hoje - timedelta(days=6)).strftime("%d/%m/%Y")),
+        _criar_movimento("MOV-002", when=(hoje - timedelta(days=7)).strftime("%d/%m/%Y")),
+    )
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+
+    page.filtro_periodo_combo.setCurrentIndex(page.filtro_periodo_combo.findData("7d"))
+
+    assert page.table.rowCount() == 1
+    assert (hoje - timedelta(days=6)).strftime("%d/%m/%Y") in page.table.item(0, 5).text()
+
+
+def test_preset_de_30_dias_cobre_trinta_dias_e_nao_trinta_e_um(qapp, catalogo):
+    """O preset de 30 dias inclui hoje e os 29 anteriores; o trigésimo fica fora."""
+    hoje = date.today()
+    movs = (
+        _criar_movimento("MOV-001", when=(hoje - timedelta(days=29)).strftime("%d/%m/%Y")),
+        _criar_movimento("MOV-002", when=(hoje - timedelta(days=30)).strftime("%d/%m/%Y")),
+    )
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+
+    page.filtro_periodo_combo.setCurrentIndex(page.filtro_periodo_combo.findData("30d"))
+
+    assert page.table.rowCount() == 1
+    assert (hoje - timedelta(days=29)).strftime("%d/%m/%Y") in page.table.item(0, 5).text()
+
+
+def test_paginar_durante_erro_de_carga_nao_reexibe_dados_velhos(qapp, catalogo):
+    """Com o aviso de falha na tela, paginar não pode trazer a tabela obsoleta de volta."""
+    movs = tuple(_criar_movimento(f"MOV-{i:03d}") for i in range(PAGE_SIZE + 1))
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+    page.show_load_error("conexão perdida")
+    assert not page.table.isVisibleTo(page)
+
+    page.proximo_button.click()
+
+    assert not page.table.isVisibleTo(page)
+    assert page.load_error_label.isVisibleTo(page)
+
+
+def test_filtrar_durante_erro_de_carga_nao_reexibe_dados_velhos(qapp, catalogo):
+    """Idem para filtrar: o estado de erro manda até que uma carga nova chegue."""
+    movs = (
+        _criar_movimento("MOV-001", code="PRD-001"),
+        _criar_movimento("MOV-002", code="PRD-002"),
+    )
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+    page.show_load_error("conexão perdida")
+
+    page.filtro_produto_combo.setCurrentIndex(page.filtro_produto_combo.findData("PRD-001"))
+
+    assert not page.table.isVisibleTo(page)
+    assert not page.list_state_label.isVisibleTo(page)
+    assert page.load_error_label.isVisibleTo(page)
+
+
+def test_reload_products_mantem_filtro_de_produto_que_ainda_tem_historico(qapp, catalogo):
+    """Produto desativado e fora do catálogo continua filtrável enquanto houver histórico dele."""
+    movs = (
+        _criar_movimento("MOV-001", code="PRD-001"),
+        _criar_movimento("MOV-002", code="PRD-002"),
+    )
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+    page.filtro_produto_combo.setCurrentIndex(page.filtro_produto_combo.findData("PRD-002"))
+    assert page.table.rowCount() == 1
+
+    del catalogo["PRD-002"]
+    page.reload_products(catalogo)
+
+    assert page.filtro_produto_combo.currentData() == "PRD-002"
+    assert page.table.rowCount() == 1
+
+
+def test_reload_products_que_perde_o_produto_filtrado_recalcula_a_tela(qapp, catalogo):
+    """Se a opção filtrada some de vez, a tabela volta a mostrar tudo — sem 'filtro ativo' mentindo."""
+    movs = (_criar_movimento("MOV-001", code="PRD-001"),)
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+    page.filtro_produto_combo.setCurrentIndex(page.filtro_produto_combo.findData("PRD-002"))
+    assert page.table.rowCount() == 0
+
+    del catalogo["PRD-002"]
+    page.reload_products(catalogo)
+
+    assert page.filtro_produto_combo.currentData() is None
+    assert page.table.rowCount() == 1
+    assert "filtro ativo" not in page.subtitle.text()
+
+
+def test_apply_permission_preserva_a_pagina_atual(qapp, catalogo):
+    """Reaplicar a permissão redesenha os botões da linha sem tirar o usuário da página."""
+    movs = tuple(
+        _criar_movimento(f"MOV-{i:03d}", status=MovementStatus.PENDENTE)
+        for i in range(PAGE_SIZE + 1)
+    )
+    page = MovimentacoesPage(catalogo)
+    page.set_movements(movs)
+    page.proximo_button.click()
+    assert "Página 2 de 2" in page.paginacao_label.text()
+
+    page.apply_permission(False)
+
+    assert "Página 2 de 2" in page.paginacao_label.text()
+    assert page.table.rowCount() == 1
+    acoes = page.table.cellWidget(0, ACTIONS_COLUMN)
+    assert [b.isEnabled() for b in acoes.findChildren(QPushButton)] == [False, False]

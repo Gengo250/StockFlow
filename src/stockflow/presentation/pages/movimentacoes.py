@@ -115,6 +115,11 @@ class MovimentacoesPage(QWidget):
         self._pagina_atual = 0
         self._total_filtradas = 0
 
+        # Falha de carga é estado da lista, e precisa existir antes do
+        # primeiro desenho: `_desenhar_pagina` e `_atualizar_vazio` leem este
+        # atributo para não escrever por cima do aviso de erro.
+        self._list_state_error = False
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 22, 22, 22)
         layout.setSpacing(18)
@@ -517,20 +522,13 @@ class MovimentacoesPage(QWidget):
                 self.ajuste_produto_combo.setCurrentIndex(indice)
         self._atualizar_previa()
 
-        if hasattr(self, "filtro_produto_combo"):
-            atual_filtro = self.filtro_produto_combo.currentData()
-            self.filtro_produto_combo.blockSignals(True)
-            self.filtro_produto_combo.clear()
-            self.filtro_produto_combo.addItem("Todos os produtos", None)
-            for produto in sorted(self.products.values(), key=lambda p: p.code):
-                self.filtro_produto_combo.addItem(
-                    f"{produto.code} — {produto.name}", produto.code
-                )
-            if atual_filtro is not None:
-                indice = self.filtro_produto_combo.findData(atual_filtro)
-                if indice >= 0:
-                    self.filtro_produto_combo.setCurrentIndex(indice)
-            self.filtro_produto_combo.blockSignals(False)
+        # Recarregar o catálogo pode derrubar a opção que está filtrando o
+        # histórico. Quando isso acontece o combo volta para "Todos os
+        # produtos" — e a tabela PRECISA ser recalculada junto, senão ela
+        # continua exibindo o recorte antigo sob um filtro que já não existe.
+        if not self._repopular_filtro_de_produtos():
+            self._pagina_atual = 0
+            self._aplicar_filtros_e_paginar()
 
     def set_suppliers(self, suppliers):
         """Oferece somente fornecedores ativos para novas entradas."""
@@ -564,15 +562,51 @@ class MovimentacoesPage(QWidget):
         self._list_state_error = False
         self.load_error_label.setVisible(False)
 
-        if hasattr(self, "filtro_produto_combo"):
-            for mov in self.movimentacoes:
-                code = mov[MOV_CODE]
-                if code and code != "—" and self.filtro_produto_combo.findData(code) < 0:
-                    name = mov[MOV_NAME] if mov[MOV_NAME] != "—" else code
-                    self.filtro_produto_combo.addItem(f"{code} — {name}", code)
+        self._repopular_filtro_de_produtos()
 
         self._pagina_atual = 0
         self._aplicar_filtros_e_paginar()
+
+    def _repopular_filtro_de_produtos(self) -> bool:
+        """Refaz as opções do filtro de produto e diz se a seleção sobreviveu.
+
+        A oferta é o catálogo MAIS os códigos presentes no histórico
+        carregado. O catálogo sozinho não basta: um produto removido ou
+        desativado sai da oferta de lançamento, mas continua no histórico —
+        e esconder a opção impediria auditar justamente o que já aconteceu
+        com ele. Daí também a diferença para os combos de lançamento, que
+        usam `selectable_products`: lançar é sobre o futuro, filtrar é sobre
+        o passado.
+
+        Este é o ÚNICO lugar que popula o combo. Ter dois caminhos com regras
+        diferentes fazia o conteúdo depender de qual deles rodou por último.
+        """
+        if not hasattr(self, "filtro_produto_combo"):
+            return True
+
+        anterior = self.filtro_produto_combo.currentData()
+        opcoes = {
+            produto.code: f"{produto.code} — {produto.name}"
+            for produto in sorted(self.products.values(), key=lambda p: p.code)
+        }
+        for mov in self.movimentacoes:
+            code = mov[MOV_CODE]
+            if not code or code == "—" or code in opcoes:
+                continue
+            nome = mov[MOV_NAME] if mov[MOV_NAME] != "—" else code
+            opcoes[code] = f"{code} — {nome}"
+
+        self.filtro_produto_combo.blockSignals(True)
+        self.filtro_produto_combo.clear()
+        self.filtro_produto_combo.addItem("Todos os produtos", None)
+        for code, rotulo in opcoes.items():
+            self.filtro_produto_combo.addItem(rotulo, code)
+        if anterior is not None:
+            indice = self.filtro_produto_combo.findData(anterior)
+            self.filtro_produto_combo.setCurrentIndex(max(indice, 0))
+        self.filtro_produto_combo.blockSignals(False)
+
+        return self.filtro_produto_combo.currentData() == anterior
 
     # -------------------------------------------------------------- filtros
 
@@ -631,10 +665,13 @@ class MovimentacoesPage(QWidget):
         if modo == "ontem":
             ontem = hoje - timedelta(days=1)
             return ontem, ontem
+        # Os dois extremos são inclusivos em `_filtrar`, então "últimos 7
+        # dias" é hoje mais os SEIS anteriores. Subtrair 7 cobriria oito dias
+        # e traria para dentro do filtro o dia que o rótulo exclui.
         if modo == "7d":
-            return hoje - timedelta(days=7), hoje
+            return hoje - timedelta(days=6), hoje
         if modo == "30d":
-            return hoje - timedelta(days=30), hoje
+            return hoje - timedelta(days=29), hoje
         if modo == "mes":
             return hoje.replace(day=1), hoje
         # custom
@@ -690,7 +727,11 @@ class MovimentacoesPage(QWidget):
             self.table.setItem(row, 7, QTableWidgetItem(str(mov[MOV_REASON])))
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._acoes(mov))
 
-        self.table.setVisible(True)
+        # Enquanto a falha de carga estiver na tela, quem manda é ela: filtrar
+        # ou paginar redesenha as linhas em memória, que são justamente as
+        # obsoletas. Mostrá-las sob o aviso de erro é pior do que não mostrar
+        # nada — a tela afirmaria duas coisas contraditórias ao mesmo tempo.
+        self.table.setVisible(not self._list_state_error)
 
     # ----------------------------------------------------------- paginação
 
@@ -784,7 +825,7 @@ class MovimentacoesPage(QWidget):
                     "Nenhuma movimentação registrada. Lance uma entrada ou saída "
                     "acima — o saldo do produto é a soma das confirmadas."
                 )
-        self.list_state_label.setVisible(sem_resultado)
+        self.list_state_label.setVisible(sem_resultado and not self._list_state_error)
 
         total_bruto = len(self.movimentacoes)
         if sem_resultado and not filtro_ativo:
@@ -1019,8 +1060,10 @@ class MovimentacoesPage(QWidget):
                        self.ajuste_aplicar_button):
             widget.setEnabled(self._pode_movimentar)
         # Os botões da tabela nascem habilitados a cada redesenho; refazer as
-        # linhas é o que reaplica a permissão neles.
-        self.set_movements(self.movimentacoes)
+        # linhas é o que reaplica a permissão neles. Redesenhar a página
+        # atual, e não `set_movements`: trocar de papel não é dado novo, e
+        # não pode arrancar quem está na página 5 de volta para a página 1.
+        self._aplicar_filtros_e_paginar()
         self._update_supplier_enabled()
         # Sem isto, reativar o papel reabilitaria "Aplicar ajuste" mesmo sem
         # diferença alguma a lançar — o botão voltaria antes da prévia dizer
