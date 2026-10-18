@@ -39,6 +39,8 @@ LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
     v_id uuid;
+    v_max   integer;
+    v_current_stock integer;
 BEGIN
     IF NOT public.fn_has_role(p_company_id, ARRAY['ADMIN','STOCK']::public.user_role[]) THEN
         RAISE EXCEPTION 'Sem permissão para movimentar estoque nesta empresa'
@@ -49,6 +51,29 @@ BEGIN
         RAISE EXCEPTION 'Quantidade deve ser maior que zero (recebida: %)', p_quantity
             USING ERRCODE = 'check_violation';
     END IF;
+
+    SELECT stock INTO v_current_stock 
+      FROM public.products
+     WHERE id = p_product_id AND company_id = p_company_id AND active 
+       FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Produto não encontrado ou inativo nesta empresa'
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+
+    -- Se for ENTRADA e for CONFIRMADA na hora, valida o teto máximo
+    IF p_kind = 'ENTRADA' AND p_confirm THEN
+        v_max := public.fn_get_effective_max_stock(p_product_id);
+        IF v_max IS NOT NULL AND (v_current_stock + p_quantity) > v_max THEN
+            RAISE EXCEPTION 'Entrada rejeitada: a quantidade (%) somada ao estoque atual (%) ultrapassa o estoque máximo (%)',
+                p_quantity, v_current_stock, v_max USING ERRCODE = 'check_violation';
+        END IF;
+    END IF;
+
+
+
+
 
     -- O produto precisa ser DA empresa informada. Sem esta checagem, quem é
     -- STOCK numa empresa movimentaria o estoque de outra.
@@ -221,6 +246,7 @@ DECLARE
     v_detail  text := nullif(btrim(coalesce(p_detail, '')), '');
     v_id      uuid;
     v_final   integer;
+    v_max     integer;
 BEGIN
     IF NOT public.fn_has_role(p_company_id, ARRAY['ADMIN','STOCK']::public.user_role[]) THEN
         RAISE EXCEPTION 'Sem permissão para ajustar o estoque nesta empresa'
@@ -235,6 +261,13 @@ BEGIN
     IF p_reason IS NULL THEN
         RAISE EXCEPTION 'Informe o motivo do ajuste'
             USING ERRCODE = 'check_violation';
+    END IF;
+
+    v_max := public.fn_get_effective_max_stock(p_product_id);
+
+    IF v_max IS NOT NULL AND p_counted_balance > v_max THEN
+        RAISE EXCEPTION 'O saldo contado (%) ultrapassa o estoque máximo permitido (%) para este produto',
+        p_counted_balance, v_max USING ERRCODE = 'check_violation';
     END IF;
 
     IF p_reason = 'OUTRO' AND v_detail IS NULL THEN

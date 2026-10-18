@@ -13,17 +13,36 @@ RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
     v_product uuid := COALESCE(NEW.product_id, OLD.product_id);
+    v_new_balance integer;
+    v_max_stock integer;
+    v_company_limit integer;
+    v_effective_max integer;
 BEGIN
-    UPDATE public.products
-       SET stock = public.fn_confirmed_balance(v_product)
-     WHERE id = v_product;
+    -- 1. Calcula o novo saldo resultante das movimentações confirmadas
+    v_new_balance := public.fn_confirmed_balance(v_product);
 
-    -- UPDATE que troca o produto da linha precisa acertar os DOIS saldos.
-    IF TG_OP = 'UPDATE' AND NEW.product_id IS DISTINCT FROM OLD.product_id THEN
-        UPDATE public.products
-           SET stock = public.fn_confirmed_balance(OLD.product_id)
-         WHERE id = OLD.product_id;
+    -- 2. Busca os limites configurados (do produto e da empresa)
+    SELECT ps.max_quantity, c.max_stock_limit
+      INTO v_max_stock, v_company_limit
+      FROM public.products p
+      JOIN public.company c ON c.id = p.company_id
+      LEFT JOIN public.product_stock ps ON ps.product_id = p.id
+     WHERE p.id = v_product;
+
+    -- O limite efetivo é o do produto; se o produto não tiver, é o da empresa
+    v_effective_max := COALESCE(v_max_stock, v_company_limit);
+
+    -- 3. Se o novo saldo ultrapassar o limite, aborta a transação
+    IF v_effective_max IS NOT NULL AND v_new_balance > v_effective_max THEN
+        RAISE EXCEPTION 'Movimentação rejeitada: o saldo resultante (%) ultrapassaria o estoque máximo permitido (%)',
+            v_new_balance, v_effective_max
+            USING ERRCODE = 'check_violation';
     END IF;
+
+    -- 4. Atualiza o produto (se o saldo for negativo, o CHECK (stock >= 0) da tabela barra aqui)
+    UPDATE public.products
+       SET stock = v_new_balance
+     WHERE id = v_product;
 
     RETURN NULL;
 END;

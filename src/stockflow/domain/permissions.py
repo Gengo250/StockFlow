@@ -237,6 +237,15 @@ def ensure_can_manage_products(session, action: str = "gerenciar produtos") -> N
     """
     exigir_gravar(session, "produtos", action)
 
+def can_manage_companies(role_or_session) -> bool:
+    """Apenas ADMIN pode alterar configurações institucionais da empresa."""
+    return _papel_de(role_or_session) == UserRole.ADMIN
+
+
+def ensure_can_manage_companies(session, action: str = "gerenciar empresa") -> None:
+    """Levanta PermissionDeniedError se a sessão não for de um ADMIN."""
+    if not can_manage_companies(session):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
 
 def can_manage_users(role_or_session) -> bool:
     """Quem pode administrar usuários: espelha `fn_is_admin`.

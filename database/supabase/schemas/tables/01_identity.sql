@@ -8,7 +8,8 @@ CREATE TABLE public.company (
     name        text NOT NULL CHECK (btrim(name) <> ''),
     cnpj        text UNIQUE,
     active      boolean NOT NULL DEFAULT true,
-    created_on  timestamptz NOT NULL DEFAULT now()
+    created_on  timestamptz NOT NULL DEFAULT now(),
+    max_stock_limit integer NOT NULL DEFAULT 10000 CHECK (max_stock_limit >= 0)
 );
 
 CREATE TABLE public.user_accounts (
