@@ -10,7 +10,6 @@ from stockflow.presentation.demo_data import linhas_de_usuarios
 from stockflow.presentation.demo_users import USER_ROLES
 from stockflow.presentation.widgets.user_table import ALL_ROLES, UserTable
 
-
 from stockflow.presentation.styles.users import USERS_QSS
 
 
@@ -54,7 +53,7 @@ class UsersPage(QWidget):
         self.new_user_button = QPushButton("Novo Usuário")
         self.new_user_button.setObjectName("primaryButton")
         self.new_user_button.setIcon(qta.icon("fa5s.plus", color="white"))
-        self.new_user_button.clicked.connect(lambda: self._open_form())
+        self.new_user_button.clicked.connect(self._open_new_user_form)
         header.addWidget(self.new_user_button)
         layout.addLayout(header)
         self.summary = UserSummary(self.users)
@@ -121,13 +120,18 @@ class UsersPage(QWidget):
         role.addItems([ALL_ROLES, *self._perfis()])
         role.setAccessibleName("Filtrar por perfil")
         layout.addWidget(role)
-        search.textChanged.connect(
-            lambda text: self.user_table.filter_users(text, role.currentText())
-        )
-        role.currentTextChanged.connect(
-            lambda text: self.user_table.filter_users(search.text(), text)
-        )
+        search.textChanged.connect(self._filter_users_by_search)
+        role.currentTextChanged.connect(self._filter_users_by_role)
         return layout
+
+    def _filter_users_by_search(self, text):
+        self.user_table.filter_users(text, self.role_filter.currentText())
+
+    def _filter_users_by_role(self, role):
+        self.user_table.filter_users(self.search_input.text(), role)
+
+    def _open_new_user_form(self):
+        self._open_form()
 
     def apply_permission(self, pode_gerenciar: bool):
         """Controles visuais do papel atual.

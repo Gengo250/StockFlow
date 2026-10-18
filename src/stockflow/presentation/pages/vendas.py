@@ -491,6 +491,17 @@ class VendasPage(QWidget):
         if escolhido:
             self._apontar_produto(escolhido["codigo"])
 
+    def _filter_history(self, text: str) -> None:
+        """Filtra a exibição do histórico de vendas conforme o texto digitado."""
+        search_term = text.strip().casefold()
+
+        # Exemplo utilizando QTableWidget (ajuste para a estrutura da sua tela)
+        for row in range(self.history_table.rowCount()):
+            item = self.history_table.item(row, 0)  # Coluna usada para busca
+            if item:
+                matches = search_term in item.text().casefold()
+                self.history_table.setRowHidden(row, not matches)
+    
     def reload_products(self, products=None):
         """Refaz a oferta de produtos a partir do catálogo atual.
 

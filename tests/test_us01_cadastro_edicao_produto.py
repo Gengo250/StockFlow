@@ -191,6 +191,31 @@ def test_edicao_de_estoque_preserva_custo_unidade_e_categoria(janela, sem_dialog
     assert depois.sale_price == antes.sale_price
 
 
+def test_edicao_bloqueia_maximo_abaixo_do_minimo_e_persiste_o_valido(
+    janela, sem_dialogos
+):
+    window = janela(sessao(UserRole.ADMIN))
+    window.estoque_page.stock_table.edit_buttons[0].click()
+    page = window.editar_produto_page
+
+    page.minimum_stock_input.setValue(10)
+    page.maximum_stock_input.setValue(9)
+
+    assert page.stock_limit_error.isVisible()
+    assert not page.save_button.isEnabled()
+    with pytest.raises(ValueError, match="menor que o estoque mínimo"):
+        page.collect_input()
+
+    page.maximum_stock_input.setValue(10)
+    assert not page.stock_limit_error.isVisible()
+    assert page.save_button.isEnabled()
+    page.save_button.click()
+
+    assert window.last_save_error is None
+    assert window.products["PRD-009"].minimum_stock == 10
+    assert window.products["PRD-009"].maximum_stock == 10
+
+
 def test_edicao_nao_reativa_produto_inativo(janela, sem_dialogos):
     window = janela(sessao(UserRole.ADMIN))
     inativo = Product("PRD-050", "Impressora antiga", "Eletrônicos",

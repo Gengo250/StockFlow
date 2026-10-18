@@ -108,6 +108,10 @@ class NovoProdutoPage(QWidget):
         scroll.setWidget(scroll_container)
         page_layout.addWidget(scroll)
         page_layout.addWidget(self.actions_bar)
+        self._pode_escrever = False
+        self.minimum_stock_input.valueChanged.connect(self._validate_stock_limits)
+        self.maximum_stock_input.valueChanged.connect(self._validate_stock_limits)
+        self._validate_stock_limits()
 
     def _create_columns(self):
         columns = QBoxLayout(QBoxLayout.LeftToRight)
@@ -162,7 +166,8 @@ class NovoProdutoPage(QWidget):
                 "cost_price_input", "sale_price_input", "unit_input",
             )),
             (self.stock_control_card, (
-                "initial_stock_input", "minimum_stock_input", "location_input", "supplier_input", "low_stock_alert",
+                "initial_stock_input", "minimum_stock_input", "maximum_stock_input",
+                "stock_limit_error", "location_input", "supplier_input", "low_stock_alert",
             )),
             (self.status_card, ("product_status_toggle", "status_dot", "status_label")),
         )
@@ -303,8 +308,8 @@ class NovoProdutoPage(QWidget):
         Esconder o botão sem checar na gravação deixaria qualquer caminho
         alternativo (atalho, script, bug de estado) escrever no catálogo.
         """
-        self.save_button.setEnabled(pode_escrever)
-        self.draft_button.setEnabled(pode_escrever)
+        self._pode_escrever = pode_escrever
+        self._validate_stock_limits()
         # Mesma regra de `fn_create_categories`: quem não grava produto
         # também não cadastra categoria.
         self.new_category_button.setEnabled(pode_escrever)
@@ -312,6 +317,8 @@ class NovoProdutoPage(QWidget):
 
     def collect_input(self) -> ProductInput:
         """Lê os widgets e devolve o DTO que o serviço espera."""
+        if self._validate_stock_limits():
+            raise ValueError("Estoque máximo não pode ser menor que o estoque mínimo.")
         return ProductInput(
             code=self.code_input.text().strip(),
             name=self.name_input.text().strip(),
@@ -322,6 +329,7 @@ class NovoProdutoPage(QWidget):
             stock=str(self.initial_stock_input.value()),
             active=self.product_status_toggle.isChecked(),
             minimum_stock=self._minimo_do_formulario(),
+            maximum_stock=self._maximo_do_formulario(),
             supplier_id=self.supplier_input.currentData(),
             description=self.description_input.toPlainText().strip(),
             location=self.location_input.text().strip(),
@@ -339,6 +347,20 @@ class NovoProdutoPage(QWidget):
         """
         valor = self.minimum_stock_input.value()
         return None if valor <= SEM_MINIMO else valor
+
+    def _maximo_do_formulario(self):
+        """Valor do spin de máximo; zero representa o campo opcional vazio."""
+        valor = self.maximum_stock_input.value()
+        return None if valor == 0 else valor
+
+    def _validate_stock_limits(self):
+        minimo = self._minimo_do_formulario()
+        maximo = self._maximo_do_formulario()
+        invalido = minimo is not None and maximo is not None and maximo < minimo
+        self.stock_limit_error.setVisible(invalido)
+        self.save_button.setEnabled(self._pode_escrever and not invalido)
+        self.draft_button.setEnabled(self._pode_escrever and not invalido)
+        return invalido
 
     def clear_form(self):
         """Devolve o formulário ao estado de cadastro em branco.
@@ -360,6 +382,7 @@ class NovoProdutoPage(QWidget):
         # todo produto cadastrado pela tela ganhar um limiar que ninguém
         # escolheu — na prática, nenhum produto ficava sem mínimo.
         self.minimum_stock_input.setValue(SEM_MINIMO)
+        self.maximum_stock_input.setValue(0)
         self.location_input.clear()
         self.supplier_input.setCurrentIndex(0)
         self.low_stock_alert.setChecked(True)
@@ -447,6 +470,7 @@ class NovoProdutoPage(QWidget):
                 code, name, category, stock, sale_price, _stock_status = product[:6]
                 active = True
                 minimum = None
+                maximum = None
         else:
             code = product.code
             name = product.name
@@ -457,6 +481,7 @@ class NovoProdutoPage(QWidget):
             cost = product.cost
             active = product.active
             minimum = getattr(product, "minimum_stock", None)
+            maximum = getattr(product, "maximum_stock", None)
 
         self.description_input.setPlainText(getattr(product, "description", ""))
         self.location_input.setText(getattr(product, "location", ""))
@@ -476,6 +501,9 @@ class NovoProdutoPage(QWidget):
         # um número — senão a edição inventaria um limiar.
         self.minimum_stock_input.setValue(
             SEM_MINIMO if to_min(minimum) is None else _para_inteiro(minimum)
+        )
+        self.maximum_stock_input.setValue(
+            0 if to_min(maximum) is None else _para_inteiro(maximum)
         )
         self.product_status_toggle.setChecked(bool(active))
         supplier_id = getattr(product, "supplier_id", None)

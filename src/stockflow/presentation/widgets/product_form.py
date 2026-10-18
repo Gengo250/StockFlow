@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 from stockflow.presentation.widgets.form_fields import (
     FormCard, LABEL_QSS, _card_header, _combo, _divider, _field,
-    _line_edit, _minimum_stock_input, _money_input, _stock_input,
+    _line_edit, _minimum_stock_input, _maximum_stock_input, _money_input, _stock_input,
 )
 
 
@@ -182,13 +182,26 @@ class StockControlCard(FormCard):
         minimum = _field("Estoque mínimo", optional=True)
         self.minimum_stock_input = _minimum_stock_input()
         minimum.layout().addWidget(self.minimum_stock_input)
+        maximum = _field("Estoque máximo", optional=True)
+        self.maximum_stock_input = _maximum_stock_input()
+        maximum.layout().addWidget(self.maximum_stock_input)
         location = _field("Localização", optional=True)
         self.location_input = _line_edit("Ex.: Corredor A - Prateleira 3")
         location.layout().addWidget(self.location_input)
         row.addWidget(initial)
         row.addWidget(minimum)
+        row.addWidget(maximum)
         row.addWidget(location)
         layout.addLayout(row)
+        self.stock_limit_error = QLabel(
+            "Estoque máximo não pode ser menor que o estoque mínimo."
+        )
+        self.stock_limit_error.setStyleSheet(
+            f"{LABEL_QSS} color: #B91C1C; font-weight: 600;"
+        )
+        self.stock_limit_error.setWordWrap(True)
+        self.stock_limit_error.hide()
+        layout.addWidget(self.stock_limit_error)
 
         supplier = _field("Fornecedor principal", optional=True)
         self.supplier_input = _combo(["Selecione um fornecedor"])
