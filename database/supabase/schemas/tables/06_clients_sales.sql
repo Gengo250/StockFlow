@@ -188,4 +188,6 @@ CREATE INDEX idx_sales_log_sale ON public.sales_log (sale_id);
 -- ordem de schema_paths.
 ALTER TABLE public.stock_movements
     ADD COLUMN sale_id uuid REFERENCES public.sales(id) ON DELETE SET NULL;
+    ADD COLUMN sale_item_id uuid REFERENCES public.sale_items(id) ON DELETE SET NULL;
+
 CREATE INDEX idx_stock_movements_sale ON public.stock_movements (sale_id);

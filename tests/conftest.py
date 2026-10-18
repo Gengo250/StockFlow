@@ -7,8 +7,11 @@ necessário um servidor gráfico para executá-los.
 import os
 import sys
 from pathlib import Path
-
 import pytest
+from dataclasses import dataclass
+from stockflow.presentation.demo_accounts import conta_por_papel
+from stockflow.presentation.demo_users import USER_ROLES, DEMO_USERS,UserRole
+
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -43,3 +46,7 @@ def vendas_page(qapp):
     from stockflow.domain.enums.user_role import UserRole
     from stockflow.presentation.demo_accounts import conta_por_papel
     return VendasPage(session=conta_por_papel(UserRole.SELLER).session())
+
+@pytest.fixture
+def seller_session():
+    return conta_por_papel(UserRole.SELLER).session()

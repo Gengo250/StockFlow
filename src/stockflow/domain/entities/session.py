@@ -7,6 +7,8 @@ from stockflow.domain.permissions import can_manage_products, can_manage_users
 
 
 @dataclass(frozen=True)
+
+
 class Session:
     user_id: str
     name: str

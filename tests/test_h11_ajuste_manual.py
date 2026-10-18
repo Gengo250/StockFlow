@@ -18,6 +18,8 @@ from PySide6.QtWidgets import QMessageBox
 from stockflow.application.dto.adjustment_input import AdjustmentInput
 from stockflow.domain.enums.adjustment_reason import AdjustmentReason
 from stockflow.domain.enums.user_role import UserRole
+from stockflow.presentation.demo_accounts import conta_por_papel
+from stockflow.presentation.demo_users import UserRole
 from stockflow.domain.exceptions.adjustment_errors import (
     AjusteSemEfeitoError,
     SaldoDesatualizadoError,

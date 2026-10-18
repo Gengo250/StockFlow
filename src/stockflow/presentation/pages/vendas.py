@@ -626,6 +626,17 @@ class VendasPage(QWidget):
         if produto is None:
             return False
 
+        # ----- VALIDAR PREÇO -----
+        try:
+            preco_texto = self.val_input.text().strip()
+            if preco_texto:
+                # Usa a mesma validação de parse_price utilizada na camada de serviço
+                parse_price(preco_texto)
+        except Exception as erro:
+            self.warning_label.setText(str(erro))
+            return False
+        # --------------------------
+
         try:
             quantidade = parse_quantity(self.qtd_input.text().strip() or "1")
         except ValueError as erro:

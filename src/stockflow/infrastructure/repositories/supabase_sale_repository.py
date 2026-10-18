@@ -31,15 +31,16 @@ class SupabaseSaleRepository:
         rows = (
             self._client.table("sales")
             .select(
-                "id,client_name,total,created_on,"
-                "sale_items(product_name,product_code,quantity)"
-            )
+            "id,client_name,total,created_on,payment_method,discount,status,"
+            "sale_items(product_name,product_code,quantity,unit_price,subtotal)"
+        )
             .eq("company_id", self._company_id)
             .order("created_on", desc=True)
             .execute()
             .data
             or []
         )
+        return [_receipt_row(row) for row in rows]
         vendas = []
         for r in rows:
             codigo, descricao = resumo_dos_itens(r.get("sale_items") or [])
@@ -98,31 +99,6 @@ class SupabaseSaleRepository:
         )
 
         return sale_row(sale_id, client.name, product.code, product.name, total, "Hoje")
-
-    def register_items(self, client, itens, payment_method, discount, total):
-        """Venda com vários itens (US10).
-
-        O preço unitário NÃO é enviado: `fn_create_complete_sale` lê
-        `products.sell_price` no banco. Mandá-lo daqui deixaria o cliente
-        escolher por quanto vende.
-        """
-        codigos = [i["product"].code for i in itens]
-        achados = (
-            self._client.table("products")
-            .select("id,barcode")
-            .eq("company_id", self._company_id)
-            .in_("barcode", codigos)
-            .execute()
-            .data
-            or []
-        )
-        por_codigo = {r["barcode"]: r["id"] for r in achados}
-
-        faltando = [c for c in codigos if c not in por_codigo]
-        if faltando:
-            raise ValueError(
-                "Produto não encontrado nesta empresa: " + ", ".join(faltando)
-            )
 
     def register_multiple(
         self,

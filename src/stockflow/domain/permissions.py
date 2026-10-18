@@ -279,6 +279,11 @@ def ensure_can_move_stock(session, action: str = "movimentar o estoque") -> None
     Mesma falha fechada dos demais caminhos: sem sessão, nega. Movimentação
     altera saldo, e saldo é o número que decide reposição e venda.
     """
+    if not session or getattr(session, "role", None) not in (UserRole.ADMIN, UserRole.STOCK):
+        raise PermissionDeniedError(
+            f"Ação '{action}' não permitida para {getattr(session, 'role', None)}",
+            getattr(session, "role", None),
+        )
     exigir_gravar(session, "movimentacoes", action)
 
 

@@ -1,5 +1,5 @@
 -- US09/US10: reconcilia tanto o schema US07 quanto o schema já aplicado
--- no remoto em 10–13/10/2026. Esta versão ainda NÃO havia sido aplicada.
+-- no remoto em 10-13/10/2026. Esta versão ainda NÃO havia sido aplicada.
 -- Preserva vendas, itens, logs, autores e saldos; não usa DROP TABLE/CASCADE.
 -- Quantidades históricas fracionárias causam recusa explícita, nunca
 -- arredondamento ou exclusão silenciosa.

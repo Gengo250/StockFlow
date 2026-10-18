@@ -40,8 +40,6 @@ CREATE TABLE public.stock_movements (
     -- validado na gravação, para que um relatório de reconciliação consiga
     -- reconferir a invariante depois em vez de confiar nela.
     counted_balance   integer,
-    sale_id uuid REFERENCES public.sales(id) ON DELETE SET NULL,
-    sale_item_id uuid REFERENCES public.sale_items(id) ON DELETE SET NULL,
 
     -- Constraint NOMEADA, e não um CHECK inline: a migration precisa criá-la
     -- com guarda sobre `pg_constraint`, e isso exige um nome. Deixar o

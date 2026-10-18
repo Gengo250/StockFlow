@@ -1,16 +1,46 @@
 """Base de usuários da demonstração.
 
-Deriva de ``demo_data``, a mesma fonte que alimenta a tabela de Usuários e a
-base de clientes de Vendas. Enquanto este módulo mantinha uma lista própria de
-três pessoas, a tela exibia oito e o resumo contava outras três: cada tela
-mostrava um total diferente da mesma base.
+Este módulo **não define** seu próprio enum ``UserRole``. Ele importa o enum
+centralizado de ``stockflow.domain.enums.user_role``.  Assim todas as partes
+do código – fixtures, UI e serviços – utilizam a mesma classe de enum, evitando
+o erro ``ValueError: Papel de usuário inválido`` que ocorria quando duas
+definições distintas eram misturadas.
 """
 
+from __future__ import annotations
+from typing import List, Tuple
+
+# Fonte única de dados de demonstração
 from stockflow.presentation.demo_data import DEMO_PEOPLE, linhas_de_usuarios
 
-# Linhas no contrato de demo_data:
-# (nome, login, departamento, perfil, status, último acesso, cor)
-DEMO_USERS = linhas_de_usuarios()
+# Enum oficial (único) – reutilizado em toda a aplicação
+from stockflow.domain.enums.user_role import UserRole
 
-# Perfis realmente presentes na base, na ordem em que aparecem.
-USER_ROLES = tuple(dict.fromkeys(person.role for person in DEMO_PEOPLE))
+# ----------------------------------------------------------------------
+# Converte objetos ``DEMO_PEOPLE`` (namedtuple ou dataclass) para a tupla
+# esperada pelas tabelas da UI.
+# ----------------------------------------------------------------------
+def _to_ui_tuple(person) -> Tuple[str, str, str, str, str, str, str]:
+    """Retorna a representação de 7 campos usada pela UI antiga."""
+    return (
+        getattr(person, "name", ""),
+        getattr(person, "login", ""),
+        getattr(person, "department", ""),
+        getattr(person, "role", ""),  # string – já coincide com UserRole.value
+        getattr(person, "status", ""),
+        getattr(person, "last_seen", ""),
+        getattr(person, "color", ""),
+    )
+
+# Lista de usuários que a UI consome (tuplas).  Mantemos a ordem original.
+DEMO_USERS: List[Tuple[str, str, str, str, str, str, str]] = [
+    _to_ui_tuple(p) for p in DEMO_PEOPLE
+]
+
+# Perfis realmente presentes na base, preservando a ordem de aparição.
+USER_ROLES: Tuple[str, ...] = tuple(
+    dict.fromkeys(p.role for p in DEMO_PEOPLE)  # preserve insertion order
+)
+
+__all__ = ["UserRole", "DEMO_USERS", "USER_ROLES"]
+

@@ -113,10 +113,15 @@ class ProductsPage(QWidget):
         if state == self._layout_state:
             return
         self._layout_state = state
+        # Limpa o layout completo e recria para garantir que não haja colunas
+        # ou itens residuais que causem deslocamento.
         while self.grid.count():
             self.grid.takeAt(0)
-        for column in range(3):
-            self.grid.setColumnStretch(column, 1 if column < columns else 0)
+        # Recria o QGridLayout – evita que colunas “fantasmas” persistam.
+        self.grid = QGridLayout(self._cards_container)
+        self._cards_container.setLayout(self.grid)
+
+
         visible_set = set(visible_codes)
         for code, card in self.cards.items():
             card.setVisible(code in visible_set)

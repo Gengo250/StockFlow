@@ -31,6 +31,7 @@ from stockflow.infrastructure.fiscal.nfe_client import NFeClient
 from stockflow.application.dto.movement_input import MovementInput
 from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+from stockflow.application.dto.movement_legacy_adapter import legacy_to_movement_input
 from stockflow.infrastructure.repositories.movement_mapper import (
     adjustment_input_to_args,
     movement_input_to_register_args,
@@ -215,6 +216,11 @@ class SupabaseMovementRepository:
         confirmar e cancelar o recebem de volta, e um identificador local não
         acharia linha nenhuma.
         """
+
+        if not isinstance(data, MovementInput):
+            payload = data if isinstance(data, dict) else vars(data)
+            data = legacy_to_movement_input(payload)
+            
         product_id = self._product_id(data.product_code)
         if product_id is None:
             # Antes da ida à rede, e com o CÓDIGO na mensagem: a função

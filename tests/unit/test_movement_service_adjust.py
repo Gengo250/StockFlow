@@ -68,7 +68,7 @@ def pedido(**kwargs):
     return AdjustmentInput(**base)
 
 
-def test_vendedor_e_recusado_sem_tocar_no_repositorio():
+def test_vendedor_e_recusado_sem_tocar_no_repositorio(seller_session):
     service, repo = servico()
 
     with pytest.raises(PermissionDeniedError):
