@@ -15,7 +15,7 @@ chegue à tela nem quando o controle visual é burlado, por isso as chamadas a
 """
 
 import pytest
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QDialog, QMessageBox
 
 from stockflow.domain.enums.user_role import UserRole
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
@@ -195,6 +195,63 @@ def test_o_formulario_oferece_os_tres_perfis(qapp):
     try:
         oferecidos = {form.role_input.itemData(i) for i in range(form.role_input.count())}
         assert oferecidos == {papel.value for papel in PAPEIS}
+    finally:
+        form.deleteLater()
+
+
+def test_formulario_envia_perfil_selecionado_ao_rpc_do_supabase(qapp, monkeypatch):
+    """O caminho persistente grava no vínculo da empresa, não só na demo."""
+    from types import SimpleNamespace
+
+    from stockflow.presentation.user_directory_row import UserDirectoryRow
+    from stockflow.presentation.widgets.user_form import UserForm
+
+    target_id = "44444444-4444-4444-4444-444444444444"
+    company_id = "11111111-1111-1111-1111-111111111111"
+
+    class ClienteRPC:
+        def __init__(self):
+            self.chamadas = []
+
+        def rpc(self, nome, argumentos):
+            self.chamadas.append((nome, argumentos))
+
+            class Chamada:
+                def execute(self):
+                    return SimpleNamespace(data=target_id)
+
+            return Chamada()
+
+    cliente = ClienteRPC()
+    monkeypatch.setenv("STOCKFLOW_BACKEND", "supabase")
+    monkeypatch.setattr(backend, "_client", lambda: cliente)
+    admin = SimpleNamespace(role=UserRole.ADMIN, company_id=company_id)
+    usuario = UserDirectoryRow(
+        ("Carlos Mendes", "carlos@example.com", "Estoque", "Estoque",
+         "Ativo", "Nunca", "#195BFF"),
+        user_id=target_id,
+    )
+    form = UserForm(
+        usuario,
+        pode_gerenciar=True,
+        on_save=lambda **dados: backend.save_user(admin, **dados),
+    )
+    try:
+        form.role_input.setCurrentIndex(form.role_input.findData(UserRole.SELLER.value))
+        form._save()
+
+        assert cliente.chamadas == [(
+            "fn_save_company_member",
+            {
+                "p_company_id": company_id,
+                "p_user_id": target_id,
+                "p_email": "carlos@example.com",
+                "p_name": "Carlos Mendes",
+                "p_role": UserRole.SELLER.value,
+                "p_department": "Estoque",
+            },
+        )]
+        assert form.result() == QDialog.DialogCode.Accepted
     finally:
         form.deleteLater()
 
