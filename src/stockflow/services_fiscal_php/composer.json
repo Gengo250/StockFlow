@@ -1,0 +1,8 @@
+{
+    "name": "stockflow/fiscal-service",
+    "description": "Microserviço PHP de emissão fiscal com NFePHP",
+    "require": {
+        "php": ">=8.1",
+        "nfephp-org/sped-nfe": "^5.0"
+    }
+}

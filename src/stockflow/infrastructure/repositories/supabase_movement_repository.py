@@ -27,6 +27,7 @@ CÓDIGO VERSUS UUID, nas duas direções:
   linha seria N+1, uma ida à rede por movimentação para abrir a tela.
 """
 
+from stockflow.infrastructure.fiscal.nfe_client import NFeClient
 from stockflow.application.dto.movement_input import MovementInput
 from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
@@ -141,7 +142,9 @@ class SupabaseMovementRepository:
         linhas = list(self._rows(consulta.order("created_on").execute()))
         linhas.reverse()
         return rows_to_movements(
-            linhas, self._produtos_das_linhas(linhas), self._agora,
+            linhas,
+            self._produtos_das_linhas(linhas),
+            self._agora,
             self._fornecedores_das_linhas(linhas),
         )
 
@@ -219,21 +222,22 @@ class SupabaseMovementRepository:
             # uuid que a tela nunca mostrou.
             raise LookupError(f"Produto {data.product_code} não encontrado.")
         function = (
-            "fn_register_supplier_movement" if data.supplier_id
+            "fn_register_supplier_movement"
+            if data.supplier_id
             else "fn_register_movement"
         )
         args = movement_input_to_register_args(data, self._company_id, product_id)
         return self._rpc(function, args)
 
     def confirm(self, movement_id: str) -> None:
-        """Confirma uma pendente. É esta transição que altera o saldo.
-
-        Sem `company_id`: `fn_confirm_movement` resolve a empresa pela própria
-        linha. Recebê-la do chamador deixaria confirmar movimentação de outra
-        empresa bastando informar uma onde o usuário tem alçada — o mesmo
-        buraco que `fn_update_products` fecha no catálogo.
-        """
         self._rpc("fn_confirm_movement", {"p_movement_id": movement_id})
+
+        # --- EMISSÃO FISCAL: AJUSTE/MOVIMENTAÇÃO DE ESTOQUE ---
+        fiscal = NFeClient()
+        fiscal.emitir_nota(
+            "MOVIMENTACAO_ESTOQUE",
+            {"movement_id": movement_id, "company_id": self._company_id},
+        )
 
     def cancel(self, movement_id: str) -> None:
         """Cancela. Cancelar uma confirmada devolve o saldo (o trigger recalcula)."""

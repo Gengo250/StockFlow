@@ -21,7 +21,7 @@ nenhuma role de aplicação — só SELECT. Gravar é chamar `fn_create_products
 """
 
 import dataclasses
-
+from stockflow.infrastructure.fiscal.nfe_client import NFeClient
 from stockflow.application.dto.product_input import ProductInput
 from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
@@ -99,7 +99,9 @@ class SupabaseProductRepository:
     def _products_query(self):
         return (
             self._client.table("products")
-            .select("id,barcode,name,sell_price,buy_price,unit,stock,item_category,supplier_id,active,description,ncm,ean,location,low_stock_alert,image_data")
+            .select(
+                "id,barcode,name,sell_price,buy_price,unit,stock,item_category,supplier_id,active,description,ncm,ean,location,low_stock_alert,image_data"
+            )
             .eq("company_id", self._company_id)
         )
 
@@ -228,9 +230,13 @@ class SupabaseProductRepository:
         chamada, então a categoria nova já aparece na próxima leitura do
         combo.
         """
-        self._rpc("fn_create_categories", {
-            "p_company_id": self._company_id, "p_name": name,
-        })
+        self._rpc(
+            "fn_create_categories",
+            {
+                "p_company_id": self._company_id,
+                "p_name": name,
+            },
+        )
 
     def is_category_active(self, category: str) -> bool:
         """A categoria existe NESTA empresa.
@@ -268,14 +274,25 @@ class SupabaseProductRepository:
     # ======================================================
 
     def _save(self, data, product_id=None):
-        from stockflow.infrastructure.repositories.product_mapper import money_to_db, unit_to_db
+        from stockflow.infrastructure.repositories.product_mapper import (
+            money_to_db,
+            unit_to_db,
+        )
+
         payload = dataclasses.asdict(data)
-        payload.update(sale_price=str(money_to_db(data.sale_price)),
-                       cost=str(money_to_db(data.cost)), unit=unit_to_db(data.unit))
-        return self._rpc("fn_save_product", {
-            "p_company_id": self._company_id, "p_product_id": product_id,
-            "p_data": payload,
-        })
+        payload.update(
+            sale_price=str(money_to_db(data.sale_price)),
+            cost=str(money_to_db(data.cost)),
+            unit=unit_to_db(data.unit),
+        )
+        return self._rpc(
+            "fn_save_product",
+            {
+                "p_company_id": self._company_id,
+                "p_product_id": product_id,
+                "p_data": payload,
+            },
+        )
 
     def create(self, data: ProductInput) -> str:
         product_id = self._save(data)
@@ -287,11 +304,29 @@ class SupabaseProductRepository:
         product_id = self._product_id(code)
         if product_id is None:
             raise LookupError(f"Produto {code} não encontrado.")
+
+        produto_atual = self.get(code)
+        preco_alterado = produto_atual and produto_atual.sale_price != data.sale_price
+
         self._save(data, product_id)
         if data.code != code:
             self._ids.pop(code, None)
         self._ids[data.code] = product_id
         self._publicar(data.code, data, remover=code)
+
+        if preco_alterado:
+            fiscal = NFeClient()
+            fiscal.emitir_nota(
+                "ALTERACAO_PRECO",
+                {
+                    "product_code": data.code,
+                    "product_name": data.name,
+                    "old_price": produto_atual.sale_price if produto_atual else "",
+                    "new_price": data.sale_price,
+                    "ncm": getattr(data, "ncm", ""),
+                },
+            )
+
         return data.code
 
     def list_alerts(self) -> tuple:
@@ -312,10 +347,12 @@ class SupabaseProductRepository:
             .execute()
         )
         return tuple(
-            (linha.get("product_code") or "",
-             str(to_int(linha.get("current_balance"))),
-             to_min(linha.get("min_quantity")),
-             state_to_label(linha.get("state")))
+            (
+                linha.get("product_code") or "",
+                str(to_int(linha.get("current_balance"))),
+                to_min(linha.get("min_quantity")),
+                state_to_label(linha.get("state")),
+            )
             for linha in linhas
         )
 
@@ -391,7 +428,6 @@ class SupabaseProductRepository:
             location=getattr(data, "location", ""),
             low_stock_alert=getattr(data, "low_stock_alert", True),
             image_data=getattr(data, "image_data", ""),
-
         )
 
     def _aplicar_maximo(self, product_id, data) -> None:
@@ -410,8 +446,10 @@ class SupabaseProductRepository:
         # alertar por decisão do adaptador.
         self._rpc(
             "fn_set_min_stock",
-            {"p_product_id": product_id,
-             "p_min": to_min(getattr(data, "minimum_stock", None))},
+            {
+                "p_product_id": product_id,
+                "p_min": to_min(getattr(data, "minimum_stock", None)),
+            },
         )
 
     def _rpc(self, name: str, args: dict):
