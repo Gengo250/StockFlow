@@ -160,22 +160,37 @@ def exercise(dsn):
     sale=window.vendas_page
     sale.cliente_combo.setCurrentIndex(1)
     sale.produto_combo.setCurrentIndex(1)
-    sale.val_input.setText('25,90')
     sale.save_button.click()
-    check(admin.execute('SELECT count(*),sum(total) FROM sales').fetchone()==(1,__import__('decimal').Decimal('25.90')),'Qt sale persisted and reread independently')
+    check(not sale.warning_label.text(), 'Qt checkout returned no error: '+sale.warning_label.text())
+    check(admin.execute('SELECT count(*),sum(total) FROM sales').fetchone()==(1,__import__('decimal').Decimal('20.00')),'Qt sale persisted at catalog price and reread independently')
+    # US10: venda virou cabeçalho + itens, e concluí-la baixa o estoque por
+    # movimentação. As duas coisas são conferidas por conexão independente
+    # porque é justamente o que um teste com cliente falso não alcança.
+    sale_id=admin.execute('SELECT id FROM sales').fetchone()[0]
+    check(admin.execute('SELECT count(*),sum(subtotal) FROM sale_items WHERE sale_id=%s',(sale_id,)).fetchone()==(1,__import__('decimal').Decimal('20.00')),'Sale header carries its item')
+    check(admin.execute("SELECT status FROM sales WHERE id=%s",(sale_id,)).fetchone()[0]=='CONCLUIDA','Sale is closed by fn_checkout_sale')
+    sale.reload_sales()
+    check(sale.last_error is None and sale.historico_vendas[0]['total']=='20.00', 'Qt rereads persisted history with its embedded items')
+    check(admin.execute('SELECT count(*) FROM sales_log WHERE sale_id=%s',(sale_id,)).fetchone()[0]==1,'Closing the sale stamps sales_log')
+    check(admin.execute("SELECT kind,quantity,status FROM stock_movements WHERE sale_id=%s",(sale_id,)).fetchone()==('SAIDA',1,'CONFIRMADA'),'Closing the sale registers a confirmed outflow linked to it')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Sale reduced the balance through the movement')
     client=clients[0]
     window.clientes_page.service.set_active(client.client_id,False)
     rejects(lambda:rpc('fn_register_sale',p_company_id=company,p_client_id=client.client_id,p_product_id=product_id,p_total='1'),'23503','SQL refuses inactive client')
     window.clientes_page.service.set_active(client.client_id,True)
     rejects(lambda:rpc('fn_register_sale',p_company_id=company,p_client_id=client.client_id,p_product_id=product_id,p_total='NaN'),'23514','SQL refuses NaN total')
+    # US10: vender exige ter o que entregar. A conferência é do gatilho de
+    # conclusão, e a venda inteira volta atrás.
+    rejects(lambda:rpc('fn_create_complete_sale',p_company_id=company,p_client_id=client.client_id,p_items=[{'product_id':product_id,'quantity':999}]),'23514','SQL refuses a sale larger than the balance')
+    check(admin.execute('SELECT count(*) FROM sales').fetchone()[0]==1,'Refused sale leaves no header behind')
     movement=window.movement_service.register(session,MovementInput(code,MovementKind.SAIDA,1))
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==3,'Pending movement does not change stock')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Pending movement does not change stock')
     window._confirmar_movimentacao(movement)
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Qt confirmation changes balance')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==1,'Qt confirmation changes balance')
     window._cancelar_movimentacao(movement)
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==3,'Qt cancellation restores balance')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Qt cancellation restores balance')
     rejects(lambda:rpc('fn_register_movement',p_company_id=company,p_product_id=product_id,p_kind='SAIDA',p_quantity=4,p_confirm=True),'23514','SQL refuses negative balance atomically')
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==3,'Rejected movement leaves balance intact')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==2,'Rejected movement leaves balance intact')
     window.product_repository.set_active(code,False)
     rejects(lambda:rpc('fn_register_movement',p_company_id=company,p_product_id=product_id,p_kind='ENTRADA',p_quantity=1),'23503','SQL refuses inactive product')
     window.product_repository.set_active(code,True)
@@ -204,7 +219,7 @@ def exercise(dsn):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results=list(pool.map(withdraw,range(2)))
     check(sorted(results)==['23514','ok'],'Concurrent withdrawals serialize; only one fits balance')
-    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==1,'Concurrent final stock remains consistent')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==0,'Concurrent final stock remains consistent')
 
     # US05: login resolves company and role only for an ACTIVE link. The app
     # denies the account here, not in the screens: fn_my_companies feeds the
@@ -219,6 +234,113 @@ def exercise(dsn):
     admin.execute('UPDATE company_users SET active=true WHERE company_id=%s AND user_account_id=%s',(company,ids['seller']))
     with connect('seller_auth') as seller:
         check(len(PostgresAPI(seller).rpc('fn_my_companies',{}).execute().data)==1,'Reactivated account logs in again')
+
+    # H11: manual stock adjustment. This runs BEFORE the H14 block, which
+    # promotes the STOCK account to ADMIN — an adjustment checked after that
+    # would no longer be measuring the STOCK role.
+    #
+    # What only Postgres decides: the role check inside the function, the
+    # justification CHECK, the stale-balance refusal, and above all that the
+    # resulting balance equals the counted one when read from OUTSIDE the
+    # transaction that wrote it. `admin` is that independent connection.
+    #
+    # The concurrent-withdrawal scenario above drains this product to 0, and
+    # p_counted_balance can never be negative. Top it back up with a plain
+    # confirmed ENTRADA so `before` has real headroom for before-3, before-4
+    # and before+99 below — a gap in this test's setup, not a schema rule to
+    # relax.
+    rpc('fn_register_movement',p_company_id=company,p_product_id=product_id,p_kind='ENTRADA',p_quantity=10,p_confirm=True)
+    before=admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]
+    rpc('fn_register_adjustment',p_company_id=company,p_product_id=str(product_id),
+        p_counted_balance=before-3,p_expected_balance=before,p_reason='QUEBRA',
+        p_detail='caixa amassada')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==before-3,
+          'Adjustment leaves the balance exactly at the counted value')
+    check(admin.execute('SELECT kind,quantity,status,adjustment_reason,counted_balance '
+                        'FROM stock_movements WHERE product_id=%s '
+                        'ORDER BY created_on DESC LIMIT 1',(product_id,)).fetchone()
+          ==('SAIDA',3,'CONFIRMADA','QUEBRA',before-3),
+          'Adjustment is a confirmed movement carrying reason and counted balance')
+    check(admin.execute('SELECT created_by FROM stock_movements WHERE product_id=%s '
+                        'ORDER BY created_on DESC LIMIT 1',(product_id,)).fetchone()[0]==ids['user'],
+          'Adjustment records the authenticated user, never a caller-supplied id')
+    rejects(lambda:rpc('fn_register_adjustment',p_company_id=company,p_product_id=str(product_id),
+                       p_counted_balance=before-4,p_expected_balance=before-3,
+                       p_reason='OUTRO',p_detail=None),
+            '23514','Reason OUTRO without a written justification is refused')
+    rejects(lambda:rpc('fn_register_adjustment',p_company_id=company,p_product_id=str(product_id),
+                       p_counted_balance=before-3,p_expected_balance=before-3,
+                       p_reason='CONTAGEM',p_detail=None),
+            '23514','Counting the same balance registers nothing')
+    rejects(lambda:rpc('fn_register_adjustment',p_company_id=company,p_product_id=str(product_id),
+                       p_counted_balance=1,p_expected_balance=before+99,
+                       p_reason='CONTAGEM',p_detail=None),
+            '40001','A balance that moved since the count asks for a recount')
+    with connect('seller_auth') as seller:
+        rejects(lambda:PostgresAPI(seller).rpc('fn_register_adjustment',
+                    {'p_company_id':company,'p_product_id':str(product_id),
+                     'p_counted_balance':0,'p_expected_balance':before-3,
+                     'p_reason':'PERDA','p_detail':None}).execute(),
+                '42501','A seller cannot adjust stock')
+    check(admin.execute('SELECT stock FROM products WHERE id=%s',(product_id,)).fetchone()[0]==before-3,
+          'Every refused adjustment left the balance untouched')
+
+    # H09: chronological price/cost history. Runs BEFORE the H14 block for
+    # the same reason as H11 -- that block promotes the STOCK account to
+    # ADMIN, and a role check measured after it would prove nothing.
+    rpc('fn_update_products',p_product_id=str(product_id),p_sell_price=31,p_buy_price=12)
+    rpc('fn_update_products',p_product_id=str(product_id),p_sell_price=33)
+    historico=rpc('fn_list_price_edits',p_company_id=company)
+    check(len(historico)>=3,'The price history returns one row per edited field')
+    check([l['changed_on'] for l in historico]==sorted((l['changed_on'] for l in historico),reverse=True),
+          'The price history answers newest first')
+    check(historico[0]['field']=='SELL_PRICE' and str(historico[0]['new_price']) in ('33','33.00'),
+          'The most recent edit heads the list')
+    # The two rows written by the same UPDATE share last_updated_on to the
+    # microsecond: now() is constant inside a transaction. What the id
+    # tie-break buys is not a "more recent" between them -- there is none --
+    # but that the screen does not shuffle them between loads.
+    assinatura=lambda linhas:[(l['field'],str(l['old_price']),str(l['new_price'])) for l in linhas]
+    check(len({l['changed_on'] for l in historico if str(l['new_price']) in ('31','31.00','12','12.00')})==1,
+          'Price and cost edited in one UPDATE share the same instant')
+    check(assinatura(rpc('fn_list_price_edits',p_company_id=company))==assinatura(historico),
+          'Two rows written in the same UPDATE keep a stable order between calls')
+    check(all(l['product_code'] and l['changed_by'] for l in historico),
+          'Every row resolves the product code and the author name')
+    check(rpc('fn_list_price_edits',p_company_id=company,p_product_id=str(product_id))==historico,
+          'Filtering by the edited product returns that product history')
+
+    # The fixture product was born with a cost, so the first-time case needs
+    # a product that was not: it is the row the original NOT NULL rejected.
+    sem_custo=rpc('fn_create_products',p_company_id=company,p_barcode='NO-COST',
+                  p_name='Produto sem custo',p_sell_price=10)
+    rpc('fn_update_products',p_product_id=str(sem_custo),p_buy_price=7)
+    primeira=rpc('fn_list_price_edits',p_company_id=company,p_product_id=str(sem_custo))
+    check(len(primeira)==1 and primeira[0]['field']=='BUY_PRICE',
+          'Defining a cost for the first time is audited')
+    check(primeira[0]['old_price'] is None,
+          'A first-time cost reaches the query as absence, not zero')
+    # The screen, not just the function. A fake Supabase client cannot catch
+    # a translation that asks the catalogue repository for a uuid it does not
+    # carry -- that is exactly how the filtered page shipped empty.
+    window._carregar_historico_precos()
+    page=window.historico_precos_page
+    total=page.table.rowCount()
+    check(total>0,'Qt price history opens with rows')
+    page.produto_combo.setCurrentIndex(page.produto_combo.findData(code))
+    filtradas=page.table.rowCount()
+    check(filtradas>0,'Qt price history still lists rows when filtered by one product')
+    check(filtradas<=total,'Filtering never widens the result')
+    check(all(page.table.item(l,1).text().startswith(code) for l in range(filtradas)),
+          'Every filtered row belongs to the chosen product')
+    page.produto_combo.setCurrentIndex(page.produto_combo.findData(None))
+    check(page.table.rowCount()==total,'Going back to all products restores the full list')
+
+    for papel in ('stock_auth','seller_auth'):
+        with connect(papel) as outro:
+            rejects(lambda c=outro: PostgresAPI(c).rpc('fn_list_price_edits',
+                        {'p_company_id':company,'p_product_id':None}).execute(),
+                    '42501',papel.split('_')[0].upper()+' cannot read the price history')
 
     # H14: profiles and permissions. Authorship on business writes, and a
     # history for every permission event. These run LAST because they change
@@ -268,7 +390,7 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--schema',action='store_true',help='Build database/code instead of migrations')
     args=parser.parse_args()
-    dsn=os.environ.get('STOCKFLOW_TEST_DSN','host=127.0.0.1 port=55439 dbname=postgres')
+    dsn=os.environ.get('STOCKFLOW_TEST_DSN','host=127.0.0.1 port=55439 dbname=postgres user=postgres')
     config=conninfo_to_dict(dsn)
     if config.get('host') not in {'127.0.0.1','localhost','::1'}:
         raise SystemExit('Only a disposable local PostgreSQL server is supported.')
@@ -285,8 +407,11 @@ def main():
                 files=([f for group in ('tables','procedures','views','triggers','policies') for f in sorted((ROOT/'database'/'code'/group).glob('*.sql'))]
                        if args.schema else sorted((ROOT/'database'/'supabase'/'migrations').glob('*.sql')))
                 for path in files:
-                    with setup.transaction():
-                        setup.execute(path.read_text())
+                    # Sem transação externa aqui: o PostgreSQL já executa a
+                    # string inteira do arquivo numa transação implícita, e
+                    # envolver de novo brigaria com a migration que abre a
+                    # própria (BEGIN/COMMIT no arquivo, como o `db push` exige).
+                    setup.execute(path.read_text())
                 print(f'PASS {len(files)} SQL files applied; PostgreSQL {setup.info.server_version}',flush=True)
             exercise(target)
         finally:

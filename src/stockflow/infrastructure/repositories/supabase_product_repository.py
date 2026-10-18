@@ -21,7 +21,7 @@ nenhuma role de aplicação — só SELECT. Gravar é chamar `fn_create_products
 """
 
 import dataclasses
-
+from stockflow.infrastructure.fiscal.nfe_client import NFeClient
 from stockflow.application.dto.product_input import ProductInput
 from stockflow.domain.enums.product_unit import PRODUCT_UNITS
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
@@ -62,6 +62,7 @@ ACTION_BY_RPC = {
     "fn_update_products": "editar produtos",
     "fn_set_product_active": "ativar ou desativar produtos",
     "fn_set_min_stock": "configurar o estoque mínimo",
+    "fn_set_max_stock": "configurar o estoque máximo",
     "fn_set_product_supplier": "associar fornecedor ao produto",
     "fn_create_categories": "cadastrar categorias",
 }
@@ -98,7 +99,9 @@ class SupabaseProductRepository:
     def _products_query(self):
         return (
             self._client.table("products")
-            .select("id,barcode,name,sell_price,buy_price,unit,stock,item_category,supplier_id,active,description,ncm,ean,location,low_stock_alert,image_data")
+            .select(
+                "id,barcode,name,sell_price,buy_price,unit,stock,item_category,supplier_id,active,description,ncm,ean,location,low_stock_alert,image_data"
+            )
             .eq("company_id", self._company_id)
         )
 
@@ -123,21 +126,19 @@ class SupabaseProductRepository:
         return {row["id"]: row["name"] for row in self._rows(response)}
 
     def _minimums(self, product_ids) -> dict:
-        """`product_id -> min_quantity`, em UMA consulta.
-
-        Em lote, e não por produto: `product_stock` tem uma linha por produto
-        e consultar dentro do laço de montagem do catálogo seria N+1 — com 300
-        produtos, 300 idas à rede para abrir a tela de Estoque.
-        """
+        """`product_id -> (min_quantity, max_quantity)`, em UMA consulta."""
         if not product_ids:
             return {}
         response = (
             self._client.table("product_stock")
-            .select("product_id,min_quantity")
+            .select("product_id,min_quantity,max_quantity")
             .in_("product_id", list(product_ids))
             .execute()
         )
-        return {row["product_id"]: row["min_quantity"] for row in self._rows(response)}
+        return {
+            row["product_id"]: (row["min_quantity"], row["max_quantity"])
+            for row in self._rows(response)
+        }
 
     def load_catalog(self) -> dict:
         """Catálogo inteiro como o dict `code -> Product` que as telas usam.
@@ -149,15 +150,17 @@ class SupabaseProductRepository:
         """
         rows = self._rows(self._products_query().order("created_on").execute())
         categorias = self._category_names()
-        minimos = self._minimums([row["id"] for row in rows])
+        minimos_data = self._minimums([row["id"] for row in rows])
 
         catalogo = {}
         self._ids = {}
         for row in rows:
+            minimos = minimos_data.get(row["id"], (None, None))
             produto = row_to_product(
                 row,
                 category_name=categorias.get(row.get("item_category")),
-                minimum_stock=minimos.get(row["id"]),
+                minimum_stock=minimos[0],
+                maximum_stock=minimos[1],
             )
             catalogo[produto.code] = produto
             self._ids[produto.code] = row["id"]
@@ -227,9 +230,13 @@ class SupabaseProductRepository:
         chamada, então a categoria nova já aparece na próxima leitura do
         combo.
         """
-        self._rpc("fn_create_categories", {
-            "p_company_id": self._company_id, "p_name": name,
-        })
+        self._rpc(
+            "fn_create_categories",
+            {
+                "p_company_id": self._company_id,
+                "p_name": name,
+            },
+        )
 
     def is_category_active(self, category: str) -> bool:
         """A categoria existe NESTA empresa.
@@ -267,14 +274,25 @@ class SupabaseProductRepository:
     # ======================================================
 
     def _save(self, data, product_id=None):
-        from stockflow.infrastructure.repositories.product_mapper import money_to_db, unit_to_db
+        from stockflow.infrastructure.repositories.product_mapper import (
+            money_to_db,
+            unit_to_db,
+        )
+
         payload = dataclasses.asdict(data)
-        payload.update(sale_price=str(money_to_db(data.sale_price)),
-                       cost=str(money_to_db(data.cost)), unit=unit_to_db(data.unit))
-        return self._rpc("fn_save_product", {
-            "p_company_id": self._company_id, "p_product_id": product_id,
-            "p_data": payload,
-        })
+        payload.update(
+            sale_price=str(money_to_db(data.sale_price)),
+            cost=str(money_to_db(data.cost)),
+            unit=unit_to_db(data.unit),
+        )
+        return self._rpc(
+            "fn_save_product",
+            {
+                "p_company_id": self._company_id,
+                "p_product_id": product_id,
+                "p_data": payload,
+            },
+        )
 
     def create(self, data: ProductInput) -> str:
         product_id = self._save(data)
@@ -286,11 +304,29 @@ class SupabaseProductRepository:
         product_id = self._product_id(code)
         if product_id is None:
             raise LookupError(f"Produto {code} não encontrado.")
+
+        produto_atual = self.get(code)
+        preco_alterado = produto_atual and produto_atual.sale_price != data.sale_price
+
         self._save(data, product_id)
         if data.code != code:
             self._ids.pop(code, None)
         self._ids[data.code] = product_id
         self._publicar(data.code, data, remover=code)
+
+        if preco_alterado:
+            fiscal = NFeClient()
+            fiscal.emitir_nota(
+                "ALTERACAO_PRECO",
+                {
+                    "product_code": data.code,
+                    "product_name": data.name,
+                    "old_price": produto_atual.sale_price if produto_atual else "",
+                    "new_price": data.sale_price,
+                    "ncm": getattr(data, "ncm", ""),
+                },
+            )
+
         return data.code
 
     def list_alerts(self) -> tuple:
@@ -311,10 +347,12 @@ class SupabaseProductRepository:
             .execute()
         )
         return tuple(
-            (linha.get("product_code") or "",
-             str(to_int(linha.get("current_balance"))),
-             to_min(linha.get("min_quantity")),
-             state_to_label(linha.get("state")))
+            (
+                linha.get("product_code") or "",
+                str(to_int(linha.get("current_balance"))),
+                to_min(linha.get("min_quantity")),
+                state_to_label(linha.get("state")),
+            )
             for linha in linhas
         )
 
@@ -390,7 +428,14 @@ class SupabaseProductRepository:
             location=getattr(data, "location", ""),
             low_stock_alert=getattr(data, "low_stock_alert", True),
             image_data=getattr(data, "image_data", ""),
+        )
 
+    def _aplicar_maximo(self, product_id, data) -> None:
+        """Grava o estoque máximo."""
+        self._rpc(
+            "fn_set_max_stock",
+            {"p_product_id": product_id,
+             "p_max": to_min(getattr(data, "maximum_stock", None))},
         )
 
     def _aplicar_minimo(self, product_id, data) -> None:
@@ -401,8 +446,10 @@ class SupabaseProductRepository:
         # alertar por decisão do adaptador.
         self._rpc(
             "fn_set_min_stock",
-            {"p_product_id": product_id,
-             "p_min": to_min(getattr(data, "minimum_stock", None))},
+            {
+                "p_product_id": product_id,
+                "p_min": to_min(getattr(data, "minimum_stock", None)),
+            },
         )
 
     def _rpc(self, name: str, args: dict):

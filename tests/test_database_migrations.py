@@ -463,3 +463,220 @@ def test_auditoria_so_e_lida_pelo_admin_da_empresa():
                      policy.group(0), re.I)
     assert re.search(r"ALTER TABLE public\.role_change_log\s+ENABLE ROW LEVEL SECURITY",
                      seguranca, re.I)
+
+
+# ---------------------------------------------------------------------- H11
+# O ajuste manual precisa aplicar sobre um banco que JÁ TEM movimentações, e
+# sobre um remoto que já divergiu do repositório uma vez. Por isso tudo aqui
+# é idempotente: `IF NOT EXISTS`, `DO` com guarda, e nenhuma recriação de
+# tabela.
+
+H11 = "h11_manual_stock_adjustment"
+
+
+def arquivo_h11():
+    achados = [f for f in arquivos() if H11 in f.name]
+    assert achados, f"migration {H11} não encontrada"
+    return achados[0]
+
+
+def test_h11_vem_depois_de_todas_as_que_ela_depende():
+    """O invariante é a DEPENDÊNCIA, não a posição no fim da fila.
+
+    Este teste já cobrou "a H11 é a última da cadeia", e isso valeu até a
+    história seguinte chegar. Pinçar o fim da lista faz o teste falhar por
+    uma migration nova e correta — ruído, não regressão. O que precisa
+    continuar verdadeiro é que a H11 aplique depois do que ela altera:
+    `stock_movements` reconciliada, e não antes dela.
+    """
+    nomes = [f.name for f in arquivos()]
+
+    assert nomes.index(arquivo_h11().name) > nomes.index(
+        "20261014120000_reconcile_sales_schema.sql"
+    ), "timestamp menor aplica antes de dependência que já existe"
+
+
+def test_h11_abre_a_propria_transacao():
+    """`supabase db push` manda cada comando em autocommit.
+
+    Sem o BEGIN do próprio arquivo, uma falha no meio deixa metade aplicada
+    — foi a lição que b92c490 registrou.
+    """
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert re.search(r"^\s*BEGIN;", texto, re.M)
+    assert re.search(r"^\s*COMMIT;", texto, re.M)
+
+
+def test_h11_cria_o_tipo_sem_quebrar_se_ele_ja_existir():
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert "to_regtype('public.adjustment_reason')" in texto, (
+        "criar o tipo sem guarda falha no banco que já o tem"
+    )
+
+
+def test_h11_adiciona_colunas_sem_recriar_a_tabela():
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS adjustment_reason" in texto
+    assert "ADD COLUMN IF NOT EXISTS counted_balance" in texto
+    assert "DROP TABLE" not in texto.upper(), "migration destrutiva: perde histórico"
+
+
+def test_h11_declara_as_tres_constraints():
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert "ck_movements_counted_balance" in texto
+    assert "ck_movements_adjustment_pair" in texto
+    assert "ck_movements_adjustment_detail" in texto
+
+
+def test_h11_cria_a_funcao_e_concede_execute():
+    texto = arquivo_h11().read_text(encoding="utf-8")
+
+    assert "CREATE OR REPLACE FUNCTION public.fn_register_adjustment" in texto
+    assert re.search(
+        r"GRANT EXECUTE ON FUNCTION public\.fn_register_adjustment", texto
+    ), "sem GRANT a função aplica e o app quebra em runtime"
+
+
+# ---------------------------------------------------------------------- H09
+# A auditoria de preço nasceu no remoto (20261013131814) e foi reconciliada
+# depois (20261014120000). Esta migration estende aquela tabela viva: o
+# remoto já tem linhas de `sell_price` gravadas, e elas precisam continuar
+# legíveis depois de ganhar a coluna que diz qual campo mudou.
+
+H09 = "h09_audit_cost_edits"
+
+
+def arquivo_h09():
+    achados = [f for f in arquivos() if H09 in f.name]
+    assert achados, f"migration {H09} não encontrada"
+    return achados[0]
+
+
+def test_h09_vem_depois_da_reconciliacao_do_log_de_preco():
+    """Alterar a tabela antes de ela existir falha no banco limpo."""
+    nomes = [f.name for f in arquivos()]
+    criacao = next(n for n in nomes if "log_for_edit_price" in n)
+
+    assert nomes.index(arquivo_h09().name) > nomes.index(criacao)
+    assert nomes.index(arquivo_h09().name) > nomes.index(
+        "20261014120000_reconcile_sales_schema.sql"
+    ), (
+        "a reconciliação recria trg_log_price_edit com CREATE OR REPLACE; "
+        "aplicada depois, ela apagaria a auditoria de custo"
+    )
+
+
+def test_h09_abre_a_propria_transacao():
+    texto = arquivo_h09().read_text(encoding="utf-8")
+
+    assert re.search(r"^\s*BEGIN;", texto, re.M)
+    assert re.search(r"^\s*COMMIT;", texto, re.M)
+
+
+def test_h09_cria_o_tipo_sem_quebrar_se_ele_ja_existir():
+    texto = arquivo_h09().read_text(encoding="utf-8")
+
+    assert "to_regtype('public.price_edit_field')" in texto, (
+        "criar o tipo sem guarda falha no banco que já o tem"
+    )
+
+
+def test_h09_acrescenta_a_coluna_sem_recriar_a_tabela():
+    texto = arquivo_h09().read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS field" in texto
+    assert "DROP TABLE" not in texto.upper(), "migration destrutiva: perde a auditoria"
+
+
+def test_h09_deixa_as_linhas_antigas_legiveis_como_preco_de_venda():
+    """Toda linha que já existe no remoto veio de `sell_price`.
+
+    Sem DEFAULT, `ADD COLUMN ... NOT NULL` nem aplica sobre a tabela com
+    dados; com DEFAULT errado, o histórico de preço do remoto passaria a
+    contar como custo.
+    """
+    texto = sem_comentarios(arquivo_h09().read_text(encoding="utf-8"))
+
+    assert re.search(
+        r"ADD COLUMN IF NOT EXISTS field\s+public\.price_edit_field\s+NOT NULL\s+"
+        r"DEFAULT\s+'SELL_PRICE'",
+        texto,
+        re.I,
+    )
+
+
+def test_h09_recria_o_trigger_nos_dois_campos():
+    texto = sem_comentarios(arquivo_h09().read_text(encoding="utf-8"))
+
+    assert "CREATE OR REPLACE FUNCTION public.trg_log_price_edit" in texto
+    assert re.search(
+        r"AFTER UPDATE OF\s+sell_price\s*,\s*buy_price\s+ON public\.products", texto, re.I
+    ), (
+        "o gatilho da coluna faz parte do contrato: recriar só a função "
+        "deixaria o trigger surdo para buy_price"
+    )
+
+
+def test_h09_relaxa_o_par_de_valores_para_o_custo_ausente():
+    """O remoto tem old_price/new_price NOT NULL. Com buy_price nullable,
+    manter a obrigatoriedade faria a auditoria recusar a edição do produto."""
+    texto = sem_comentarios(arquivo_h09().read_text(encoding="utf-8"))
+
+    assert re.search(
+        r"ALTER COLUMN old_price DROP NOT NULL", texto, re.I
+    ), "sem soltar o NOT NULL, a primeira definição de custo quebra o UPDATE"
+    assert re.search(r"ALTER COLUMN new_price DROP NOT NULL", texto, re.I)
+    assert "ck_price_edit_log_value_present" in texto, (
+        "relaxar os dois lados sem o CHECK deixa passar linha sem valor nenhum"
+    )
+
+
+# ------------------------------------------- H09 · consulta do histórico
+
+HISTORICO = "h09_price_history_query"
+
+
+def arquivo_historico():
+    achados = [f for f in arquivos() if HISTORICO in f.name]
+    assert achados, f"migration {HISTORICO} não encontrada"
+    return achados[0]
+
+
+def test_historico_vem_depois_da_coluna_que_ele_le():
+    """A consulta devolve `field`, que a migration da auditoria acrescenta."""
+    nomes = [f.name for f in arquivos()]
+
+    assert nomes.index(arquivo_historico().name) > nomes.index(arquivo_h09().name)
+
+
+def test_historico_abre_a_propria_transacao():
+    texto = arquivo_historico().read_text(encoding="utf-8")
+
+    assert re.search(r"^\s*BEGIN;", texto, re.M)
+    assert re.search(r"^\s*COMMIT;", texto, re.M)
+
+
+def test_historico_cria_a_funcao_e_repete_a_varredura_de_permissao():
+    """Função nova nasce com EXECUTE para PUBLIC se a migration não revogar.
+
+    `database/code/policies/01_security.sql` registra esse buraco pelo nome:
+    foi assim que `fn_update_products` ficou chamável pelo anônimo. A
+    varredura não é opcional em migration que cria função.
+    """
+    texto = sem_comentarios(arquivo_historico().read_text(encoding="utf-8"))
+
+    assert "CREATE OR REPLACE FUNCTION public.fn_list_price_edits" in texto
+    assert re.search(
+        r"REVOKE ALL ON FUNCTION public\.fn_list_price_edits[^;]*FROM[^;]*PUBLIC",
+        texto,
+        re.S | re.I,
+    ), "sem REVOKE, a função nasce executável pelo anônimo"
+    assert re.search(
+        r"GRANT EXECUTE ON FUNCTION public\.fn_list_price_edits[^;]*TO[^;]*authenticated",
+        texto,
+        re.S | re.I,
+    ), "sem GRANT a função aplica no banco e o app quebra em runtime"

@@ -7,9 +7,12 @@ de banco depois não muda nada acima desta camada.
 """
 
 import dataclasses
+from datetime import datetime
 
 from stockflow.application.dto.product_input import ProductInput
+from stockflow.domain.enums.price_edit_field import PriceEditField
 from stockflow.domain.enums.product_unit import PRODUCT_UNITS
+from stockflow.infrastructure.repositories.product_mapper import money_to_db
 # Reexportados: a regra de status virou domínio na US04
 # (`stockflow.domain.stock_level`), mas ela nasceu aqui e os consumidores
 # existentes importam deste módulo. Reexportar mantém o caminho antigo
@@ -21,6 +24,20 @@ from stockflow.domain.stock_level import (  # noqa: F401
     is_below_minimum,
     to_min,
 )
+
+
+def _valor_ou_ausente(texto):
+    """Texto do catálogo para `Decimal`, PRESERVANDO a ausência.
+
+    `money_to_db` devolve zero para vazio — padrão certo para uma listagem,
+    errado para auditoria: "sem custo informado" viraria "custo era zero", o
+    valor inventado que a coluna nullable de `price_edit_log` existe para
+    evitar.
+    """
+    if texto is None or not str(texto).strip():
+        return None
+    return money_to_db(texto)
+
 
 # Sentinela para "o DTO nem tem o campo", distinto de "o campo veio ausente".
 # Desde que `None` virou valor de domínio (mínimo não configurado), usar
@@ -93,8 +110,16 @@ class DemoProductRepository:
         minimum_stock=NOT_CONFIGURED,
         active_categories=None,
         active_units=ACTIVE_DEMO_UNITS,
+        autor="Demonstração",
     ):
         self._products = products
+        # Rastro de preço e custo, no lugar do trigger que não existe aqui.
+        # Público de propósito: `DemoPriceHistoryRepository` o lê, do mesmo
+        # jeito que a consulta SQL lê a tabela que o trigger escreve.
+        self.price_edits = []
+        # Quem aparece na coluna "Por". A `MainWindow` troca pelo nome da
+        # sessão; o padrão nomeia o que de fato é — dado de demonstração.
+        self.autor = autor
         self._minimum_stock = minimum_stock
         self._active_categories = (
             set(ACTIVE_DEMO_CATEGORIES)
@@ -176,18 +201,51 @@ class DemoProductRepository:
     def update(self, code: str, data: ProductInput) -> str:
         # O código é somente leitura no formulário, mas se algum dia deixar de
         # ser, trocar a chave sem remover a antiga duplicaria o produto.
+        anterior = self._products.get(code)
         if code != data.code:
             self._products.pop(code, None)
-        self._products[data.code] = self._to_product(data)
+        novo = self._to_product(data)
+        self._products[data.code] = novo
+        self._registrar_mudanca_de_valor(anterior, novo)
         return data.code
+
+    def _registrar_mudanca_de_valor(self, anterior, novo) -> None:
+        """Espelho do trigger `trg_log_price_edit` (H09).
+
+        No modo demonstração não existe trigger, então o rastro nasce aqui —
+        sem isto a tela de histórico abriria vazia justamente no modo em que
+        o app abre por padrão.
+
+        A comparação é por VALOR, e não por texto: "R$ 20,00" e "R$ 20.00"
+        descrevem o mesmo preço, e registrar a diferença entre eles encheria
+        o histórico de linhas que não dizem nada. É o mesmo efeito do
+        `IS DISTINCT FROM` da função SQL.
+        """
+        if anterior is None:
+            return
+
+        for campo, atributo in (
+            (PriceEditField.SELL_PRICE, "sale_price"),
+            (PriceEditField.BUY_PRICE, "cost"),
+        ):
+            de = _valor_ou_ausente(getattr(anterior, atributo, None))
+            para = _valor_ou_ausente(getattr(novo, atributo, None))
+            if de == para:
+                continue
+            self.price_edits.append({
+                "seq": len(self.price_edits),
+                "changed_on": datetime.now(),
+                "product_code": novo.code,
+                "field": campo,
+                "old_price": de,
+                "new_price": para,
+                "changed_by": self.autor,
+            })
 
     def _to_product(self, data: ProductInput) -> Product:
         stock = _para_inteiro(data.stock)
-        # O mínimo vem do PRODUTO (US04); `self._minimum_stock` só entra
-        # quando o chamador não declara um — importação, API ou qualquer
-        # DTO anterior ao campo existir. Usar sempre o do repositório
-        # devolveria o limiar global que a US04 veio substituir.
         minimo = getattr(data, "minimum_stock", _SEM_CAMPO)
+        maximo = getattr(data, "maximum_stock", None)
         if minimo is _SEM_CAMPO:
             minimo = self._minimum_stock
         return Product(
@@ -201,6 +259,7 @@ class DemoProductRepository:
             stock=str(stock),
             stock_status=derive_stock_status(stock, minimo),
             minimum_stock=to_min(minimo),
+            maximum_stock=to_min(maximo),
             supplier_id=getattr(data, "supplier_id", None),
             description=getattr(data, "description", ""),
             ncm=getattr(data, "ncm", ""),
@@ -208,5 +267,4 @@ class DemoProductRepository:
             location=getattr(data, "location", ""),
             low_stock_alert=getattr(data, "low_stock_alert", True),
             image_data=getattr(data, "image_data", ""),
-
         )

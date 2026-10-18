@@ -27,23 +27,38 @@ CÓDIGO VERSUS UUID, nas duas direções:
   linha seria N+1, uma ida à rede por movimentação para abrir a tela.
 """
 
+from stockflow.infrastructure.fiscal.nfe_client import NFeClient
 from stockflow.application.dto.movement_input import MovementInput
+from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.infrastructure.repositories.movement_mapper import (
+    adjustment_input_to_args,
     movement_input_to_register_args,
     rows_to_movements,
 )
-# Reusada, não copiada: a detecção de recusa (SQLSTATE 42501 + os trechos de
-# mensagem) é a MESMA regra para as funções do catálogo e para as de
-# movimentação. Duas cópias divergiriam na primeira mensagem nova, e a cópia
-# esquecida deixaria passar uma recusa como erro cru na tela.
+# Reusadas, não copiadas: a detecção de recusa (SQLSTATE 42501 + os trechos de
+# mensagem) e a extração da mensagem são a MESMA regra para as funções do
+# catálogo e para as de movimentação. Duas cópias divergiriam na primeira
+# mensagem nova, e a cópia esquecida deixaria passar uma recusa como erro
+# cru na tela.
 from stockflow.infrastructure.repositories.supabase_product_repository import (
     _e_recusa_de_permissao,
+    _mensagem,
 )
 
 # Colunas que a tela consome. Lista explícita em vez de `*` para que uma
 # coluna nova na tabela não comece a trafegar sozinha.
-MOVEMENT_COLUMNS = "id,product_id,supplier_id,kind,quantity,status,note,created_on,confirmed_on"
+#
+# `adjustment_reason` está aqui porque a tabela tem a coluna Motivo.
+# `counted_balance` NÃO está: a tupla do histórico tem dez posições e nenhuma
+# delas é o saldo contado, então trazê-lo seria exatamente a coluna que
+# trafega sozinha sem ninguém consumir. A coluna continua na tabela, para a
+# reconciliação que o comentário do schema prevê — só não é o que a TELA
+# busca.
+MOVEMENT_COLUMNS = (
+    "id,product_id,supplier_id,kind,quantity,status,note,created_on,"
+    "confirmed_on,adjustment_reason"
+)
 
 # Nome da função -> ação em português. Os rótulos são os MESMOS que
 # `MovementService` passa para `ensure_can_move_stock`: quando o banco recusa
@@ -54,7 +69,21 @@ ACTION_BY_RPC = {
     "fn_register_supplier_movement": "registrar compras",
     "fn_confirm_movement": "confirmar movimentações",
     "fn_cancel_movement": "cancelar movimentações",
+    "fn_register_adjustment": "ajustar o estoque",
 }
+
+# SQLSTATE que `fn_register_adjustment` usa para "o saldo mudou desde a
+# contagem". Não é falha de sistema nem erro do usuário: é pedido de
+# recontagem, e precisa de um tipo próprio para a tela poder dizer isso.
+#
+# `40001` (serialization_failure) é uma classe PADRÃO do Postgres — o próprio
+# motor a levanta em conflito de transação serializável, não só o nosso
+# `RAISE EXCEPTION`. Por isso a tradução abaixo é escopada à função de
+# ajuste: um `40001` genuíno do motor em `fn_confirm_movement` ou
+# `fn_cancel_movement`, por exemplo, não é "recontagem" nenhuma, e virar
+# `SaldoDesatualizadoError` ali daria um conselho sem sentido.
+STALE_BALANCE_SQLSTATE = "40001"
+STALE_BALANCE_RPC = "fn_register_adjustment"
 
 
 class SupabaseMovementRepository:
@@ -113,7 +142,9 @@ class SupabaseMovementRepository:
         linhas = list(self._rows(consulta.order("created_on").execute()))
         linhas.reverse()
         return rows_to_movements(
-            linhas, self._produtos_das_linhas(linhas), self._agora,
+            linhas,
+            self._produtos_das_linhas(linhas),
+            self._agora,
             self._fornecedores_das_linhas(linhas),
         )
 
@@ -191,33 +222,47 @@ class SupabaseMovementRepository:
             # uuid que a tela nunca mostrou.
             raise LookupError(f"Produto {data.product_code} não encontrado.")
         function = (
-            "fn_register_supplier_movement" if data.supplier_id
+            "fn_register_supplier_movement"
+            if data.supplier_id
             else "fn_register_movement"
         )
         args = movement_input_to_register_args(data, self._company_id, product_id)
         return self._rpc(function, args)
 
     def confirm(self, movement_id: str) -> None:
-        """Confirma uma pendente. É esta transição que altera o saldo.
-
-        Sem `company_id`: `fn_confirm_movement` resolve a empresa pela própria
-        linha. Recebê-la do chamador deixaria confirmar movimentação de outra
-        empresa bastando informar uma onde o usuário tem alçada — o mesmo
-        buraco que `fn_update_products` fecha no catálogo.
-        """
         self._rpc("fn_confirm_movement", {"p_movement_id": movement_id})
+
+        # --- EMISSÃO FISCAL: AJUSTE/MOVIMENTAÇÃO DE ESTOQUE ---
+        fiscal = NFeClient()
+        fiscal.emitir_nota(
+            "MOVIMENTACAO_ESTOQUE",
+            {"movement_id": movement_id, "company_id": self._company_id},
+        )
 
     def cancel(self, movement_id: str) -> None:
         """Cancela. Cancelar uma confirmada devolve o saldo (o trigger recalcula)."""
         self._rpc("fn_cancel_movement", {"p_movement_id": movement_id})
 
+    def adjust(self, data) -> str:
+        """Ajuste manual: uma rpc, uma transação, saldo conferido lá dentro.
+
+        Sem par registrar/confirmar, ao contrário das irmãs. A conferência do
+        saldo resultante acontece DENTRO da função, onde ela é atômica;
+        refazê-la aqui depois da resposta compararia contra uma leitura nova,
+        que outra pessoa já pode ter mudado.
+        """
+        product_id = self._product_id(data.product_code)
+        if product_id is None:
+            raise LookupError(f"Produto {data.product_code} não encontrado.")
+        args = adjustment_input_to_args(data, self._company_id, product_id)
+        return self._rpc("fn_register_adjustment", args)
+
     def _rpc(self, name: str, args: dict):
-        """Chama a função e traduz recusa de autorização para o erro de domínio.
+        """Chama a função e traduz as recusas conhecidas para erros de domínio.
 
         Sem esta tradução, uma recusa chegaria à tela como exceção crua do
-        cliente HTTP e cairia fora dos `except PermissionDeniedError` que a
-        aplicação instalou — apareceria um traceback onde deveria aparecer a
-        mensagem de permissão.
+        cliente HTTP e cairia fora dos `except` que a aplicação instalou —
+        apareceria um traceback onde deveria aparecer a mensagem.
         """
         try:
             response = self._client.rpc(name, args).execute()
@@ -225,6 +270,13 @@ class SupabaseMovementRepository:
             if _e_recusa_de_permissao(erro):
                 raise PermissionDeniedError(
                     ACTION_BY_RPC.get(name, f"executar {name}"), self._role
+                ) from erro
+            if (name == STALE_BALANCE_RPC
+                    and str(getattr(erro, "code", "")) == STALE_BALANCE_SQLSTATE):
+                # A mensagem do servidor já traz os dois saldos; reescrevê-la
+                # aqui criaria uma segunda redação da mesma recusa.
+                raise SaldoDesatualizadoError(
+                    f"{_mensagem(erro)}. Reconte o produto antes de ajustar."
                 ) from erro
             raise
         return getattr(response, "data", None)

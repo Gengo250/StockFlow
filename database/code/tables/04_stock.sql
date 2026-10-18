@@ -11,5 +11,7 @@ CREATE TABLE public.product_stock (
     -- mínimo zero explícito e entraria no alerta sem ninguém ter pedido.
     -- O CHECK continua valendo: NULL >= 0 é unknown, e CHECK só reprova false.
     min_quantity  integer CHECK (min_quantity >= 0),
+    max_quantity  integer CHECK (max_quantity >= 0),
+    CONSTRAINT chk_max_ge_min CHECK (max_quantity IS NULL OR min_quantity IS NULL OR max_quantity >= min_quantity),
     updated_on    timestamptz NOT NULL DEFAULT now()
 );

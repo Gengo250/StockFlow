@@ -53,10 +53,26 @@ perdido num merge e só os testes sobreviveram. Ela voltou em
 `presentation/pages/estoque.py` (busca, filtros, `apply_filters`,
 `toggle_product_status`) e `domain/stock_level.py` (cálculo do status).
 
-## Limitação conhecida
+## Banco real e limites da suíte
 
-Não há Postgres, `psql`, Supabase CLI nem daemon Docker neste ambiente, então
-as migrations são validadas **estaticamente** (ordem de execução e coerência
-entre colunas declaradas e colunas usadas pelas procedures). Os testes do
-`supabase_compiler.py` rodam num diretório temporário e nunca tocam o banco
-real nem executam `supabase db push`.
+Os testes em `tests/` incluem verificações estáticas de schema e adaptadores
+simulados. O inventário de objetos acompanha CREATE e DROP em ordem; a
+execução real de SQL continua necessária para validar assinaturas e dependências.
+Os testes do compilador nunca executam `supabase db push`.
+
+Com PostgreSQL local e `pgcrypto` disponíveis, executar também:
+
+```bash
+export STOCKFLOW_TEST_DSN='host=127.0.0.1 port=55439 dbname=postgres user=postgres'
+uv run python scripts/verify_postgres.py
+uv run python scripts/verify_postgres.py --schema
+uv run python scripts/verify_sales.py
+```
+
+Os scripts criam bancos temporários próprios e recusam hosts remotos.
+O último cobre vendas com dados históricos, rollback, concorrência e widgets
+Qt contra PostgreSQL real. Não comprova Supabase Auth nem o transporte HTTP.
+
+Resultado de 14/10/2026: **784 passed, 1 skipped**, além dos três verificadores
+de banco aprovados. Detalhes e aplicação remota em
+[auditoria de vendas](../docs/auditoria/2026-10-14/README.md).

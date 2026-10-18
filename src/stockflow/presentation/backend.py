@@ -135,6 +135,35 @@ def build_movement_repository(session, catalogo, supplier_repository=None):
     )
 
 
+def build_price_history_repository(session, product_repository=None):
+    """Histórico de preço e custo, no mesmo par demonstração/banco.
+
+    Recebe o repositório de catálogo porque os dois adaptadores precisam
+    dele, por motivos opostos: na demonstração ele É a fonte do rastro (não
+    há trigger para escrevê-lo); no banco ele serve só para traduzir código
+    em uuid sem gastar uma consulta.
+    """
+    if not using_supabase():
+        from stockflow.infrastructure.repositories.demo_price_history_repository import (
+            DemoPriceHistoryRepository,
+        )
+
+        return DemoPriceHistoryRepository(product_repository)
+
+    from stockflow.infrastructure.repositories.supabase_price_history_repository import (
+        SupabasePriceHistoryRepository,
+    )
+
+    company_id = getattr(session, "company_id", None)
+    if not company_id:
+        raise RuntimeError(
+            "A sessão não tem empresa. `fn_list_price_edits` precisa do "
+            "company_id para escopar a consulta."
+        )
+
+    return SupabasePriceHistoryRepository(_client(), company_id, product_repository)
+
+
 def build_user_directory(session):
     """Linhas da tela de Usuários, ou `None` para manter a demonstração.
 
@@ -206,7 +235,7 @@ def build_client_repository(session=None):
 def build_sale_repository(session, products):
     if not using_supabase():
         from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
-        return DemoSaleRepository()
+        return DemoSaleRepository(products)
     from stockflow.infrastructure.repositories.supabase_sale_repository import SupabaseSaleRepository
     return SupabaseSaleRepository(_client(), session.company_id)
 

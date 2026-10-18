@@ -28,7 +28,40 @@ LANGUAGE sql IMMUTABLE AS $$
     END;
 $$;
 
-CREATE OR REPLACE FUNCTION public.fn_set_min_stock(
+CREATE OR REPLACE FUNCTION public.fn_set_max_stock(
+    p_product_id uuid,
+    p_max        integer
+) RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_company uuid;
+    v_min integer;
+BEGIN
+    IF p_max < 0 THEN
+        RAISE EXCEPTION 'Estoque máximo não pode ser negativo (recebido: %)', p_max
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    SELECT company_id INTO v_company FROM public.products WHERE id = p_product_id;
+
+    IF v_company IS NULL
+       OR NOT public.fn_has_role(v_company, ARRAY['ADMIN','STOCK']::public.user_role[]) THEN
+        RAISE EXCEPTION 'Produto não encontrado ou sem permissão' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    SELECT min_quantity INTO v_min FROM public.product_stock WHERE product_id = p_product_id;
+    IF p_max IS NOT NULL AND v_min IS NOT NULL AND p_max < v_min THEN
+        RAISE EXCEPTION 'Estoque máximo (%s) não pode ser inferior ao mínimo (%s)', p_max, v_min
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    INSERT INTO public.product_stock (product_id, max_quantity)
+    VALUES (p_product_id, p_max)
+    ON CONFLICT (product_id)
+    DO UPDATE SET max_quantity = EXCLUDED.max_quantity;
+END;
+$$;
     p_product_id uuid,
     p_min        integer
 ) RETURNS void

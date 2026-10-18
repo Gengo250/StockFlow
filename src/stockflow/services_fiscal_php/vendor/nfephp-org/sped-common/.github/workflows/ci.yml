@@ -1,0 +1,75 @@
+name: Pipeline
+on:
+  push:
+    branches:
+      - master
+      - develop
+
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  testsuite:
+    name: Testes Automatizados
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['7.4', '8.0', '8.1', '8.2', '8.3', '8.4', '8.5']
+
+    steps:
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: mbstring, intl, mysql, zlib, dom, openssl, soap, json, simplexml, libxml
+
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: Composer Install
+        run: |
+          composer install --no-progress -o --no-ansi --no-interaction
+
+      - name: Check php code style
+        run: composer phpcs
+
+      - name: Análises estáticas PHP 7.4
+        if: matrix.php-version == '7.4'
+        run: |
+          composer stan
+
+      - name: Análises estáticas PHP 8.0
+        if: matrix.php-version == '8.0'
+        run: |
+            composer stan80
+
+      - name: Análises estáticas PHP 8.1
+        if: matrix.php-version == '8.1'
+        run: |
+            composer stan81
+
+      - name: Análises estáticas PHP 8.2
+        if: matrix.php-version == '8.2'
+        run: |
+            composer stan82
+
+      - name: Análises estáticas PHP 8.3
+        if: matrix.php-version == '8.3'
+        run: |
+            composer stan83
+
+      - name: Análises estáticas PHP 8.4
+        if: matrix.php-version == '8.4'
+        run: |
+            composer stan84
+
+      - name: Análises estáticas PHP 8.5
+        if: matrix.php-version == '8.5'
+        run: |
+            composer stan85
+
+      - name: Rodando PHPUnit
+        run: |
+          composer test

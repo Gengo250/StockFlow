@@ -9,12 +9,16 @@ produto em si mora em `test_us02_validacao_produto_ativo.py`.
 
 import pytest
 
+from stockflow.application.services.sale_service import SEM_ITENS
+
 PRODUTO_ATIVO = "PRD-009"
 
 
 def produto_valido(page):
-    """Completa o campo que a US02 tornou obrigatório na venda nova."""
+    """Inclui um produto ativo no carrinho da venda."""
     assert page.selecionar_produto(PRODUTO_ATIVO) is True
+    page.qtd_input.setText("1")
+    page._adicionar_item()
 
 
 def itens_do_combo(page):
@@ -91,39 +95,45 @@ def test_aviso_antigo_some_ao_associar_cliente_ativo(vendas_page):
 # ------------------------------------------------------ registro de venda
 
 def test_venda_sem_cliente_e_bloqueada(vendas_page):
-    vendas_page.val_input.setText("100,00")
     vendas_page._registrar_venda()
     assert len(vendas_page.historico_vendas) == 2
     assert vendas_page.warning_label.text() == "Selecione um cliente ativo válido."
 
 
-def test_venda_sem_valor_e_bloqueada(vendas_page):
+def test_venda_sem_item_e_bloqueada(vendas_page):
+    vendas_page.selecionar_cliente_externo("Ana Ferreira")
+    vendas_page._registrar_venda()
+    assert len(vendas_page.historico_vendas) == 2
+    assert vendas_page.warning_label.text() == SEM_ITENS
+
+
+def test_venda_nao_exige_redigitar_o_preco_do_catalogo(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
     produto_valido(vendas_page)
     vendas_page._registrar_venda()
-    assert len(vendas_page.historico_vendas) == 2
-    assert vendas_page.warning_label.text() == "Informe o valor da venda."
+    assert len(vendas_page.historico_vendas) == 3
+    assert vendas_page.historico_vendas[0]["valor"] == "R$ 2.499,90"
+    assert vendas_page.warning_label.text() == ""
 
 
 def test_venda_valida_entra_no_historico_com_o_cliente(vendas_page):
     vendas_page.selecionar_cliente_externo("Juliana Ramos")
     produto_valido(vendas_page)
-    vendas_page.val_input.setText("250,00")
     vendas_page._registrar_venda()
 
     assert len(vendas_page.historico_vendas) == 3
     nova = vendas_page.historico_vendas[0]
     assert nova["cliente"] == "Juliana Ramos"
-    assert nova["valor"] == "R$ 250,00"
+    assert nova["valor"] == "R$ 2.499,90"
     assert vendas_page.table.item(0, 1).text() == "Juliana Ramos"
 
 
 def test_formulario_e_limpo_apos_a_venda(vendas_page):
     vendas_page.selecionar_cliente_externo("Ana Ferreira")
     produto_valido(vendas_page)
-    vendas_page.val_input.setText("10,00")
     vendas_page._registrar_venda()
-    assert vendas_page.val_input.text() == ""
+    assert vendas_page.total_label.text() == ""
+    assert vendas_page.produto_combo.currentIndex() == 0
     assert vendas_page.cliente_combo.currentIndex() == 0
     assert vendas_page.warning_label.text() == ""
 
@@ -139,7 +149,6 @@ def test_ids_de_venda_nao_colidem(vendas_page):
     for i in range(12):
         vendas_page.cliente_combo.setCurrentIndex(1)
         produto_valido(vendas_page)
-        vendas_page.val_input.setText(f"{i + 1},00")
         vendas_page._registrar_venda()
 
     # Sem esta conferência o teste passaria de graça caso a gravação parasse

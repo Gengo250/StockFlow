@@ -1,8 +1,10 @@
 """Tradução entre a linha de `public.stock_movements` e a linha da tela.
 
-A tabela de Movimentações consome tuplas neste contrato:
+A tabela de Movimentações consome tuplas neste contrato, DEZ posições SEMPRE
+(ver a nota em `row_to_movement` sobre por que a cauda deixou de ser opcional):
 
-    (id, código, nome do produto, espécie, quantidade, situação, nota, quando)
+    (id, código, nome do produto, espécie, quantidade, situação, nota, quando,
+     fornecedor, motivo)
 
 Mesmo desenho de `user_mapper`: tupla, e não objeto, porque é o formato que as
 tabelas desta aplicação já desenham, e porque assim o adaptador de banco e o
@@ -27,8 +29,10 @@ Três decisões que a tupla carrega:
   categoria.
 """
 
+from stockflow.domain.enums.adjustment_reason import AdjustmentReason
 from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.enums.movement_status import MovementStatus
+from stockflow.domain.stock_adjustment import saldo_contado
 from stockflow.domain.stock_level import to_int
 from stockflow.infrastructure.repositories.user_mapper import (
     NUNCA,
@@ -79,8 +83,29 @@ def _rotulo_de_situacao(valor) -> str:
         return str(valor or VAZIO)
 
 
-def row_to_movement(row, product_code="", product_name="", agora=None) -> tuple:
+def _rotulo_de_motivo(valor) -> str:
+    """Rótulo do motivo do ajuste, ou travessão quando não é ajuste.
+
+    Mesma tolerância de `_rotulo_de_especie`: valor que o enum ainda não
+    conhece aparece cru numa célula em vez de derrubar a listagem inteira.
+    """
+    if not valor:
+        return VAZIO
+    try:
+        return AdjustmentReason.from_value(valor).label
+    except ValueError:
+        return str(valor)
+
+
+def row_to_movement(row, product_code="", product_name="", agora=None,
+                    supplier_name="") -> tuple:
     """Linha de `stock_movements` na tupla que a tabela desenha.
+
+    DEZ posições, SEMPRE. A cauda já foi opcional — o fornecedor só entrava
+    quando existia — e a tela lia `mov[8] if len(mov) > 8`. Com duas caudas
+    opcionais o motivo do ajuste ocuparia o índice do fornecedor sempre que o
+    produto não tivesse um, e "Quebra / avaria" apareceria na coluna errada.
+    Ausência é travessão, como em toda célula vazia desta aplicação.
 
     `product_code` e `product_name` chegam de fora porque moram em
     `products`; ver a nota de N+1 no topo do módulo.
@@ -94,6 +119,8 @@ def row_to_movement(row, product_code="", product_name="", agora=None) -> tuple:
         _rotulo_de_situacao(row.get("status")),
         (str(row.get("note") or "").strip() or VAZIO),
         formatar_quando(row.get("created_on"), agora),
+        supplier_name or VAZIO,
+        _rotulo_de_motivo(row.get("adjustment_reason")),
     )
 
 
@@ -109,13 +136,16 @@ def rows_to_movements(rows, produtos=None, agora=None, fornecedores=None) -> tup
     fornecedores = fornecedores or {}
     resultado = []
     for row in rows or ():
-        movimento = row_to_movement(
-            row, *produtos.get(row.get("product_id"), ("", "")), agora=agora
-        )
         supplier_id = row.get("supplier_id")
-        if supplier_id:
-            movimento += (fornecedores.get(supplier_id, "Fornecedor indisponível"),)
-        resultado.append(movimento)
+        resultado.append(row_to_movement(
+            row,
+            *produtos.get(row.get("product_id"), ("", "")),
+            agora=agora,
+            supplier_name=(
+                fornecedores.get(supplier_id, "Fornecedor indisponível")
+                if supplier_id else ""
+            ),
+        ))
     return tuple(resultado)
 
 
@@ -148,3 +178,43 @@ def movement_input_to_register_args(data, company_id, product_id) -> dict:
     if getattr(data, "supplier_id", None):
         args["p_supplier_id"] = data.supplier_id
     return args
+
+
+def adjustment_input_to_args(data, company_id, product_id) -> dict:
+    """Argumentos nomeados de `fn_register_adjustment`.
+
+    `p_expected_balance` vai junto e a CHAVE não é opcional: é o saldo que a
+    tela exibiu, e é ele que faz a função recusar quando outra pessoa
+    movimentou o produto no meio. Omitir a chave transformaria "esqueci de
+    passar" em "não quero a checagem de concorrência".
+
+    O VALOR, porém, preserva `None` como `None` (NULL), em vez de passar por
+    `to_int` — a função só pula a checagem quando recebe NULL de verdade
+    (`IF p_expected_balance IS NOT NULL AND p_expected_balance <> v_current`
+    em `fn_register_adjustment`), e é assim que o adaptador de demonstração
+    também lê (`if esperado is not None and ...`). Rodar `to_int(None)` aqui
+    gravaria `0`, e todo ajuste sem saldo esperado passaria a recusar com
+    "na tela: 0, agora: <o saldo real>" em vez de pular a checagem como os
+    dois adaptadores atrás da mesma porta precisam concordar em fazer.
+
+    `p_counted_balance`, ao contrário, passa por `saldo_contado`, que
+    LEVANTA — nunca por `to_int`. Os dois parâmetros parecem simétricos e não
+    são: NULL no esperado significa "não quero a checagem de concorrência",
+    uma opção documentada, enquanto um contado ausente não significa nada.
+    `to_int(None)` devolveria `0` — que não chega ao banco como NULL, chega
+    como uma contagem válida de zero e esvazia o produto. Para o número que
+    decide quanto estoque sai, o padrão certo é não ter padrão.
+
+    Detalhe vazio vira NULL, não string vazia, pelo mesmo motivo da nota em
+    `movement_input_to_register_args`.
+    """
+    detalhe = str(getattr(data, "detail", "") or "").strip()
+    esperado = data.expected_balance
+    return {
+        "p_company_id": company_id,
+        "p_product_id": product_id,
+        "p_counted_balance": saldo_contado(data.counted_balance),
+        "p_expected_balance": None if esperado is None else to_int(esperado),
+        "p_reason": AdjustmentReason.from_value(data.reason).value,
+        "p_detail": detalhe or None,
+    }
