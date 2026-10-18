@@ -2,6 +2,7 @@
 
 from typing import Protocol
 
+from stockflow.application.dto.adjustment_input import AdjustmentInput
 from stockflow.application.dto.movement_input import MovementInput
 
 
@@ -32,4 +33,14 @@ class MovementRepository(Protocol):
 
     def cancel(self, movement_id: str) -> None:
         """Cancela. Cancelar uma confirmada devolve o saldo."""
+        ...
+
+    def adjust(self, data: AdjustmentInput) -> str:
+        """Ajuste manual de inventário: uma operação, indivisível.
+
+        Não tem par registrar/confirmar como as outras de propósito. Uma
+        contagem é uma afirmação sobre AGORA; um ajuste pendente confirmado
+        depois aplicaria uma diferença calculada sobre um saldo que já mudou,
+        e o saldo final não seria o contado.
+        """
         ...

@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from stockflow.application.services.movement_service import MovementService
 from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.permissions import (
     PERMISSION_MATRIX,
     TODOS_OS_PAPEIS,
@@ -24,6 +25,7 @@ from stockflow.presentation.backend import (
     build_sale_repository,
     build_demo_user_directory,
     build_movement_repository,
+    build_price_history_repository,
     build_supplier_repository,
     build_user_directory,
     set_user_active as set_directory_user_active,
@@ -44,6 +46,7 @@ from stockflow.presentation.pages.overview import DashboardPage, ReportsPage, Se
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
+from stockflow.presentation.pages.historico_precos import HistoricoPrecosPage
 from stockflow.presentation.pages.users import UsersPage
 from stockflow.presentation.pages.vendas import VendasPage
 from stockflow.presentation.pages.products import ProductsPage
@@ -178,6 +181,11 @@ class MainWindow(QMainWindow):
         from stockflow.application.services.sale_service import SaleService
         self.client_repository = build_client_repository(self.session)
         self.sale_repository = build_sale_repository(self.session, self.products)
+        self.movement_repository = build_movement_repository(
+            self.session, self.products, self.supplier_repository
+        )
+        if not using_supabase():
+            self.sale_repository.movements = self.movement_repository
         self.sale_service = SaleService(self.sale_repository, self.client_repository, self.product_repository)
         self.vendas_page = VendasPage(self.products, service=self.sale_service, session=self.session)
         self.clientes_page = ClientesPage(sales_page=self.vendas_page, repository=self.client_repository, session=self.session)
@@ -186,13 +194,22 @@ class MainWindow(QMainWindow):
         # Movimentações recebe o MESMO catálogo: a oferta de produtos tem que
         # acompanhar desativações feitas no Estoque, pela mesma razão da tela
         # de Vendas (US02).
-        self.movement_repository = build_movement_repository(
-            self.session, self.products, self.supplier_repository
-        )
+        if using_supabase():
+            self.vendas_page.execute = lambda *args: self.executar_em_segundo_plano(*args)
         self.movement_service = MovementService(
             self.movement_repository, self.supplier_repository, self.product_repository
         )
         self.movimentacoes_page = MovimentacoesPage(self.products)
+
+        # Histórico de preço e custo (H09). O serviço recebe a mesma sessão
+        # das demais telas: a recusa de papel acontece nele, antes de gastar
+        # a consulta que `fn_list_price_edits` recusaria de qualquer jeito.
+        from stockflow.application.services.price_history_service import PriceHistoryService
+        self.price_history_repository = build_price_history_repository(
+            self.session, self.product_repository
+        )
+        self.price_history_service = PriceHistoryService(self.price_history_repository)
+        self.historico_precos_page = HistoricoPrecosPage()
         # Consulta de rede no caminho de CONSTRUÇÃO: uma falha aqui subiria
         # até `__init__` e derrubaria a janela inteira, pelo mesmo motivo que
         # a carga de vendas derrubava. O combo de fornecedores vazio degrada
@@ -221,6 +238,7 @@ class MainWindow(QMainWindow):
             "clientes": self.clientes_page,
             "vendas": self.vendas_page,
             "produtos": self.products_page,
+            "historico_precos": self.historico_precos_page,
             "relatorios": self.reports_page,
             "usuarios": self.users_page,
             "configuracoes": self.settings_page,
@@ -280,7 +298,12 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.register_requested.connect(self._registrar_movimentacao)
         self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
         self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
+        self.movimentacoes_page.adjust_requested.connect(self._aplicar_ajuste)
+        self.historico_precos_page.filtro_alterado.connect(
+            lambda _codigo: self._carregar_historico_precos()
+        )
         self.suppliers_page.suppliers_changed.connect(self._refresh_supplier_options)
+        self.vendas_page.sale_registered.connect(self._venda_registrada)
 
         self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
         self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
@@ -371,6 +394,13 @@ class MainWindow(QMainWindow):
     # MOVIMENTAÇÕES
     # ======================================================
 
+    def _venda_registrada(self, venda):
+        """Venda concluída invalida saldo, alertas e histórico de movimentos."""
+        self._saldo_mudou()
+        # Vendedores não têm acesso à listagem de movimentações.
+        if pode_ver(self.session, "movimentacoes"):
+            self._recarregar_movimentacoes()
+
     def _recarregar_movimentacoes(self):
         """Recarrega o histórico. A permissão já foi checada na navegação."""
         try:
@@ -406,6 +436,70 @@ class MainWindow(QMainWindow):
         if dados.confirm:
             self._saldo_mudou()
 
+    def _carregar_historico_precos(self):
+        """Recarrega a consulta de histórico e o seu filtro (H09).
+
+        Papel sem alçada não é erro de tela: o item nem aparece no menu, mas
+        a janela sobrevive ao logout, então aplicar a sessão de um estoquista
+        sobre uma janela que estava no histórico passa por aqui. Esvaziar é a
+        resposta honesta — mostrar a recusa num diálogo interromperia um
+        relogin que deu certo.
+        """
+        page = self.historico_precos_page
+        if not pode_ver(self.session, "historico_precos"):
+            page.preencher_produtos(())
+            page.carregar(())
+            return
+
+        page.preencher_produtos(
+            sorted((p.code, p.name) for p in self.products.values())
+        )
+        try:
+            page.carregar(
+                self.price_history_service.list_changes(
+                    self.session, page.produto_combo.currentData()
+                )
+            )
+            self.last_history_error = None
+        except Exception as erro:
+            # A consulta pode falhar por rede ou por recusa do banco. A tela
+            # fica de pé com a mensagem no lugar da tabela, pelo mesmo motivo
+            # de `test_janela_sobrevive_a_fonte_indisponivel`: uma janela que
+            # não abre esconde qual das telas falhou.
+            self.last_history_error = erro
+            page.mostrar_recusa(erro)
+
+    def _aplicar_ajuste(self, dados):
+        """Ajuste manual: grava e reconsulta, porque o saldo mudou na hora.
+
+        Ao contrário de `_registrar_movimentacao`, não há caso em que o saldo
+        fique parado: ajuste nasce confirmado. Então `_saldo_mudou()` é
+        incondicional.
+        """
+        try:
+            self.movement_service.adjust(self.session, dados)
+        except PermissionDeniedError as erro:
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            return
+        except SaldoDesatualizadoError as erro:
+            # Recontagem, não falha: a mensagem já diz os dois saldos, e
+            # recarregar o catálogo faz o campo "Saldo atual" mostrar o
+            # número novo antes da próxima tentativa.
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            self._saldo_mudou()
+            return
+        except ValueError as erro:
+            self.movimentacoes_page.mostrar_recusa_de_ajuste(erro)
+            return
+        except Exception as erro:
+            self.last_save_error = erro
+            QMessageBox.critical(self, "Não foi possível ajustar", str(erro))
+            return
+
+        self.movimentacoes_page.limpar_ajuste()
+        self._recarregar_movimentacoes()
+        self._saldo_mudou()
+
     def _confirmar_movimentacao(self, movement_id):
         if not self._executar_movimentacao(
             self.movement_service.confirm, movement_id, "confirmar"
@@ -436,17 +530,15 @@ class MainWindow(QMainWindow):
         return True
 
     def _saldo_mudou(self):
-        """Uma movimentação confirmada alterou o saldo. Propaga para as telas.
+        """Uma operação confirmada alterou o saldo. Propaga para as telas.
 
         Dois caminhos, porque as duas fontes se comportam de forma diferente:
 
         - COM banco, o saldo foi recalculado pelo trigger e a foto local não
-          sabe disso. Só reconsultando.
-        - SEM banco, o repositório de movimentação já escreveu no catálogo
-          compartilhado; o que falta é redesenhar. Reconsultar sairia cedo
-          (não há `load_catalog`) e a tela ficaria com o saldo antigo — foi
-          exatamente o que aconteceu: o catálogo marcava 13 e a tabela de
-          Estoque seguia mostrando 18.
+          sabe disso. Só reconsultando. Isso inclui vendas confirmadas.
+        - SEM banco, a operação já escreveu no catálogo compartilhado; o que
+          falta é redesenhar. Reconsultar sairia cedo (não há `load_catalog`)
+          e a tela ficaria com o saldo antigo.
         """
         if getattr(self.product_repository, "load_catalog", None) is not None:
             self._reconsultar_estoque()
@@ -750,6 +842,8 @@ class MainWindow(QMainWindow):
             if widget is atual and not pode_ver(self.session, chave):
                 self.show_page(DEFAULT_KEY)
                 break
+
+        self._carregar_historico_precos()
 
         self.sidebar.set_user(self.session)
         self.top_bar.set_user(self.session)

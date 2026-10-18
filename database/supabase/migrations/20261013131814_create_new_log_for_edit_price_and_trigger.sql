@@ -7,10 +7,8 @@ CREATE TABLE IF NOT EXISTS public.price_edit_log (
     new_price numeric NOT NULL,
     product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE
 );
-
 CREATE INDEX IF NOT EXISTS idx_price_edit_log_product_id ON public.price_edit_log(product_id);
 CREATE INDEX IF NOT EXISTS idx_price_edit_log_company_id ON public.price_edit_log(company_id);
-
 CREATE OR REPLACE FUNCTION public.trg_log_price_edit()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -37,9 +35,7 @@ BEGIN
     RETURN NEW;
 END;
 $$;
-
 DROP TRIGGER IF EXISTS trg_price_edit_log ON public.products;
-
 CREATE TRIGGER trg_price_edit_log
 AFTER UPDATE OF sell_price ON public.products
 FOR EACH ROW

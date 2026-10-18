@@ -34,6 +34,7 @@ from stockflow.infrastructure.repositories.demo_movement_repository import (
 )
 from stockflow.infrastructure.repositories.movement_mapper import VAZIO
 from stockflow.infrastructure.repositories.supabase_movement_repository import (
+    MOVEMENT_COLUMNS,
     SupabaseMovementRepository,
 )
 from stockflow.presentation.demo_products import Product
@@ -123,6 +124,8 @@ def test_a_linha_do_banco_vira_a_tupla_que_a_tela_desenha():
         "Pendente",             # enum traduzido por MovementStatus.label
         "Compra NF 4821",
         "Ontem, 18:30",
+        VAZIO,                  # sem fornecedor: posição fixa, nunca ausente
+        VAZIO,                  # sem motivo de ajuste: idem
     )
     assert recente[0] == "mov-2"
     assert recente[7] == "Hoje, 18:30"
@@ -482,6 +485,8 @@ def test_a_tupla_da_demonstracao_e_a_mesma_do_banco():
         "Pendente",
         "Compra NF 4821",
         "Hoje, 18:30",
+        VAZIO,
+        VAZIO,
     ),)
 
 
@@ -526,3 +531,408 @@ def test_a_situacao_registrada_segue_o_enum_do_dominio():
 
     situacoes = [linha[5] for linha in repo.list_movements()]
     assert situacoes == [MovementStatus.CONFIRMADA.label, MovementStatus.PENDENTE.label]
+
+
+# -------------------------------------------------------- tupla de 10 campos
+# A cauda da tupla era OPCIONAL: o fornecedor só era acrescentado quando
+# existia, e a tela lia `mov[8] if len(mov) > 8`. Pendurar o motivo do ajuste
+# nisso colocaria "Quebra / avaria" na coluna Fornecedor toda vez que o
+# produto não tivesse fornecedor — a maioria das saídas.
+
+CAMPOS = 10
+I_FORNECEDOR, I_MOTIVO = 8, 9
+
+
+def test_movimentacao_sem_fornecedor_ainda_tem_dez_campos():
+    repo = DemoMovementRepository(
+        {"P1": Product("P1", "Arroz", "Grãos", "UN", "10,00", "5,00", True, "42", "Normal")},
+        agora=AGORA,
+    )
+    repo.register(MovementInput("P1", MovementKind.SAIDA, 2, confirm=True))
+
+    linha = repo.list_movements()[0]
+
+    assert len(linha) == CAMPOS
+    assert linha[I_FORNECEDOR] == VAZIO
+    assert linha[I_MOTIVO] == VAZIO
+
+
+def test_o_fornecedor_nao_escorrega_para_a_coluna_do_motivo():
+    """Posição fixa: fornecedor é sempre 8, motivo é sempre 9."""
+    tabelas = movimentos_falsos()
+    repo = SupabaseMovementRepository(ClienteFalso(tabelas), COMPANY, agora=AGORA)
+
+    for linha in repo.list_movements():
+        assert len(linha) == CAMPOS
+
+
+# ------------------------------------------------------------- ajuste (H11)
+# Do adaptador de demonstração o que se prova é mais forte que do de banco,
+# porque ele É a implementação: aqui não há trigger nem transação, então a
+# atomicidade e o saldo resultante precisam ser código testado.
+
+from stockflow.application.dto.adjustment_input import AdjustmentInput
+from stockflow.domain.enums.adjustment_reason import AdjustmentReason
+from stockflow.domain.exceptions.adjustment_errors import (
+    AjusteSemEfeitoError,
+    SaldoDesatualizadoError,
+)
+
+
+def catalogo_de_um(stock="42", active=True):
+    return {"P1": Product("P1", "Arroz", "Grãos", "UN", "10,00", "5,00",
+                          active, stock, "Normal")}
+
+
+def ajuste(**kwargs):
+    base = dict(product_code="P1", counted_balance=38, expected_balance=42,
+                reason=AdjustmentReason.QUEBRA, detail="")
+    base.update(kwargs)
+    return AdjustmentInput(**base)
+
+
+def test_ajuste_leva_o_saldo_exatamente_ao_contado():
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    repo.adjust(ajuste(counted_balance=38))
+
+    assert produtos["P1"].stock == "38"
+
+
+def test_contar_mais_do_que_havia_vira_entrada():
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    repo.adjust(ajuste(counted_balance=50, reason=AdjustmentReason.CONTAGEM))
+
+    assert produtos["P1"].stock == "50"
+    assert repo.list_movements()[0][3] == MovementKind.ENTRADA.label
+
+
+def test_o_ajuste_nasce_confirmado_e_carrega_o_motivo():
+    """Não há par registrar/confirmar: a contagem vale no ato."""
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    repo.adjust(ajuste(counted_balance=38))
+    linha = repo.list_movements()[0]
+
+    assert linha[5] == MovementStatus.CONFIRMADA.label
+    assert linha[9] == AdjustmentReason.QUEBRA.label
+
+
+def test_saldo_mudou_desde_a_contagem_e_recusado_sem_gravar():
+    produtos = catalogo_de_um("45")   # alguém movimentou; a tela viu 42
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(SaldoDesatualizadoError):
+        repo.adjust(ajuste(expected_balance=42, counted_balance=38))
+
+    assert produtos["P1"].stock == "45", "o saldo foi alterado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_produto_inativo_nao_e_ajustado():
+    produtos = catalogo_de_um("42", active=False)
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(ValueError):
+        repo.adjust(ajuste())
+
+    # Literal "42", não uma variável capturada antes da chamada: comparar o
+    # saldo com ele mesmo depois do `adjust` não provaria nada se o código
+    # tivesse mutado o MESMO objeto.
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_outro_sem_detalhe_e_recusado_como_no_banco():
+    """Espelha `ck_movements_adjustment_detail`.
+
+    Sem isto, o modo demonstração aceitaria o que o Postgres recusa, e o bug
+    só apareceria para quem roda com banco.
+    """
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(ValueError):
+        repo.adjust(ajuste(reason=AdjustmentReason.OUTRO, detail=""))
+
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_zerar_o_saldo_e_ajuste_valido():
+    produtos = catalogo_de_um("5")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    repo.adjust(ajuste(counted_balance=0, expected_balance=5,
+                       reason=AdjustmentReason.PERDA))
+
+    assert produtos["P1"].stock == "0"
+
+
+def test_contado_igual_ao_atual_e_ajuste_sem_efeito():
+    """Espelha o `IF p_counted_balance = v_current` do banco.
+
+    É a recusa NOMEADA (`AjusteSemEfeitoError`), não qualquer `ValueError`:
+    a tela usa esse nome para desabilitar o botão antes do clique, e um
+    `ValueError` genérico esconderia essa distinção.
+    """
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(AjusteSemEfeitoError):
+        repo.adjust(ajuste(counted_balance=42, expected_balance=42))
+
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_contado_negativo_e_recusado_sem_gravar():
+    """Espelha o guard `p_counted_balance IS NULL OR p_counted_balance < 0`."""
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(ValueError):
+        repo.adjust(ajuste(counted_balance=-1, expected_balance=42))
+
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_a_ordem_das_recusas_espelha_a_funcao_sql():
+    """Produto inativo E `OUTRO` sem detalhe ao mesmo tempo.
+
+    `fn_register_adjustment` confere o motivo ANTES de travar a linha do
+    produto; se o adaptador de demonstração invertesse essa ordem, a mesma
+    entrada errada produziria uma mensagem diferente contra o banco e contra
+    a demonstração — e é exatamente essa divergência que pinça este teste.
+    """
+    produtos = catalogo_de_um("42", active=False)
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+
+    with pytest.raises(ValueError, match="Outro"):
+        repo.adjust(ajuste(reason=AdjustmentReason.OUTRO, detail=""))
+
+    # É justamente aqui, com DUAS condições erradas ao mesmo tempo, que um
+    # estado pela metade apareceria primeiro: saldo E status literais da
+    # fixture, não recalculados a partir de um saldo fantasma.
+    assert produtos["P1"].stock == "42", "o saldo foi alterado apesar da recusa"
+    assert produtos["P1"].stock_status == "Normal", "o status foi recalculado apesar da recusa"
+    assert repo.list_movements() == ()
+
+
+def test_cancelar_um_ajuste_devolve_o_saldo():
+    """O estorno de ajuste é o caminho GENÉRICO de cancelamento.
+
+    A H11 deixou o estorno fora de escopo justamente porque
+    `fn_cancel_movement` já resolve: um ajuste é uma ENTRADA/SAIDA comum, e
+    cancelá-la tira a linha da soma das confirmadas. Mas "já funciona" não é
+    teste — `cancel` já tem um caso especial (`sale_id`), e o próximo guard
+    escrito ali quebraria em silêncio a reversão que a especificação promete.
+    """
+    produtos = catalogo_de_um("42")
+    repo = DemoMovementRepository(produtos, agora=AGORA)
+    movimento = repo.adjust(ajuste(counted_balance=38))
+    assert produtos["P1"].stock == "38"
+
+    repo.cancel(movimento)
+
+    assert produtos["P1"].stock == "42", "cancelar o ajuste não devolveu o saldo"
+    assert repo.list_movements()[0][5] == MovementStatus.CANCELADA.label
+    # O motivo continua na linha cancelada: o histórico é imutável, e
+    # esconder por que o ajuste existiu tiraria da tela a resposta para "por
+    # que o saldo caiu e voltou".
+    assert repo.list_movements()[0][9] == AdjustmentReason.QUEBRA.label
+
+
+# ---------------------------------------------------- ajuste (H11) — Supabase
+# O adaptador de banco não decide nada sobre o saldo: o que ele precisa
+# acertar é a tradução (código -> uuid, enum -> valor cru) e repassar a
+# recusa certa para o tipo certo de exceção.
+
+
+def test_ajuste_chama_a_rpc_com_o_uuid_e_o_motivo_cru():
+    """A tela trabalha com código; a função exige uuid e o valor do enum."""
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas)
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo.list_movements()   # alimenta o cache barcode -> uuid
+
+    repo.adjust(ajuste(product_code="PRD-009", counted_balance=38,
+                       expected_balance=18, reason=AdjustmentReason.QUEBRA,
+                       detail=" caixa amassada "))
+
+    nome, args = cliente.chamadas_rpc[-1]
+    assert nome == "fn_register_adjustment"
+    assert args["p_product_id"] == PRODUTO_ID
+    assert args["p_counted_balance"] == 38
+    assert args["p_expected_balance"] == 18
+    assert args["p_reason"] == "QUEBRA"
+    assert args["p_detail"] == "caixa amassada", "o detalhe precisa chegar aparado"
+
+
+def test_detalhe_vazio_vira_nulo_e_nao_string_vazia():
+    """A coluna é nullable e "não escrevi" é ausência.
+
+    Gravar `''` faria um relatório que filtra por detalhe preenchido
+    encontrar ajustes sem detalhe nenhum.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas)
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo.list_movements()
+
+    repo.adjust(ajuste(product_code="PRD-009", detail="   "))
+
+    assert cliente.chamadas_rpc[-1][1]["p_detail"] is None
+
+
+@pytest.mark.parametrize("contado", [None, "", "trinta"])
+def test_contado_ilegivel_nao_chega_a_rpc_como_zero(contado):
+    """`to_int` devolveria `0`, e `0` ESVAZIA o produto.
+
+    O parâmetro não chega ao banco como NULL para o primeiro guard recusar:
+    chega como uma contagem válida de zero, e a função faz exatamente o que
+    foi pedido. A recusa precisa acontecer antes da rede.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas)
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo.list_movements()
+    chamadas_antes = len(cliente.chamadas_rpc)
+
+    with pytest.raises(ValueError):
+        repo.adjust(ajuste(product_code="PRD-009", counted_balance=contado))
+
+    assert len(cliente.chamadas_rpc) == chamadas_antes, (
+        "um contado ilegível virou requisição"
+    )
+
+
+def test_a_tela_nao_busca_coluna_que_nao_consome():
+    """`MOVEMENT_COLUMNS` é lista explícita justamente para isto.
+
+    `adjustment_reason` fica porque a tabela tem a coluna Motivo (posição 9
+    da tupla). `counted_balance` não tem posição nenhuma — buscá-lo seria a
+    coluna que começa a trafegar sozinha, que é o que a lista explícita
+    existe para impedir. A coluna segue na tabela para a reconciliação que o
+    comentário do schema prevê.
+    """
+    assert "adjustment_reason" in MOVEMENT_COLUMNS
+    assert "counted_balance" not in MOVEMENT_COLUMNS
+
+
+def test_recusa_de_permissao_na_rpc_de_ajuste_vira_erro_de_dominio():
+    """42501 tem que cair nos `except PermissionDeniedError` já instalados.
+
+    Sem a tradução, a recusa sobe como exceção crua do cliente HTTP e
+    aparece um traceback onde deveria aparecer a mensagem de permissão.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas, rpc_erros={
+        "fn_register_adjustment": ErroDoPostgrest("permission denied", "42501"),
+    })
+    repo = SupabaseMovementRepository(cliente, COMPANY, role="SELLER", agora=AGORA)
+    repo._ids["PRD-009"] = PRODUTO_ID
+
+    with pytest.raises(PermissionDeniedError, match="ajustar o estoque"):
+        repo.adjust(ajuste(product_code="PRD-009"))
+
+
+def test_saldo_desatualizado_no_banco_vira_erro_nomeado():
+    """40001 não é falha de sistema: é pedido de recontagem.
+
+    Sem o nome próprio, a tela mostraria "serialization_failure" para quem
+    só precisa contar de novo.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas, rpc_erros={
+        "fn_register_adjustment": ErroDoPostgrest(
+            "O saldo mudou desde a contagem (na tela: 42, agora: 45)", "40001"),
+    })
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo._ids["PRD-009"] = PRODUTO_ID
+
+    with pytest.raises(SaldoDesatualizadoError, match="45"):
+        repo.adjust(ajuste(product_code="PRD-009"))
+
+
+def test_saldo_esperado_nulo_preserva_null_nas_duas_pontas():
+    """`None` é a forma DOCUMENTADA de pular a checagem de concorrência.
+
+    `fn_register_adjustment` só pula a checagem quando recebe
+    `p_expected_balance` NULL de verdade (`IF p_expected_balance IS NOT NULL
+    AND p_expected_balance <> v_current THEN RAISE`); o adaptador de
+    demonstração espelha a mesma regra (`if esperado is not None and ...`).
+
+    Se o adaptador de banco convertesse `None` para `0` (o default de
+    `to_int`), todo ajuste sem saldo esperado passaria a recusar com "na
+    tela: 0, agora: <real>" em vez de pular a checagem — as DUAS
+    implementações atrás da mesma porta precisam concordar neste ponto, por
+    isso o teste roda a MESMA entrada contra as duas, e não só confere o
+    dict de argumentos do lado do banco (que passaria mesmo se o adaptador
+    de demonstração tivesse o bug oposto).
+    """
+    dados = ajuste(product_code="PRD-009", counted_balance=20,
+                   expected_balance=None, reason=AdjustmentReason.CONTAGEM)
+
+    produtos = {"PRD-009": Product(
+        "PRD-009", "Monitor LG UltraWide 34\"", "Eletrônicos", "UN",
+        "10,00", "5,00", True, "18", "Normal",
+    )}
+    demo = DemoMovementRepository(produtos, agora=AGORA)
+    # Não levanta `SaldoDesatualizadoError`, mesmo o saldo real (18) sendo
+    # diferente do contado (20): `None` pulou a checagem, como documentado.
+    demo.adjust(dados)
+
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas)
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo._ids["PRD-009"] = PRODUTO_ID
+
+    repo.adjust(dados)
+
+    assert cliente.chamadas_rpc[-1][1]["p_expected_balance"] is None
+
+
+def test_40001_fora_do_ajuste_nao_vira_saldo_desatualizado():
+    """`40001` é uma classe PADRÃO do Postgres, não exclusiva do nosso RAISE.
+
+    O próprio motor levanta `serialization_failure` em conflito de
+    transação serializável — não só `fn_register_adjustment`. Um `40001`
+    genuíno do motor em `fn_confirm_movement` não é "recontagem" nenhuma, e
+    virar `SaldoDesatualizadoError` ali daria um conselho sem sentido. A
+    tradução tem que ficar presa à função de ajuste.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas, rpc_erros={
+        "fn_confirm_movement": ErroDoPostgrest(
+            "could not serialize access due to concurrent update", "40001"),
+    })
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+
+    with pytest.raises(ErroDoPostgrest):
+        repo.confirm(MOV_ID)
+
+
+def test_ajuste_nao_faz_leitura_de_conferencia_depois_da_rpc():
+    """A conferência do saldo resultante acontece DENTRO da função, atômica.
+
+    Reler o saldo aqui depois compararia contra uma leitura nova que outra
+    pessoa já pode ter mudado — pareceria uma checagem e não valeria nada.
+    Este teste prova a ausência contando consultas de tabela em vez de só
+    ler o código: uma edição bem-intencionada que acrescentasse uma
+    releitura passaria despercebida sem este contador.
+    """
+    tabelas = movimentos_falsos()
+    cliente = ClienteFalso(tabelas, rpc_resultados={"fn_register_adjustment": MOV_ID})
+    repo = SupabaseMovementRepository(cliente, COMPANY, agora=AGORA)
+    repo._ids["PRD-009"] = PRODUTO_ID
+
+    consultas_antes = len(cliente.consultas)
+    repo.adjust(ajuste(product_code="PRD-009"))
+
+    assert len(cliente.consultas) == consultas_antes

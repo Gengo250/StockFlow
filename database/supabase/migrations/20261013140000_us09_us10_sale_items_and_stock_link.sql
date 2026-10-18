@@ -1,121 +1,153 @@
--- US09 (edição de estoque) e US10 (venda com vários itens).
+-- US09/US10: reconcilia tanto o schema US07 quanto o schema já aplicado
+-- no remoto em 10–13/10/2026. Esta versão ainda NÃO havia sido aplicada.
+-- Preserva vendas, itens, logs, autores e saldos; não usa DROP TABLE/CASCADE.
+-- Quantidades históricas fracionárias causam recusa explícita, nunca
+-- arredondamento ou exclusão silenciosa.
 --
--- Substitui as 14 migrations do branch US09-US10, que criavam objetos e os
--- removiam poucas migrations depois. Nenhuma delas chegou ao banco: a de
--- `sales_log` referenciava `sales(created_by)`, coluna sem restrição única, e
--- `supabase db push` para ali com
---   there is no unique constraint matching given keys for referenced table
---
--- O que muda de verdade:
---   1. `sales` vira CABEÇALHO e os produtos vendidos passam para `sale_items`;
---   2. venda ganha forma de pagamento, desconto e situação;
---   3. concluir uma venda dá baixa no estoque POR MOVIMENTAÇÃO, respeitando a
---      regra da US03 de que saldo é a soma das confirmadas;
---   4. `products` passa a registrar quem alterou e quando.
+-- A transação é aberta AQUI, pelo próprio arquivo. `supabase db push` manda
+-- cada comando da migration separadamente, em autocommit: sem este BEGIN o
+-- LOCK abaixo é recusado com 25P01 ("LOCK TABLE can only be used in
+-- transaction blocks") e a conversão de dados ficaria sem o rollback que os
+-- comentários deste arquivo assumem.
 
--- ------------------------------------------------------------------- tipos
+BEGIN;
 
-CREATE TYPE public.sale_status AS ENUM ('PENDENTE', 'CONCLUIDA', 'CANCELADA');
+LOCK TABLE public.sales IN ACCESS EXCLUSIVE MODE;
+DROP TRIGGER IF EXISTS trg_sale_completion ON public.sales;
 
-CREATE TYPE public.payment_method AS ENUM (
-    'DINHEIRO', 'DEBITO', 'CREDITO', 'PIX', 'VALE', 'OUTRO'
-);
+DO $$
+DECLARE
+    v_old text;
+    v_new text;
+BEGIN
+    IF to_regtype('public.sale_status') IS NULL THEN
+        CREATE TYPE public.sale_status AS ENUM ('PENDENTE', 'CONCLUIDA', 'CANCELADA');
+    ELSE
+        FOR v_old, v_new IN SELECT * FROM (VALUES
+            ('PENDING', 'PENDENTE'), ('COMPLETE', 'CONCLUIDA'), ('CANCELLED', 'CANCELADA')
+        ) names LOOP
+            IF EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'public.sale_status'::regtype AND enumlabel = v_old) THEN
+                EXECUTE format('ALTER TYPE public.sale_status RENAME VALUE %L TO %L', v_old, v_new);
+            END IF;
+        END LOOP;
+        ALTER TYPE public.sale_status ADD VALUE IF NOT EXISTS 'CANCELADA';
+    END IF;
+    IF to_regtype('public.payment_method') IS NULL THEN
+        CREATE TYPE public.payment_method AS ENUM ('DINHEIRO', 'DEBITO', 'CREDITO', 'PIX', 'VALE', 'OUTRO');
+    ELSE
+        FOR v_old, v_new IN SELECT * FROM (VALUES
+            ('CASH', 'DINHEIRO'), ('DEBIT', 'DEBITO'), ('CREDIT', 'CREDITO'),
+            ('VOUCHER', 'VALE'), ('OTHER', 'OUTRO')
+        ) names LOOP
+            IF EXISTS (SELECT 1 FROM pg_enum WHERE enumtypid = 'public.payment_method'::regtype AND enumlabel = v_old) THEN
+                EXECUTE format('ALTER TYPE public.payment_method RENAME VALUE %L TO %L', v_old, v_new);
+            END IF;
+        END LOOP;
+    END IF;
+END;
+$$;
 
--- ---------------------------------------------------------------- products
-
-ALTER TABLE public.products
-    ADD COLUMN IF NOT EXISTS updated_on timestamptz NOT NULL DEFAULT now();
-ALTER TABLE public.products
-    ADD COLUMN IF NOT EXISTS last_updated_by uuid;
-
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS updated_on timestamptz NOT NULL DEFAULT now();
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS last_updated_by uuid;
 DROP TRIGGER IF EXISTS trg_products_updated ON public.products;
 CREATE TRIGGER trg_products_updated BEFORE UPDATE ON public.products
     FOR EACH ROW EXECUTE FUNCTION public.trg_set_updated_on();
 
--- ------------------------------------------------- sales vira cabeçalho
-
-ALTER TABLE public.sales
-    ADD COLUMN IF NOT EXISTS payment_method public.payment_method
-        NOT NULL DEFAULT 'DINHEIRO';
-ALTER TABLE public.sales
-    ADD COLUMN IF NOT EXISTS discount numeric(10,2) NOT NULL DEFAULT 0
-        CHECK (discount >= 0);
-
--- As vendas que já existem são vendas fechadas, logo entram como CONCLUIDA.
--- Só depois o default vira PENDENTE, que é como venda nova nasce enquanto o
--- carrinho é montado.
-ALTER TABLE public.sales
-    ADD COLUMN IF NOT EXISTS status public.sale_status
-        NOT NULL DEFAULT 'CONCLUIDA';
+-- No remoto customer_name era o snapshot; renomear conserva o texto exato.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales' AND column_name='client_name')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales' AND column_name='customer_name') THEN
+        ALTER TABLE public.sales RENAME COLUMN customer_name TO client_name;
+    END IF;
+END;
+$$;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS client_name text;
+UPDATE public.sales SET client_name = 'Consumidor' WHERE client_name IS NULL;
+ALTER TABLE public.sales ALTER COLUMN client_name SET NOT NULL;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS payment_method public.payment_method NOT NULL DEFAULT 'DINHEIRO';
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS discount numeric(10,2) NOT NULL DEFAULT 0 CHECK (discount >= 0);
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS status public.sale_status NOT NULL DEFAULT 'CONCLUIDA';
 ALTER TABLE public.sales ALTER COLUMN status SET DEFAULT 'PENDENTE';
+ALTER TABLE public.sales ALTER COLUMN payment_method SET DEFAULT 'DINHEIRO';
 
--- Alvo da FK composta de sale_items: item e venda na mesma empresa.
-ALTER TABLE public.sales DROP CONSTRAINT IF EXISTS sales_company_id_id_key;
-ALTER TABLE public.sales
-    ADD CONSTRAINT sales_company_id_id_key UNIQUE (company_id, id);
+-- Autoria é user_accounts, não caixa. Valores históricos são preservados.
+DO $$
+DECLARE v_constraint text;
+BEGIN
+    FOR v_constraint IN SELECT conname FROM pg_constraint
+      WHERE conrelid='public.sales'::regclass AND contype='f' AND confrelid='public.register'::regclass
+    LOOP
+        EXECUTE format('ALTER TABLE public.sales DROP CONSTRAINT %I', v_constraint);
+    END LOOP;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.sales'::regclass AND conname='sales_company_id_id_key') THEN
+        ALTER TABLE public.sales ADD CONSTRAINT sales_company_id_id_key UNIQUE (company_id, id);
+    END IF;
+END;
+$$;
 
--- ------------------------------------------------------------ sale_items
-
-DROP TABLE IF EXISTS public.sale_items CASCADE;
-CREATE TABLE public.sale_items (
-    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id    uuid NOT NULL,
-    sale_id       uuid NOT NULL,
-    product_id    uuid,
-    product_name  text NOT NULL,
-    product_code  text NOT NULL,
-    quantity      integer NOT NULL CHECK (quantity > 0),
-    unit_price    numeric(10,2) NOT NULL CHECK (unit_price >= 0),
-    subtotal      numeric(10,2) NOT NULL
-                  GENERATED ALWAYS AS (quantity * unit_price) STORED,
-    created_on    timestamptz NOT NULL DEFAULT now(),
-    FOREIGN KEY (company_id, sale_id)
-        REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id)
-        REFERENCES public.products (id) ON DELETE SET NULL
+CREATE TABLE IF NOT EXISTS public.sale_items (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id uuid NOT NULL,
+    sale_id uuid NOT NULL,
+    product_id uuid REFERENCES public.products(id) ON DELETE SET NULL,
+    product_name text NOT NULL,
+    product_code text NOT NULL,
+    quantity integer NOT NULL CHECK (quantity > 0),
+    unit_price numeric(10,2) NOT NULL CHECK (unit_price >= 0),
+    subtotal numeric(10,2) NOT NULL GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    created_on timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (company_id, sale_id) REFERENCES public.sales(company_id,id) ON DELETE CASCADE
 );
-CREATE INDEX idx_sale_items_sale ON public.sale_items (sale_id);
-CREATE INDEX idx_sale_items_company ON public.sale_items (company_id);
+LOCK TABLE public.sale_items IN ACCESS EXCLUSIVE MODE;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.sale_items WHERE quantity <> trunc(quantity) OR quantity > 2147483647) THEN
+        RAISE EXCEPTION 'Itens históricos com quantidade fracionária ou fora do limite; reconcilie antes de migrar';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sale_items' AND column_name='quantity' AND data_type <> 'integer') THEN
+        -- subtotal é calculado, não dado independente. Recriar a expressão
+        -- é necessário para o PostgreSQL permitir mudar o tipo da quantidade.
+        ALTER TABLE public.sale_items DROP COLUMN subtotal;
+        ALTER TABLE public.sale_items ALTER COLUMN quantity TYPE integer USING quantity::integer;
+        ALTER TABLE public.sale_items ADD COLUMN subtotal numeric(10,2)
+            GENERATED ALWAYS AS (quantity * unit_price) STORED NOT NULL;
+    END IF;
+    -- O modelo US07 guardava o produto no cabeçalho. Conservar as colunas
+    -- antigas como legado opcional após copiar, sem destruir snapshots.
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='sales' AND column_name='product_name') THEN
+        INSERT INTO public.sale_items(company_id,sale_id,product_id,product_name,product_code,quantity,unit_price,created_on)
+        SELECT s.company_id,s.id,s.product_id,s.product_name,s.product_code,1,s.total,s.created_on
+          FROM public.sales s WHERE NOT EXISTS (SELECT 1 FROM public.sale_items i WHERE i.sale_id=s.id);
+        ALTER TABLE public.sales ALTER COLUMN product_name DROP NOT NULL;
+        ALTER TABLE public.sales ALTER COLUMN product_code DROP NOT NULL;
+    END IF;
+END;
+$$;
+CREATE INDEX IF NOT EXISTS idx_sale_items_sale ON public.sale_items(sale_id);
+CREATE INDEX IF NOT EXISTS idx_sale_items_company ON public.sale_items(company_id);
 
--- Cada venda antiga tinha um produto só: vira um item de quantidade 1 cujo
--- preço unitário é o total que foi cobrado. Sem este passo o histórico
--- existente ficaria sem nenhum item.
-INSERT INTO public.sale_items (
-    company_id, sale_id, product_id, product_name, product_code,
-    quantity, unit_price, created_on
-)
-SELECT company_id, id, product_id, product_name, product_code,
-       1, total, created_on
-  FROM public.sales;
-
-ALTER TABLE public.sales DROP COLUMN IF EXISTS product_id;
-ALTER TABLE public.sales DROP COLUMN IF EXISTS product_name;
-ALTER TABLE public.sales DROP COLUMN IF EXISTS product_code;
-
--- ------------------------------------------------------------- sales_log
-
-DROP TABLE IF EXISTS public.sales_log CASCADE;
-CREATE TABLE public.sales_log (
-    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    company_id  uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
-    sale_id     uuid NOT NULL REFERENCES public.sales(id) ON DELETE CASCADE,
-    created_by  uuid,
-    logged_on   timestamptz NOT NULL DEFAULT now()
+CREATE TABLE IF NOT EXISTS public.sales_log (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
+    sale_id uuid NOT NULL REFERENCES public.sales(id) ON DELETE CASCADE,
+    created_by uuid,
+    logged_on timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX idx_sales_log_sale ON public.sales_log (sale_id);
+ALTER TABLE public.sales_log ADD COLUMN IF NOT EXISTS company_id uuid REFERENCES public.company(id) ON DELETE CASCADE;
+UPDATE public.sales_log l SET company_id=s.company_id FROM public.sales s
+ WHERE l.sale_id=s.id AND l.company_id IS NULL;
+-- Log órfão interrompe a transação; não descartar uma evidência histórica.
+ALTER TABLE public.sales_log ALTER COLUMN company_id SET NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sales_log_sale ON public.sales_log(sale_id);
+ALTER TABLE public.stock_movements ADD COLUMN IF NOT EXISTS sale_id uuid REFERENCES public.sales(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_stock_movements_sale ON public.stock_movements(sale_id);
 
--- ------------------------------------------- movimentação sabe da venda
+-- A assinatura remota antiga aponta para colunas inexistentes. Remover só
+-- essa função inválida, sem CASCADE e sem tocar em dados.
+DROP FUNCTION IF EXISTS public.fn_create_complete_sale(uuid,uuid,uuid,text,text,jsonb);
 
-ALTER TABLE public.stock_movements
-    ADD COLUMN IF NOT EXISTS sale_id uuid
-        REFERENCES public.sales(id) ON DELETE SET NULL;
-DROP INDEX IF EXISTS public.idx_stock_movements_sale;
-CREATE INDEX idx_stock_movements_sale ON public.stock_movements (sale_id);
 
--- ------------------------------------------------------------ rotinas
---
--- Copiadas de database/code: a fonte declarativa é quem manda, e texto
--- reescrito à mão aqui já divergiu da fonte antes.
 
 CREATE OR REPLACE FUNCTION public.fn_register_sale(
     p_company_id uuid,
@@ -151,7 +183,7 @@ BEGIN
     SELECT name, barcode INTO v_product_name, v_product_code
       FROM public.products
      WHERE id = p_product_id AND company_id = p_company_id AND active
-     FOR SHARE;
+     FOR UPDATE;
     IF v_product_name IS NULL THEN
         RAISE EXCEPTION 'Produto não encontrado, inativo ou sem permissão'
             USING ERRCODE = 'foreign_key_violation';
@@ -196,7 +228,7 @@ DECLARE
     v_name        text;
     v_code        text;
     v_price       numeric(10,2);
-    v_bruto       numeric(10,2) := 0;
+    v_bruto       numeric := 0;
     v_total       numeric(10,2);
 BEGIN
     IF NOT public.fn_has_role(p_company_id, ARRAY['ADMIN','SELLER']::public.user_role[]) THEN
@@ -210,6 +242,7 @@ BEGIN
     END IF;
 
     IF p_discount IS NULL OR p_discount < 0
+       OR p_discount >= 100000000 OR p_discount <> round(p_discount, 2)
        OR p_discount::text IN ('NaN', 'Infinity', '-Infinity') THEN
         RAISE EXCEPTION 'Desconto inválido' USING ERRCODE = 'check_violation';
     END IF;
@@ -222,6 +255,26 @@ BEGIN
         RAISE EXCEPTION 'Cliente não encontrado, inativo ou sem permissão'
             USING ERRCODE = 'foreign_key_violation';
     END IF;
+
+    IF p_payment_method IS NULL THEN
+        RAISE EXCEPTION 'Selecione uma forma de pagamento válida'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Trava TODOS os produtos em ordem estável antes de gravar. FOR SHARE
+    -- deixava duas vendas travarem na conversão para UPDATE do saldo.
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR COALESCE(v_item->>'quantity', '') !~ '^[0-9]+$'
+           OR (v_item->>'quantity')::numeric NOT BETWEEN 1 AND 1000000 THEN
+            RAISE EXCEPTION 'Quantidade deve ser inteira entre 1 e 1000000'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END LOOP;
+    PERFORM p.id FROM public.products p
+     WHERE p.company_id = p_company_id
+       AND p.id IN (SELECT (i->>'product_id')::uuid FROM jsonb_array_elements(p_items) i)
+     ORDER BY p.id FOR UPDATE;
 
     INSERT INTO public.sales (
         company_id, client_id, client_name, payment_method, discount,
@@ -247,7 +300,7 @@ BEGIN
         SELECT name, barcode, sell_price INTO v_name, v_code, v_price
           FROM public.products
          WHERE id = v_product_id AND company_id = p_company_id AND active
-         FOR SHARE;
+         ;
         IF v_name IS NULL THEN
             RAISE EXCEPTION 'Produto não encontrado, inativo ou sem permissão: %', v_product_id
                 USING ERRCODE = 'foreign_key_violation';
@@ -262,6 +315,10 @@ BEGIN
         );
 
         v_bruto := v_bruto + (v_quantity * v_price);
+        IF v_bruto >= 100000000 THEN
+            RAISE EXCEPTION 'Total da venda acima do limite de R$ 99.999.999,99'
+                USING ERRCODE = 'check_violation';
+        END IF;
     END LOOP;
 
     v_total := v_bruto - p_discount;
@@ -278,19 +335,30 @@ BEGIN
 END;
 $$;
 
--- Edição de estoque pelo código de barras (US09).
---
--- É um ATALHO sobre fn_register_movement, não um caminho paralelo: escrever
--- `products.stock` aqui seria desfeito pelo recálculo do trigger de
--- triggers/04 na movimentação seguinte, e o saldo passaria a depender de qual
--- caminho foi usado por último.
---
--- Não recebe o usuário por parâmetro de propósito: a autoria sai de
--- fn_current_user_id(), como em todo o resto desta árvore. Recebê-lo deixaria
--- o chamador registrar a alteração em nome de outra pessoa.
---
--- `p_company_id` é obrigatório porque barcode só é único DENTRO da empresa
--- (UNIQUE (company_id, barcode) em tables/03_catalog.sql).
+CREATE OR REPLACE FUNCTION public.fn_checkout_sale(
+    p_company_id uuid,
+    p_client_id uuid,
+    p_items jsonb,
+    p_payment_method public.payment_method DEFAULT 'DINHEIRO',
+    p_discount numeric DEFAULT 0
+) RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_id uuid;
+    v_receipt jsonb;
+BEGIN
+    v_id := public.fn_create_complete_sale(
+        p_company_id, p_client_id, p_items, p_payment_method, p_discount
+    );
+    SELECT to_jsonb(s) || jsonb_build_object('sale_items', (
+        SELECT jsonb_agg(to_jsonb(i) ORDER BY i.created_on, i.id)
+          FROM public.sale_items i WHERE i.sale_id = s.id
+    )) INTO v_receipt FROM public.sales s WHERE s.id = v_id;
+    RETURN v_receipt;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.fn_edit_product_stock(
     p_company_id uuid,
     p_barcode    text,
@@ -328,6 +396,35 @@ BEGIN
      WHERE id = v_product_id;
 
     RETURN v_movement;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_cancel_movement(p_movement_id uuid)
+RETURNS void
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_company uuid;
+    v_product uuid;
+BEGIN
+    SELECT company_id, product_id INTO v_company, v_product
+      FROM public.stock_movements WHERE id = p_movement_id;
+
+    IF v_company IS NULL
+       OR NOT public.fn_has_role(v_company, ARRAY['ADMIN','STOCK']::public.user_role[]) THEN
+        RAISE EXCEPTION 'Movimentação não encontrada ou sem permissão'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    PERFORM 1 FROM public.products WHERE id = v_product FOR UPDATE;
+    IF EXISTS (SELECT 1 FROM public.stock_movements
+                WHERE id = p_movement_id AND sale_id IS NOT NULL) THEN
+        RAISE EXCEPTION 'A saída pertence a uma venda e não pode ser cancelada isoladamente'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    UPDATE public.stock_movements
+       SET status = 'CANCELADA'
+     WHERE id = p_movement_id;
 END;
 $$;
 
@@ -393,6 +490,7 @@ CREATE TRIGGER trg_sale_completion
     WHEN (OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'CONCLUIDA')
     EXECUTE FUNCTION public.fn_process_sale_completion();
 
+
 -- ---------------------------------------------------------------- segurança
 --
 -- Repete a varredura de REVOKE de policies/01_security.sql de propósito: o
@@ -400,13 +498,17 @@ CREATE TRIGGER trg_sale_completion
 -- que aplicou aquele arquivo. Foi esse buraco que fez `fn_update_products`
 -- nascer com EXECUTE para PUBLIC.
 
+ALTER TABLE public.sales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales_log  ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL ON public.sale_items, public.sales_log
+REVOKE ALL ON public.sales, public.sale_items, public.sales_log
     FROM PUBLIC, anon, authenticated, app_backend;
 
-GRANT SELECT ON public.sale_items, public.sales_log TO app_backend, authenticated;
+GRANT SELECT ON public.sales, public.sale_items, public.sales_log TO app_backend, authenticated;
+
+DROP POLICY IF EXISTS sales_select ON public.sales;
+CREATE POLICY sales_select ON public.sales FOR SELECT TO app_backend, authenticated USING (public.fn_is_member(company_id));
 
 DROP POLICY IF EXISTS sale_items_select ON public.sale_items;
 CREATE POLICY sale_items_select ON public.sale_items
@@ -421,7 +523,7 @@ CREATE POLICY sales_log_select ON public.sales_log
 DO $$
 DECLARE
   v_names text[] := ARRAY[
-    'fn_register_sale', 'fn_create_complete_sale', 'fn_edit_product_stock'
+    'fn_register_sale', 'fn_create_complete_sale', 'fn_checkout_sale', 'fn_edit_product_stock', 'fn_cancel_movement'
   ];
   v_name    text;
   v_sig     regprocedure;
@@ -453,3 +555,23 @@ END $$;
 -- passar por venda nenhuma.
 REVOKE ALL ON FUNCTION public.fn_process_sale_completion()
     FROM PUBLIC, anon, authenticated, app_backend;
+
+
+-- Rotas antigas aceitam identidade enviada pelo cliente ou alteram saldo
+-- diretamente. Preservar o histórico não significa manter essas portas.
+DO $$
+DECLARE v_sig regprocedure;
+BEGIN
+    FOR v_sig IN SELECT p.oid::regprocedure FROM pg_proc p
+     WHERE p.pronamespace='public'::regnamespace
+       AND (p.proname='fn_register_stock_entry' OR
+            (p.proname='fn_edit_product_stock' AND p.pronargs=3))
+    LOOP
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, app_backend',v_sig);
+    END LOOP;
+END;
+$$;
+
+NOTIFY pgrst, 'reload schema';
+
+COMMIT;

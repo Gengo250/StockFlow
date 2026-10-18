@@ -117,14 +117,16 @@ O botão de ação da linha **desativa** o produto (soft-delete, como
 `fn_set_product_active`); ele some da lista e só reaparece em `Inativos`, de
 onde pode ser reativado.
 
-Em **Vendas**, uma venda nova escolhe cliente, produto e valor. A lista de
-produtos oferece apenas os que estão **ativos**: desativar um item no Estoque
-(ou pelo formulário de edição) o retira da seleção na hora, e a gravação
-revalida a situação antes de registrar — a lista é uma foto, e o produto pode
-ser desativado com a tela de Vendas aberta. O **histórico** não muda: cada
-venda guarda o produto que foi associado a ela, então operações antigas
-continuam exibindo o item original mesmo depois de ele ser desativado ou sair
-do catálogo.
+Em **Vendas**, a montagem aceita vários produtos e quantidades inteiras
+positivas. O subtotal de cada linha e o total são calculados automaticamente
+com os preços do catálogo; não há total digitado pelo usuário. Produtos
+inativos e quantidades acima do saldo são recusados. Ao confirmar, a venda,
+seus itens e uma saída confirmada por linha são gravados juntos: o estoque
+baixa imediatamente e qualquer falha cancela toda a operação. No Supabase, a
+RPC bloqueia os produtos em ordem estável e revalida o saldo dentro da
+transação, inclusive para vendas concorrentes. O **histórico** mantém código
+e nome associados no momento da venda, mesmo que o produto seja desativado
+ou removido depois.
 
 A mesma regra vale para compras e movimentações operacionais quando essas
 telas existirem: a situação do produto tem um dono só,
@@ -158,7 +160,9 @@ faria a aplicação exigir rede numa máquina onde isso não foi pedido.
 
 Antes do primeiro login com o banco, três passos — nesta ordem:
 
-1. **Aplique as migrations** em ordem de timestamp. `20261004150000_minimum_stock_optional.sql`
+1. **Aplique as migrations** em ordem de timestamp, incluindo
+   `20261016120000_atomic_multi_item_sales.sql` para habilitar vendas
+   multi-item e baixa atômica. `20261004150000_minimum_stock_optional.sql`
    é **destrutiva por desenho**: ela converte todo `min_quantity = 0` em
    `NULL`, porque esses zeros foram gravados quando zero significava "não
    configurado". Sem backup não há volta. Sem a primeira, `fn_current_user_id()`
@@ -208,6 +212,29 @@ aconteceu — há o atalho "Registrar e confirmar".
 | `Confirmada` | soma (entrada) ou subtrai (saída) |
 | `Cancelada` | nenhum; cancelar uma confirmada **devolve** o saldo |
 
+**Ajuste manual** (H11) é o segundo card da tela, e responde a outra
+pergunta: não "o que entrou ou saiu", mas "o que existe". O operador escolhe
+o produto, informa o **saldo contado** e o **motivo**; o sistema calcula a
+diferença e lança a entrada ou a saída correspondente, já confirmada.
+
+| Campo | Regra |
+|---|---|
+| Saldo contado | inteiro ≥ 0; igual ao atual não gera lançamento |
+| Motivo | obrigatório, de lista fechada |
+| Detalhe | obrigatório apenas quando o motivo é `Outro` |
+
+Quem grava é `fn_register_adjustment`.
+
+Três coisas que a função garante e a tela não teria como garantir sozinha:
+ela trava o produto com `FOR UPDATE`, recusa se o saldo mudou desde que a
+tela carregou (pedindo recontagem, em vez de aplicar uma diferença sobre um
+número velho) e **relê o saldo depois de gravar** para conferir que ele ficou
+exatamente igual ao contado — se não ficou, a transação inteira volta atrás.
+
+Ajuste não é uma terceira espécie de movimentação: é uma `ENTRADA` ou `SAIDA`
+comum marcada pela coluna `adjustment_reason`. O saldo continua sendo a soma
+das confirmadas, e cancelar um ajuste o devolve, como em qualquer outra.
+
 Em **Fornecedores** (US08), ADMIN e STOCK podem cadastrar, editar, pesquisar e
 inativar fornecedores. CPF/CNPJ é opcional, validado quando preenchido e único
 por empresa mesmo depois da inativação; a pesquisa cobre nome, documento,
@@ -223,10 +250,10 @@ pedido, nota fiscal ou pagamento nesta história. O campo opcional
 **Fornecedor principal** no cadastro/edição de produto também persiste uma
 referência independente.
 
-A tela é restrita a ADMIN e STOCK, porque `fn_register_movement` e as irmãs
-recusam qualquer outro papel — nem o histórico é do vendedor. Confirmar ou
-cancelar reconsulta o Estoque na sequência: alerta desatualizado é o que a
-US04 proíbe.
+A tela é restrita a ADMIN e STOCK, porque `fn_register_movement`,
+`fn_register_adjustment` e as irmãs recusam qualquer outro papel — nem o
+histórico é do vendedor. Confirmar ou cancelar reconsulta o Estoque na
+sequência: alerta desatualizado é o que a US04 proíbe.
 
 Em **Usuários**, a lista vem de `fn_list_company_users`, que recusa quem não é
 ADMIN. A busca só acontece ao abrir a tela, não ao montar a janela: um papel

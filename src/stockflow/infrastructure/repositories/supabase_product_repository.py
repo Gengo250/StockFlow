@@ -62,6 +62,7 @@ ACTION_BY_RPC = {
     "fn_update_products": "editar produtos",
     "fn_set_product_active": "ativar ou desativar produtos",
     "fn_set_min_stock": "configurar o estoque mínimo",
+    "fn_set_max_stock": "configurar o estoque máximo",
     "fn_set_product_supplier": "associar fornecedor ao produto",
     "fn_create_categories": "cadastrar categorias",
 }
@@ -125,21 +126,19 @@ class SupabaseProductRepository:
         return {row["id"]: row["name"] for row in self._rows(response)}
 
     def _minimums(self, product_ids) -> dict:
-        """`product_id -> min_quantity`, em UMA consulta.
-
-        Em lote, e não por produto: `product_stock` tem uma linha por produto
-        e consultar dentro do laço de montagem do catálogo seria N+1 — com 300
-        produtos, 300 idas à rede para abrir a tela de Estoque.
-        """
+        """`product_id -> (min_quantity, max_quantity)`, em UMA consulta."""
         if not product_ids:
             return {}
         response = (
             self._client.table("product_stock")
-            .select("product_id,min_quantity")
+            .select("product_id,min_quantity,max_quantity")
             .in_("product_id", list(product_ids))
             .execute()
         )
-        return {row["product_id"]: row["min_quantity"] for row in self._rows(response)}
+        return {
+            row["product_id"]: (row["min_quantity"], row["max_quantity"])
+            for row in self._rows(response)
+        }
 
     def load_catalog(self) -> dict:
         """Catálogo inteiro como o dict `code -> Product` que as telas usam.
@@ -151,15 +150,17 @@ class SupabaseProductRepository:
         """
         rows = self._rows(self._products_query().order("created_on").execute())
         categorias = self._category_names()
-        minimos = self._minimums([row["id"] for row in rows])
+        minimos_data = self._minimums([row["id"] for row in rows])
 
         catalogo = {}
         self._ids = {}
         for row in rows:
+            minimos = minimos_data.get(row["id"], (None, None))
             produto = row_to_product(
                 row,
                 category_name=categorias.get(row.get("item_category")),
-                minimum_stock=minimos.get(row["id"]),
+                minimum_stock=minimos[0],
+                maximum_stock=minimos[1],
             )
             catalogo[produto.code] = produto
             self._ids[produto.code] = row["id"]
@@ -427,6 +428,14 @@ class SupabaseProductRepository:
             location=getattr(data, "location", ""),
             low_stock_alert=getattr(data, "low_stock_alert", True),
             image_data=getattr(data, "image_data", ""),
+        )
+
+    def _aplicar_maximo(self, product_id, data) -> None:
+        """Grava o estoque máximo."""
+        self._rpc(
+            "fn_set_max_stock",
+            {"p_product_id": product_id,
+             "p_max": to_min(getattr(data, "maximum_stock", None))},
         )
 
     def _aplicar_minimo(self, product_id, data) -> None:

@@ -86,6 +86,179 @@ BEGIN
 END;
 $$;
 
+-- Venda atômica do carrinho usado pela aplicação desktop. Os preços vêm do
+-- catálogo; a tela envia apenas código e quantidade. Produtos são bloqueados
+-- por código em ordem estável antes da conferência, e a conclusão usa o
+-- gatilho existente para criar uma única saída por item.
+DROP FUNCTION IF EXISTS public.fn_register_sale(uuid, uuid, jsonb);
+CREATE OR REPLACE FUNCTION public.fn_register_sale(
+    p_company_id uuid,
+    p_client_id uuid,
+    p_items jsonb,
+    p_payment_method public.payment_method DEFAULT 'DINHEIRO',
+    p_discount numeric DEFAULT 0
+) RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_id uuid;
+    v_client_name text;
+    v_item record;
+    v_product record;
+    v_product_ids uuid[] := ARRAY[]::uuid[];
+    v_product_codes text[] := ARRAY[]::text[];
+    v_product_names text[] := ARRAY[]::text[];
+    v_unit_prices numeric[] := ARRAY[]::numeric[];
+    v_gross_total numeric := 0;
+    v_total numeric;
+    v_index integer;
+    v_created_on timestamptz;
+    v_line record;
+BEGIN
+    IF NOT public.fn_has_role(p_company_id, ARRAY['ADMIN','SELLER']::public.user_role[]) THEN
+        RAISE EXCEPTION 'Sem permissão para registrar vendas nesta empresa'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array'
+       OR jsonb_array_length(p_items) = 0 THEN
+        RAISE EXCEPTION 'A venda deve ter pelo menos um item'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- `round(p_discount, 2)` é o mesmo teto de precisão que
+    -- `fn_create_complete_sale` já exigia, e ele não é cosmético: `discount` e
+    -- `total` são numeric(10,2), mas arredondam por caminhos diferentes. Com
+    -- 10.005 o banco gravava discount=10.01 e total=90.00 sobre subtotal
+    -- 100.00 -- a linha deixava de fechar por R$ 0,01, justamente a
+    -- reconciliação que a coluna `discount` existe para permitir auditar.
+    IF p_payment_method IS NULL
+       OR p_discount IS NULL OR p_discount < 0
+       OR p_discount::text IN ('NaN', 'Infinity', '-Infinity')
+       OR p_discount >= 100000000 OR p_discount <> round(p_discount, 2) THEN
+        RAISE EXCEPTION 'Forma de pagamento ou desconto inválido'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM jsonb_array_elements(p_items) AS entry(value)
+         WHERE jsonb_typeof(entry.value) <> 'object'
+            OR COALESCE(jsonb_typeof(entry.value->'product_code'), 'null') <> 'string'
+            OR COALESCE(jsonb_typeof(entry.value->'quantity'), 'null') <> 'number'
+            OR COALESCE(entry.value->>'product_code', '') = ''
+            OR COALESCE(entry.value->>'quantity', '') !~ '^[1-9][0-9]*$'
+    ) THEN
+        RAISE EXCEPTION 'Produto e quantidade inteira positiva são obrigatórios'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- Bloco separado de propósito: só aqui a quantidade já passou pelo regex
+    -- de dígitos acima, e o PostgreSQL não garante ordem de avaliação dentro
+    -- de um mesmo OR -- juntar o cast ao teste de formato arriscaria estourar
+    -- na conversão antes da recusa. O teto é o mesmo de
+    -- `fn_create_complete_sale` e de `parse_quantity`; esta função aceitava
+    -- até o limite de `integer`, e os três caminhos recusavam valores
+    -- diferentes.
+    IF EXISTS (
+        SELECT 1
+          FROM jsonb_array_elements(p_items) AS entry(value)
+         WHERE (entry.value->>'quantity')::numeric > 1000000
+    ) THEN
+        RAISE EXCEPTION 'Quantidade deve ser inteira entre 1 e 1000000'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    SELECT name INTO v_client_name
+      FROM public.clients
+     WHERE id = p_client_id AND company_id = p_company_id AND active
+     FOR SHARE;
+    IF v_client_name IS NULL THEN
+        RAISE EXCEPTION 'Cliente não encontrado, inativo ou sem permissão'
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+
+    FOR v_item IN
+        SELECT entry.value->>'product_code' AS product_code,
+               sum((entry.value->>'quantity')::numeric) AS quantity
+          FROM jsonb_array_elements(p_items) AS entry(value)
+         GROUP BY entry.value->>'product_code'
+         ORDER BY entry.value->>'product_code'
+    LOOP
+        SELECT id, name, barcode, sell_price, stock
+          INTO v_product
+          FROM public.products
+         WHERE company_id = p_company_id
+           AND barcode = v_item.product_code
+           AND active
+         FOR UPDATE;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Produto % não encontrado, inativo ou sem permissão',
+                v_item.product_code
+                USING ERRCODE = 'foreign_key_violation';
+        END IF;
+        IF v_item.quantity > 2147483647 OR v_product.stock < v_item.quantity THEN
+            RAISE EXCEPTION
+                'Estoque insuficiente para o produto %: solicitado %, disponível %',
+                v_item.product_code, v_item.quantity, v_product.stock
+                USING ERRCODE = 'check_violation';
+        END IF;
+
+        v_product_ids := array_append(v_product_ids, v_product.id);
+        v_product_codes := array_append(v_product_codes, v_product.barcode);
+        v_product_names := array_append(v_product_names, v_product.name);
+        v_unit_prices := array_append(v_unit_prices, v_product.sell_price);
+        v_gross_total := v_gross_total + v_product.sell_price * v_item.quantity;
+    END LOOP;
+
+    IF p_discount > v_gross_total OR v_gross_total >= 100000000 THEN
+        RAISE EXCEPTION 'Desconto ou total da venda inválido'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    v_total := v_gross_total - p_discount;
+
+    INSERT INTO public.sales (
+        company_id, client_id, client_name, payment_method, discount,
+        total, created_by
+    ) VALUES (
+        p_company_id, p_client_id, v_client_name, p_payment_method, p_discount,
+        v_total, public.fn_current_user_id()
+    )
+    RETURNING id, created_on INTO v_id, v_created_on;
+
+    FOR v_line IN
+        SELECT entry.value->>'product_code' AS product_code,
+               (entry.value->>'quantity')::integer AS quantity
+          FROM jsonb_array_elements(p_items) AS entry(value)
+    LOOP
+        v_index := array_position(v_product_codes, v_line.product_code);
+        INSERT INTO public.sale_items (
+            company_id, sale_id, product_id, product_name, product_code,
+            quantity, unit_price
+        ) VALUES (
+            p_company_id, v_id, v_product_ids[v_index],
+            v_product_names[v_index], v_product_codes[v_index],
+            v_line.quantity, v_unit_prices[v_index]
+        );
+    END LOOP;
+
+    UPDATE public.sales SET status = 'CONCLUIDA' WHERE id = v_id;
+    RETURN jsonb_build_object(
+        'id', v_id,
+        'cliente', v_client_name,
+        'total', v_total,
+        'created_on', v_created_on,
+        'items', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'product_code', si.product_code,
+                'product_name', si.product_name,
+                'quantity', si.quantity,
+                'unit_price', si.unit_price,
+                'subtotal', si.subtotal
+            ) ORDER BY si.created_on, si.id), '[]'::jsonb)
+              FROM public.sale_items si
+             WHERE si.sale_id = v_id
+        )
+    );
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.fn_update_client(
     p_client_id uuid,
     p_name text,
@@ -204,7 +377,7 @@ BEGIN
     SELECT name, barcode INTO v_product_name, v_product_code
       FROM public.products
      WHERE id = p_product_id AND company_id = p_company_id AND active
-     FOR SHARE;
+     FOR UPDATE;
     IF v_product_name IS NULL THEN
         RAISE EXCEPTION 'Produto não encontrado, inativo ou sem permissão'
             USING ERRCODE = 'foreign_key_violation';
@@ -249,7 +422,7 @@ DECLARE
     v_name        text;
     v_code        text;
     v_price       numeric(10,2);
-    v_bruto       numeric(10,2) := 0;
+    v_bruto       numeric := 0;
     v_total       numeric(10,2);
 BEGIN
     IF NOT public.fn_has_role(p_company_id, ARRAY['ADMIN','SELLER']::public.user_role[]) THEN
@@ -263,6 +436,7 @@ BEGIN
     END IF;
 
     IF p_discount IS NULL OR p_discount < 0
+       OR p_discount >= 100000000 OR p_discount <> round(p_discount, 2)
        OR p_discount::text IN ('NaN', 'Infinity', '-Infinity') THEN
         RAISE EXCEPTION 'Desconto inválido' USING ERRCODE = 'check_violation';
     END IF;
@@ -275,6 +449,26 @@ BEGIN
         RAISE EXCEPTION 'Cliente não encontrado, inativo ou sem permissão'
             USING ERRCODE = 'foreign_key_violation';
     END IF;
+
+    IF p_payment_method IS NULL THEN
+        RAISE EXCEPTION 'Selecione uma forma de pagamento válida'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Trava TODOS os produtos em ordem estável antes de gravar. FOR SHARE
+    -- deixava duas vendas travarem na conversão para UPDATE do saldo.
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR COALESCE(v_item->>'quantity', '') !~ '^[0-9]+$'
+           OR (v_item->>'quantity')::numeric NOT BETWEEN 1 AND 1000000 THEN
+            RAISE EXCEPTION 'Quantidade deve ser inteira entre 1 e 1000000'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END LOOP;
+    PERFORM p.id FROM public.products p
+     WHERE p.company_id = p_company_id
+       AND p.id IN (SELECT (i->>'product_id')::uuid FROM jsonb_array_elements(p_items) i)
+     ORDER BY p.id FOR UPDATE;
 
     INSERT INTO public.sales (
         company_id, client_id, client_name, payment_method, discount,
@@ -299,8 +493,7 @@ BEGIN
         -- vender item alheio informando o id.
         SELECT name, barcode, sell_price INTO v_name, v_code, v_price
           FROM public.products
-         WHERE id = v_product_id AND company_id = p_company_id AND active
-         FOR SHARE;
+         WHERE id = v_product_id AND company_id = p_company_id AND active;
         IF v_name IS NULL THEN
             RAISE EXCEPTION 'Produto não encontrado, inativo ou sem permissão: %', v_product_id
                 USING ERRCODE = 'foreign_key_violation';
@@ -315,6 +508,10 @@ BEGIN
         );
 
         v_bruto := v_bruto + (v_quantity * v_price);
+        IF v_bruto >= 100000000 THEN
+            RAISE EXCEPTION 'Total da venda acima do limite de R$ 99.999.999,99'
+                USING ERRCODE = 'check_violation';
+        END IF;
     END LOOP;
 
     v_total := v_bruto - p_discount;
@@ -328,5 +525,31 @@ BEGIN
      WHERE id = v_id;
 
     RETURN v_id;
+END;
+$$;
+
+-- O recibo sai da mesma transação da venda. Assim a interface mostra os
+-- valores gravados mesmo quando o catálogo local está desatualizado.
+CREATE OR REPLACE FUNCTION public.fn_checkout_sale(
+    p_company_id uuid,
+    p_client_id uuid,
+    p_items jsonb,
+    p_payment_method public.payment_method DEFAULT 'DINHEIRO',
+    p_discount numeric DEFAULT 0
+) RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_id uuid;
+    v_receipt jsonb;
+BEGIN
+    v_id := public.fn_create_complete_sale(
+        p_company_id, p_client_id, p_items, p_payment_method, p_discount
+    );
+    SELECT to_jsonb(s) || jsonb_build_object('sale_items', (
+        SELECT jsonb_agg(to_jsonb(i) ORDER BY i.created_on, i.id)
+          FROM public.sale_items i WHERE i.sale_id = s.id
+    )) INTO v_receipt FROM public.sales s WHERE s.id = v_id;
+    RETURN v_receipt;
 END;
 $$;
