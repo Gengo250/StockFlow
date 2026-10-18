@@ -367,3 +367,25 @@ def test_create_category_traduz_recusa_do_banco():
 
     with pytest.raises(PermissionDeniedError):
         repositorio(cliente).create_category("Periféricos")
+
+
+def test_create_chama_aplicar_maximo_quando_configurado():
+    """H30: create deve disparar fn_set_max_stock se maximum_stock estiver informado."""
+    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_save_product": PRODUTO_ID, "fn_set_max_stock": None})
+    repositorio(cliente).create(dados(maximum_stock=50))
+    assert ("fn_set_max_stock", {"p_product_id": PRODUTO_ID, "p_max": 50}) in cliente.chamadas_rpc
+
+
+def test_update_chama_aplicar_maximo_quando_configurado():
+    """H30: update deve disparar fn_set_max_stock se maximum_stock estiver informado."""
+    cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_save_product": PRODUTO_ID, "fn_set_max_stock": None})
+    repositorio(cliente).update("PRD-009", dados(code="PRD-009", maximum_stock=100))
+    assert ("fn_set_max_stock", {"p_product_id": PRODUTO_ID, "p_max": 100}) in cliente.chamadas_rpc
+
+
+def test_catalogo_mapeia_maximum_stock_do_banco():
+    """H30: load_catalog deve popular maximum_stock do produto."""
+    tabelas = catalogo_falso()
+    tabelas["product_stock"] = [{"product_id": PRODUTO_ID, "min_quantity": 5, "max_quantity": 80}]
+    produto = repositorio(ClienteFalso(tabelas)).load_catalog()["PRD-009"]
+    assert produto.maximum_stock == 80

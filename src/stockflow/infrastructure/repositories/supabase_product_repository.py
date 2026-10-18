@@ -134,7 +134,7 @@ class SupabaseProductRepository:
             .execute()
         )
         return {
-            row["product_id"]: (row["min_quantity"], row["max_quantity"])
+            row["product_id"]: (row.get("min_quantity"), row.get("max_quantity"))
             for row in self._rows(response)
         }
 
@@ -279,6 +279,8 @@ class SupabaseProductRepository:
 
     def create(self, data: ProductInput) -> str:
         product_id = self._save(data)
+        if getattr(data, "maximum_stock", None) is not None:
+            self._aplicar_maximo(product_id, data)
         self._ids[data.code] = product_id
         self._publicar(data.code, data)
         return data.code
@@ -288,6 +290,8 @@ class SupabaseProductRepository:
         if product_id is None:
             raise LookupError(f"Produto {code} não encontrado.")
         self._save(data, product_id)
+        if getattr(data, "maximum_stock", None) is not None:
+            self._aplicar_maximo(product_id, data)
         if data.code != code:
             self._ids.pop(code, None)
         self._ids[data.code] = product_id
@@ -401,6 +405,19 @@ class SupabaseProductRepository:
             {"p_product_id": product_id,
              "p_max": to_min(getattr(data, "maximum_stock", None))},
         )
+    def set_company_max_stock_limit(self,company_id:str,limit:int|None) -> None:
+        """ Altera o teto máximo de estoque da empresa."""
+        self._rpc(
+            "fn_set_company_max_stock_limit",
+            {"p_company_id": str(company_id), "p_limit": limit},
+        )   
+    def _aplicar_maximo_empresa(self, company_id, limit) -> None:  
+        """Método legado – mantém compatibilidade """
+        if limit is None or not isinstance(limit, int) or limit < 0:
+            raise ValueError(f"O limite de estoque deve ser um número inteiro >= 0 (recebido: {limit})")
+        self.set_company_max_stock_limit(company_id, limit)
+
+
 
     def _aplicar_minimo(self, product_id, data) -> None:
         """Grava o estoque mínimo, que mora em `product_stock`, não em `products`."""
