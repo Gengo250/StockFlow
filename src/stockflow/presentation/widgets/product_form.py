@@ -160,19 +160,6 @@ class PriceTaxCard(FormCard):
         first_row.addWidget(unit)
         layout.addLayout(first_row)
 
-        second_row = QHBoxLayout()
-        second_row.setSpacing(16)
-        ncm = _field("NCM", optional=True)
-        self.ncm_input = _line_edit("0000.00.00")
-        ncm.layout().addWidget(self.ncm_input)
-        ean = _field("Código de barras / EAN", optional=True)
-        self.ean_input = _line_edit("7890000000000")
-        ean.layout().addWidget(self.ean_input)
-        second_row.addWidget(ncm)
-        second_row.addWidget(ean)
-        layout.addLayout(second_row)
-
-
 
 class StockControlCard(FormCard):
     def __init__(self):

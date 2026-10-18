@@ -150,7 +150,7 @@ class NovoProdutoPage(QWidget):
                 "description_input", "description_counter",
             )),
             (self.price_tax_card, (
-                "cost_price_input", "sale_price_input", "unit_input", "ncm_input", "ean_input",
+                "cost_price_input", "sale_price_input", "unit_input",
             )),
             (self.stock_control_card, (
                 "initial_stock_input", "minimum_stock_input", "location_input", "supplier_input", "low_stock_alert",
@@ -310,7 +310,6 @@ class NovoProdutoPage(QWidget):
             minimum_stock=self._minimo_do_formulario(),
             supplier_id=self.supplier_input.currentData(),
             description=self.description_input.toPlainText().strip(),
-            ncm=self.ncm_input.text().strip(), ean=self.ean_input.text().strip(),
             location=self.location_input.text().strip(),
             low_stock_alert=self.low_stock_alert.isChecked(),
             image_data=self.image_card.image_data,
@@ -342,8 +341,6 @@ class NovoProdutoPage(QWidget):
         self.cost_price_input.setValue(0)
         self.sale_price_input.setValue(0)
         self.unit_input.setCurrentIndex(0)
-        self.ncm_input.clear()
-        self.ean_input.clear()
         self.initial_stock_input.setValue(0)
         # Nasce SEM mínimo: a US03 diz que ele é opcional, e sugerir 10 fazia
         # todo produto cadastrado pela tela ganhar um limiar que ninguém
@@ -448,8 +445,6 @@ class NovoProdutoPage(QWidget):
             minimum = getattr(product, "minimum_stock", None)
 
         self.description_input.setPlainText(getattr(product, "description", ""))
-        self.ncm_input.setText(getattr(product, "ncm", ""))
-        self.ean_input.setText(getattr(product, "ean", ""))
         self.location_input.setText(getattr(product, "location", ""))
         self.low_stock_alert.setChecked(getattr(product, "low_stock_alert", True))
         self.image_card.set_image_data(getattr(product, "image_data", ""))
