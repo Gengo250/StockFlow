@@ -223,9 +223,12 @@ BEGIN
     END IF;
 
     v_id := public.fn_register_movement(
-        p_company_id, p_product_id, p_kind, p_quantity, p_note, p_confirm
+        p_company_id, p_product_id, p_kind, p_quantity, p_note, false
     );
     UPDATE public.stock_movements SET supplier_id = p_supplier_id WHERE id = v_id;
+    IF p_confirm THEN
+        PERFORM public.fn_confirm_movement(v_id);
+    END IF;
     RETURN v_id;
 END;
 $$;

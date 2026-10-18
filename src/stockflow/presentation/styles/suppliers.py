@@ -1,16 +1,18 @@
 SUPPLIERS_QSS = """
     QWidget#suppliersPage { background: #F0F5FF; }
     QWidget#suppliersPage QLabel { background: transparent; color: #263650; font-size: 13px; }
-    QWidget#suppliersPage QLabel#pageTitle { color: #0F172A; font-size: 24px; font-weight: 700; }
+    QWidget#suppliersPage QLabel#pageTitle { color: #0F172A; font-size: 26px; font-weight: 700; }
+    QWidget#suppliersPage QLabel#pageSubtitle { color: #64748B; font-size: 14px; }
     QWidget#suppliersPage QLabel#muted { color: #6980A5; font-size: 12px; }
     QDialog#supplierForm { background: #F0F5FF; }
     QDialog#supplierForm QLabel { background: transparent; color: #263650; font-size: 13px; }
     QFrame#suppliersTableCard { background: white; border: 1px solid #D7E5FF; border-radius: 14px; }
-    QLineEdit, QComboBox { background: white; color: #475569; border: 1px solid #D7E5FF; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
-    QLineEdit:focus, QComboBox:focus { border: 1px solid #195BFF; }
+    QLineEdit, QComboBox { background: white; color: #475569; border: 1px solid #D7E5FF; border-radius: 10px; padding: 0px 12px; font-size: 14px; }
+    QDialog#supplierForm QLineEdit { padding: 10px 12px; }
+    QLineEdit:focus, QComboBox:focus { border: 1px solid #2563EB; }
     QPushButton { padding: 10px 14px; border-radius: 10px; font-size: 13px; }
-    QPushButton#primaryButton { background: #195BFF; color: white; border: 1px solid #195BFF; }
-    QPushButton#primaryButton:hover { background: #154EDD; }
+    QPushButton#primaryButton { background: #2563EB; color: white; border: 1px solid #2563EB; }
+    QPushButton#primaryButton:hover { background: #1D4ED8; }
     QPushButton#secondaryButton { background: white; color: #475569; border: 1px solid #D7E5FF; }
     QPushButton#secondaryButton:hover { background: #F3F8FF; border-color: #90B5FF; }
     QPushButton#supplierActionButton {

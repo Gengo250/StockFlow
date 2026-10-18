@@ -28,6 +28,7 @@ from stockflow.domain.exceptions.product_not_found import ProductNotFoundError
 from stockflow.infrastructure.repositories.demo_product_repository import (
     DemoProductRepository,
 )
+from stockflow.presentation.widgets.form_fields import _card, _card_header, _field, _line_edit, FIELD_QSS
 from stockflow.presentation.styles import inventory
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
@@ -71,42 +72,7 @@ class VendasPage(QWidget):
         """
         super().__init__(parent)
         self.setObjectName("vendasPage")
-        self.setStyleSheet("""
-            QWidget#vendasPage { background-color: #F0F5FF; }
-            QLabel { background-color: transparent; }
-            QFrame#card {
-                background-color: #FFFFFF;
-                border: 1px solid #DBEAFE;
-                border-radius: 16px;
-            }
-            QLineEdit, QComboBox {
-                background-color: white;
-                color: #0F172A;
-                border: 1px solid #BFDBFE;
-                border-radius: 10px;
-                padding: 8px 12px;
-                font-size: 13px;
-            }
-            QPushButton#primaryButton {
-                background-color: #2563EB;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 10px 18px;
-                font-weight: 600;
-            }
-            QPushButton#primaryButton:hover { background-color: #1D4ED8; }
-            QTableWidget { background-color: #FFFFFF; border: none; }
-            QHeaderView::section {
-                background-color: #F8FBFF;
-                color: #64748B;
-                border: none;
-                border-bottom: 1px solid #DBEAFE;
-                padding: 10px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-        """)
+        self.setStyleSheet("QWidget#vendasPage { background: #F0F5FF; } QLabel { background: transparent; color: #334155; }")
 
         # Base de clientes para simulação [ID, Nome, Status].
         # Vem de demo_data, a mesma fonte da tabela de Usuários: enquanto as
@@ -170,24 +136,32 @@ class VendasPage(QWidget):
 
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(22, 22, 22, 22)
+        layout.setContentsMargins(26, 24, 26, 24)
         layout.setSpacing(18)
 
-        # Cabeçalho
-        title = QLabel("Registro e Seleção de Vendas")
-        title.setStyleSheet("color: #0F172A; font-size: 26px; font-weight: 700;")
-        layout.addWidget(title)
+        heading = QHBoxLayout()
+        titles = QVBoxLayout()
+        titles.setSpacing(4)
+        title = QLabel("Vendas")
+        title.setStyleSheet(inventory.TITLE_QSS)
+        subtitle = QLabel("Registre vendas e acompanhe o histórico dos seus clientes.")
+        subtitle.setStyleSheet(inventory.SUBTITLE_QSS)
+        subtitle.setWordWrap(True)
+        titles.addWidget(title)
+        titles.addWidget(subtitle)
+        heading.addLayout(titles, 1)
+        self.refresh_button = QPushButton("Atualizar")
+        self.refresh_button.setIcon(qta.icon("fa5s.sync-alt", color="#475569"))
+        self.refresh_button.setStyleSheet(inventory.FILTER_QSS)
+        self.refresh_button.setFixedHeight(42)
+        self.refresh_button.setCursor(Qt.PointingHandCursor)
+        self.refresh_button.clicked.connect(self.reload_sales)
+        heading.addWidget(self.refresh_button)
+        layout.addLayout(heading)
 
-        # Card de Nova Venda
-        form_card = QFrame()
-        form_card.setObjectName("card")
-        form_layout = QVBoxLayout(form_card)
-        form_layout.setContentsMargins(20, 20, 20, 20)
-        form_layout.setSpacing(12)
-
-        form_title = QLabel("Nova Venda")
-        form_title.setStyleSheet("color: #1E3A8A; font-size: 16px; font-weight: 600;")
-        form_layout.addWidget(form_title)
+        form_card = _card("saleForm")
+        form_layout = form_card.layout()
+        form_layout.addLayout(_card_header("fa5s.shopping-cart", "Nova venda", "Selecione o cliente, o produto e informe o valor total."))
 
         row = QHBoxLayout()
         row.setSpacing(12)
@@ -237,7 +211,7 @@ class VendasPage(QWidget):
         btn_item.setIcon(qta.icon("fa5s.plus", color="white"))
         btn_item.clicked.connect(self._adicionar_item)
 
-        self.save_button = btn_salvar = QPushButton(" Finalizar Venda")
+        self.save_button = btn_salvar = QPushButton("Finalizar venda")
         btn_salvar.setObjectName("primaryButton")
         btn_salvar.setFixedHeight(42)
         btn_salvar.setIcon(qta.icon("fa5s.check", color="white"))
@@ -329,15 +303,15 @@ class VendasPage(QWidget):
         layout.addLayout(checkout)
         layout.addWidget(self.warning_label)
 
-        # Tabela de Histórico de Vendas
-        hist_title = QLabel("Histórico de Vendas Realizadas")
-        hist_title.setStyleSheet("color: #0F172A; font-size: 18px; font-weight: 600;")
-        layout.addWidget(hist_title)
-
-        table_card = QFrame()
-        table_card.setObjectName("card")
-        table_layout = QVBoxLayout(table_card)
-        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_card = _card("saleHistory")
+        table_layout = table_card.layout()
+        table_layout.addLayout(_card_header("fa5s.history", "Histórico de vendas", "Consulte os clientes e produtos registrados em cada venda."))
+        self.search_input = _line_edit("Buscar venda, cliente ou produto…")
+        self.search_input.setAccessibleName("Buscar vendas")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.addAction(qta.icon("fa5s.search", color="#94A3B8"), QLineEdit.LeadingPosition)
+        self.search_input.textChanged.connect(self._filter_history)
+        table_layout.addWidget(self.search_input)
 
         self.table = QTableWidget()
         self.table.setColumnCount(5)
@@ -345,6 +319,11 @@ class VendasPage(QWidget):
             ["ID Venda", "Cliente Associado", "Produto", "Valor Total", "Data"]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.setStyleSheet(inventory.TABLE_QSS)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.verticalHeader().setDefaultSectionSize(48)
         self.table.setShowGrid(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -367,7 +346,14 @@ class VendasPage(QWidget):
         self.empty_label = QLabel("Nenhuma venda registrada nesta empresa.")
         table_layout.addWidget(self.empty_label)
 
-        table_layout.addWidget(self.table)
+        table_layout.addWidget(self.table, 1)
+        self.empty_label = QLabel("Nenhuma venda registrada.")
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setStyleSheet(inventory.LIST_STATE_QSS)
+        table_layout.addWidget(self.empty_label)
+        self.result_count = QLabel()
+        self.result_count.setStyleSheet("color: #64748B; font-size: 12px;")
+        table_layout.addWidget(self.result_count)
         layout.addWidget(table_card, 1)
 
         self.atualizar_tabela_historico()
