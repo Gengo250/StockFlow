@@ -29,7 +29,12 @@ from postgres_api import PostgresAPI
 # simula o remoto, o ensaio morria em
 # `invalid input value for enum payment_method: "DINHEIRO"`.
 PENDING_VERSIONS = {"20261013120000", "20261013140000", "20261014120000",
-                    "20261015103000", "20261015143000", "20261016120000"}
+                    "20261014165713", "20261015103000", "20261015143000", "20261016120000"}
+# Later migrations depend on the reconciled sales and movement contracts.
+PENDING_VERSIONS.update(
+    path.name[:14] for path in (ROOT / "database/supabase/migrations").glob("*.sql")
+    if path.name[:14] >= "20261018000000"
+)
 
 
 def run():

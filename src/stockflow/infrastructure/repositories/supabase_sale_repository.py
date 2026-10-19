@@ -31,8 +31,8 @@ class SupabaseSaleRepository:
         rows = (
             self._client.table("sales")
             .select(
-                "id,client_name,total,created_on,"
-                "sale_items(product_name,product_code,quantity)"
+                "id,client_name,total,created_on,payment_method,discount,status,"
+                "sale_items(product_name,product_code,quantity,unit_price,subtotal)"
             )
             .eq("company_id", self._company_id)
             .order("created_on", desc=True)
@@ -40,20 +40,7 @@ class SupabaseSaleRepository:
             .data
             or []
         )
-        vendas = []
-        for r in rows:
-            codigo, descricao = resumo_dos_itens(r.get("sale_items") or [])
-            vendas.append(
-                sale_row(
-                    r["id"],
-                    r["client_name"],
-                    codigo,
-                    descricao,
-                    Decimal(str(r["total"])),
-                    r["created_on"],
-                )
-            )
-        return vendas
+        return [_receipt_row(row) for row in rows]
 
     def register(self, client, product, total):
         rows = (

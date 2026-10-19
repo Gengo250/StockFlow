@@ -88,9 +88,6 @@ SET search_path = public AS $$
 DECLARE
     v_company uuid;
 BEGIN
-    IF p_min IS NULL THEN
-        RAISE EXCEPTION 'Estoque mínimo é obrigatório' USING ERRCODE = 'not_null_violation';
-    END IF;
     IF p_min < 0 THEN
         RAISE EXCEPTION 'Estoque mínimo não pode ser negativo (recebido: %)', p_min
             USING ERRCODE = 'check_violation';
@@ -239,8 +236,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.fn_get_effective_max_stock(p_product_id uuid)
 RETURNS integer
-LANGUAGE sql STABLE
-LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+LANGUAGE sql STABLE SECURITY INVOKER
 SET search_path = public AS $$
     SELECT COALESCE(ps.max_quantity, c.max_stock_limit)
       FROM public.products p

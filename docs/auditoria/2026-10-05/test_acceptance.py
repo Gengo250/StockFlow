@@ -120,12 +120,13 @@ def test_new_client_becomes_selectable_in_sales(window, qapp):
 
 
 @pytest.mark.parametrize('value', ['abc', '-10,00', 'NaN'])
-def test_sale_rejects_invalid_amount(window, value):
+def test_sale_rejects_invalid_quantity(window, value):
     page = window.vendas_page
-    choose_sale(page, value)
+    choose_sale(page)
+    page.qtd_input.setText(value)
     before = len(page.historico_vendas)
     page._registrar_venda()
-    assert len(page.historico_vendas) == before, f'Valor inválido aceito: {value}'
+    assert len(page.historico_vendas) == before, f'Quantidade inválida aceita: {value}'
 
 
 def test_sale_rechecks_inactive_client(window):

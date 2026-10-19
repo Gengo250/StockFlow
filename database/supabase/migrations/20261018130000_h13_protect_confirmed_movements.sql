@@ -1,4 +1,5 @@
 -- H13: bloquear edição/exclusão sem remover o cancelamento auditável.
+-- Versão própria: 20261014120000 pertence à reconciliação de vendas.
 -- H13: preservar os dados originais, mesmo após cancelamento.
 CREATE OR REPLACE FUNCTION public.trg_protect_confirmed_movement()
 RETURNS trigger LANGUAGE plpgsql

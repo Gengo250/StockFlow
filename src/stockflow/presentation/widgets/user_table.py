@@ -9,6 +9,7 @@ ALL_ROLES = "Todos os perfis"
 ACTIONS_COLUMN = 5
 
 from stockflow.presentation.demo_users import DEMO_USERS
+from stockflow.presentation.demo_data import linhas_de_usuarios
 
 
 class UserTable(QFrame):
@@ -18,7 +19,7 @@ class UserTable(QFrame):
 
     def __init__(self, users=None, parent=None):
         super().__init__(parent)
-        self.users = tuple(DEMO_USERS if users is None else users)
+        self.users = tuple(linhas_de_usuarios() if users is None else users)
         self._actions_enabled = False
         self._search_text = ""
         self._role_filter = ALL_ROLES
@@ -40,9 +41,9 @@ class UserTable(QFrame):
         header = self.table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
         header.setMinimumSectionSize(100)
-        for column, width in ((1, 125), (2, 135), (3, 105), (4, 165), (5, 145)):
+        for column, width in ((1, 125), (2, 135), (3, 105), (4, 165), (5, 210)):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
             self.table.setColumnWidth(column, width)
 
@@ -85,6 +86,7 @@ class UserTable(QFrame):
             avatar.setStyleSheet(f"background: {color}; color: white; border-radius: 11px; font-weight: 600;")
             texts = QVBoxLayout()
             texts.setSpacing(3)
+            identity.setToolTip(f"{name}\n{login}")
             name_label = QLabel(name)
             name_label.setStyleSheet("color: #1E293B; font-weight: 600;")
             login_label = QLabel(login)
@@ -96,7 +98,7 @@ class UserTable(QFrame):
             identity_layout.addStretch()
             identity.setAttribute(Qt.WA_TransparentForMouseEvents)
             self.table.setCellWidget(row, 0, identity)
-            role_color = {"Administrador": "#8129FF", "Gerente": "#195BFF", "Financeiro": "#D67B00"}.get(role, "#526785")
+            role_color = {"Administrador": "#8129FF", "Estoque": "#00A77A", "Vendedor": "#195BFF"}.get(role, "#526785")
             self.table.setCellWidget(row, 2, self._badge(role, role_color))
             status_color = {"Ativo": "#009D73", "Inativo": "#7385A0", "Pendente": "#D67B00"}.get(status, "#7385A0")
             self.table.setCellWidget(row, 3, self._badge(status, status_color))
@@ -195,12 +197,13 @@ class UserTable(QFrame):
 
     def _status_button_clicked(self) -> None:
         button = self.sender()
-        self.status_change_requested.emit(
-            button.user_id, not button.user_active
-        )
+        if self._actions_enabled and button.user_id:
+            self.status_change_requested.emit(
+                str(button.user_id), not button.user_active
+            )
 
     def _edit(self, row):
-        if row < 0 or row >= len(self.users):
+        if not self._actions_enabled or row < 0 or row >= len(self.users):
             return
         self.table.selectRow(row)
         self.edit_requested.emit(self.users[row])

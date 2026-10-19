@@ -56,6 +56,7 @@ class NovoProdutoPage(QWidget):
     def __init__(self, edit_mode=False):
         super().__init__()
         self.edit_mode = edit_mode
+        self._preserved_fields = {}
         self.setObjectName("novoProdutoPage")
         self.setStyleSheet("""
             QWidget#novoProdutoPage { background-color: #F0F5FF; }
@@ -330,6 +331,7 @@ class NovoProdutoPage(QWidget):
             active=self.product_status_toggle.isChecked(),
             minimum_stock=self._minimo_do_formulario(),
             maximum_stock=self._maximo_do_formulario(),
+            **self._preserved_fields,
             supplier_id=self.supplier_input.currentData(),
             description=self.description_input.toPlainText().strip(),
             location=self.location_input.text().strip(),
@@ -369,6 +371,7 @@ class NovoProdutoPage(QWidget):
         limpeza, o que sobrou de uma tentativa anterior — inclusive de uma que
         falhou — reaparece na próxima e é gravado como dado do produto novo.
         """
+        self._preserved_fields = {}
         self.image_card.set_image_data("")
         self.code_input.clear()
         self.name_input.clear()
@@ -483,6 +486,10 @@ class NovoProdutoPage(QWidget):
             minimum = getattr(product, "minimum_stock", None)
             maximum = getattr(product, "maximum_stock", None)
 
+        self._preserved_fields = {
+            "ncm": getattr(product, "ncm", ""),
+            "ean": getattr(product, "ean", ""),
+        }
         self.description_input.setPlainText(getattr(product, "description", ""))
         self.location_input.setText(getattr(product, "location", ""))
         self.low_stock_alert.setChecked(getattr(product, "low_stock_alert", True))

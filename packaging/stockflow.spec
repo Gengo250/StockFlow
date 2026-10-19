@@ -53,7 +53,9 @@ EXECUTAVEL = f"StockFlow-{VERSION}-{SISTEMA}-{ARQUITETURA}"
 # carrega em tempo de execucao. O PyInstaller nao descobre isso
 # sozinho: sem esta linha o app abre com a interface inteira sem
 # icone nenhum (sidebar, estoque, novo produto, coming soon).
-DATAS = collect_data_files("qtawesome")
+DATAS = collect_data_files("qtawesome") + collect_data_files(
+    "stockflow", includes=["presentation/assets/*.svg"]
+)
 
 
 # ======================================================

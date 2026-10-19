@@ -79,7 +79,7 @@ FILTER_QSS = """
             """
 
 TABLE_CARD_QSS = """
-            QFrame {
+            QFrame#tableCard, QFrame#card {
                 background-color: white;
 
                 border: 1px solid #DBEAFE;

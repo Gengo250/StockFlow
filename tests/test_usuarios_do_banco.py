@@ -143,6 +143,61 @@ def test_repovoar_mantem_o_widget_da_tabela(qapp):
         page.close()
 
 
+def test_busca_e_perfil_sao_combinados_e_preservados_na_recarga(qapp):
+    page = UsersPage(DO_BANCO)
+    try:
+        page.role_filter.setCurrentText("Administrador")
+        page.search_input.setText("  TESTE.STOCKFLOW@GMAIL.COM  ")
+        assert not page.user_table.table.isRowHidden(0)
+        assert page.user_table.table.isRowHidden(1)
+        assert page.user_table.count_label.text() == "1 de 2 usuários exibidos"
+
+        page.load_users(tuple(reversed(DO_BANCO)))
+        assert page.user_table.table.isRowHidden(0)
+        assert not page.user_table.table.isRowHidden(1)
+
+        page.role_filter.setCurrentText("Estoque")
+        assert all(page.user_table.table.isRowHidden(i) for i in range(2))
+        assert page.user_table.count_label.text() == "0 de 2 usuários exibidos"
+
+        page.load_users((DO_BANCO[0],))
+        assert page.role_filter.currentText() == "Todos os perfis"
+        assert not page.user_table.table.isRowHidden(0)
+    finally:
+        page.close()
+
+
+def test_recarga_preserva_identificador_e_bloqueio_das_acoes(qapp):
+    user = UserDirectoryRow(DO_BANCO[0], user_id="user-atual")
+    page = UsersPage()
+    try:
+        table = page.user_table
+        table.edit_requested.disconnect()
+        edits, statuses = [], []
+        table.edit_requested.connect(edits.append)
+        table.status_change_requested.connect(
+            lambda user_id, active: statuses.append((user_id, active))
+        )
+        page.apply_permission(False)
+        page.load_users((user,))
+        table.table.cellDoubleClicked.emit(0, 0)
+        table.status_buttons[0].click()
+        assert not table.status_buttons[0].isEnabled()
+        assert edits == statuses == []
+
+        page.apply_permission(True)
+        table.table.cellDoubleClicked.emit(0, 0)
+        table.status_buttons[0].click()
+        assert edits == [user]
+        assert edits[0].user_id == "user-atual"
+        assert statuses == [("user-atual", False)]
+
+        page.load_users(DO_BANCO)
+        assert not any(button.isEnabled() for button in table.status_buttons)
+    finally:
+        page.close()
+
+
 def test_acao_de_status_emite_uuid_e_permite_reativacao(qapp):
     ativo = UserDirectoryRow(
         ("Miguel", "miguel@example.com", "TI", "Administrador",

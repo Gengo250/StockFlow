@@ -4,7 +4,6 @@ from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
-    QStackedWidget,
 )
 
 from stockflow.application.services.movement_service import MovementService
@@ -41,6 +40,7 @@ from stockflow.presentation.widgets.sidebar import (
     DEFAULT_KEY,
 )
 from stockflow.presentation.widgets.top_bar import TopBar
+from stockflow.presentation.widgets.page_stack import PageStack
 from stockflow.presentation.pages.clientes import ClientesPage
 from stockflow.presentation.pages.overview import DashboardPage, ReportsPage, SettingsPage, preference_prefix
 from stockflow.presentation.pages.estoque import EstoquePage
@@ -92,7 +92,7 @@ class MainWindow(QMainWindow):
         self.executar_em_segundo_plano = executar_em_segundo_plano
 
         self.setWindowTitle("StockFlow")
-        self.resize(1920, 1080)
+        self.resize(1280, 800)
 
         self.setWindowOpacity(1.0)
 
@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
 
     def _create_pages(self):
 
-        pages = QStackedWidget()
+        pages = PageStack()
 
         pages.setObjectName("pages")
 

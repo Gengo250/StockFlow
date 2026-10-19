@@ -6,7 +6,9 @@ from pathlib import Path
 os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 os.environ['QT_QPA_PLATFORMTHEME'] = ''
 os.environ['QT_STYLE_OVERRIDE'] = 'Fusion'
+os.environ['STOCKFLOW_BACKEND'] = 'demo'
 
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication, QScrollArea
 from stockflow.presentation.demo_accounts import conta_admin
@@ -25,6 +27,7 @@ def capture(output, baseline=None):
     def snapshot(widget, name):
         nonlocal count
         app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         app.processEvents()
         image = widget.grab().toImage()
         path = output / f'{name}.png'
@@ -34,7 +37,7 @@ def capture(output, baseline=None):
             failures.append(path.name)
         count += 1
 
-    for width, height in ((1440, 900), (1024, 768)):
+    for width, height in ((1440, 900), (1366, 768), (1024, 768)):
         window = MainWindow(conta_admin().session())
         window.resize(width, height)
         window.show()
@@ -42,6 +45,30 @@ def capture(output, baseline=None):
         for key in window.page_widgets:
             window.show_page(key)
             snapshot(window, f'{prefix}-{key}')
+        window.show_page('movimentacoes')
+        movement = window.movimentacoes_page
+        movement.produto_combo.setCurrentIndex(1)
+        movement.fornecedor_combo.setCurrentIndex(1)
+        movement.registrar_button.click()
+        assert movement.table.rowCount() == 1, 'O lançamento não chegou ao histórico'
+        movement.search_input.setText(movement.produto_combo.currentText().split(' — ')[0])
+        assert movement.table.rowCount() == 1, 'A busca perdeu a movimentação cadastrada'
+        window.pages.currentWidget().parentWidget().parentWidget().ensureWidgetVisible(movement.table)
+        snapshot(window, f'{prefix}-movement-search')
+        movement.search_input.setText('sem-resultado-de-auditoria')
+        assert movement.table.rowCount() == 0
+        snapshot(window, f'{prefix}-movement-empty-search')
+        movement.limpar_filtros()
+
+        window.show_page('vendas')
+        sale = window.vendas_page
+        sale.cliente_combo.setCurrentIndex(1)
+        sale.produto_combo.setCurrentIndex(1)
+        sale.qtd_input.setText('1')
+        sale.add_button.click()
+        assert sale.itens_table.rowCount() == 1, 'O item não chegou ao carrinho'
+        snapshot(window, f'{prefix}-sale-cart')
+
         for page, name in ((window.novo_produto_page, 'new-product'),
                            (window.editar_produto_page, 'edit-product')):
             if page.edit_mode:
@@ -62,7 +89,7 @@ def capture(output, baseline=None):
             snapshot(form, f'{prefix}-{name}')
             form.close()
         window.close()
-    print(f'{count} snapshots; {len(failures)} differences')
+    print(f'{count} snapshots; ' + (f'{len(failures)} differences' if baseline else 'captured without baseline comparison'))
     if failures:
         raise SystemExit('\n'.join(failures))
 

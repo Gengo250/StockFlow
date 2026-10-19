@@ -44,6 +44,7 @@ class StockTable(QFrame):
 
     def __init__(self, products):
         super().__init__()
+        self.setObjectName("tableCard")
         self.setStyleSheet(inventory.TABLE_CARD_QSS)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

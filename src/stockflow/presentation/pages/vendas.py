@@ -28,7 +28,7 @@ from stockflow.domain.exceptions.product_not_found import ProductNotFoundError
 from stockflow.infrastructure.repositories.demo_product_repository import (
     DemoProductRepository,
 )
-from stockflow.presentation.widgets.form_fields import _card, _card_header, _field, _line_edit, FIELD_QSS
+from stockflow.presentation.widgets.form_fields import _card, _card_header, _field, _line_edit, FIELD_QSS, FORM_CONTROL_QSS
 from stockflow.presentation.styles import inventory
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
@@ -72,7 +72,7 @@ class VendasPage(QWidget):
         """
         super().__init__(parent)
         self.setObjectName("vendasPage")
-        self.setStyleSheet("QWidget#vendasPage { background: #F0F5FF; } QLabel { background: transparent; color: #334155; }")
+        self.setStyleSheet("QWidget#vendasPage { background: #F0F5FF; } QLabel { background: transparent; color: #334155; }" + FORM_CONTROL_QSS)
 
         # Base de clientes para simulação [ID, Nome, Status].
         # Vem de demo_data, a mesma fonte da tabela de Usuários: enquanto as
@@ -161,7 +161,7 @@ class VendasPage(QWidget):
 
         form_card = _card("saleForm")
         form_layout = form_card.layout()
-        form_layout.addLayout(_card_header("fa5s.shopping-cart", "Nova venda", "Selecione o cliente, o produto e informe o valor total."))
+        form_layout.addLayout(_card_header("fa5s.shopping-cart", "Nova venda", "Selecione o cliente e os produtos, confira o total e finalize a venda."))
 
         row = QHBoxLayout()
         row.setSpacing(12)
@@ -207,12 +207,14 @@ class VendasPage(QWidget):
         # ninguém clica aqui, a tela se comporta como sempre se comportou.
         self.add_button = btn_item = QPushButton(" Adicionar item")
         btn_item.setObjectName("primaryButton")
+        btn_item.setStyleSheet(inventory.NEW_BUTTON_QSS)
         btn_item.setFixedHeight(42)
         btn_item.setIcon(qta.icon("fa5s.plus", color="white"))
         btn_item.clicked.connect(self._adicionar_item)
 
         self.save_button = btn_salvar = QPushButton("Finalizar venda")
         btn_salvar.setObjectName("primaryButton")
+        btn_salvar.setStyleSheet(inventory.NEW_BUTTON_QSS)
         btn_salvar.setFixedHeight(42)
         btn_salvar.setIcon(qta.icon("fa5s.check", color="white"))
         btn_salvar.clicked.connect(self._registrar_venda)
@@ -343,9 +345,6 @@ class VendasPage(QWidget):
         self.retry_button.setStyleSheet(inventory.NEW_BUTTON_QSS)
         self.retry_button.clicked.connect(self.reload_sales)
         table_layout.addWidget(self.retry_button)
-        self.empty_label = QLabel("Nenhuma venda registrada nesta empresa.")
-        table_layout.addWidget(self.empty_label)
-
         table_layout.addWidget(self.table, 1)
         self.empty_label = QLabel("Nenhuma venda registrada.")
         self.empty_label.setAlignment(Qt.AlignCenter)
@@ -398,7 +397,7 @@ class VendasPage(QWidget):
         if self.last_error is None:
             self.load_error_label.setVisible(False)
             self.table.setVisible(True)
-            self.empty_label.setVisible(not self.historico_vendas)
+            self._filter_history()
             return
         self.load_error_label.setText(
             f"Não foi possível carregar o histórico de vendas.\n\n{self.last_error}"
@@ -491,17 +490,6 @@ class VendasPage(QWidget):
         if escolhido:
             self._apontar_produto(escolhido["codigo"])
 
-    def _filter_history(self, text: str) -> None:
-        """Filtra a exibição do histórico de vendas conforme o texto digitado."""
-        search_term = text.strip().casefold()
-
-        # Exemplo utilizando QTableWidget (ajuste para a estrutura da sua tela)
-        for row in range(self.history_table.rowCount()):
-            item = self.history_table.item(row, 0)  # Coluna usada para busca
-            if item:
-                matches = search_term in item.text().casefold()
-                self.history_table.setRowHidden(row, not matches)
-    
     def reload_products(self, products=None):
         """Refaz a oferta de produtos a partir do catálogo atual.
 
@@ -793,3 +781,22 @@ class VendasPage(QWidget):
                 f"{item['quantity']}x {item['product_name']}" for item in venda.get("items", [])
             )
             self.table.item(row, 2).setToolTip(detail or venda["produto"])
+        self._filter_history()
+
+    def _filter_history(self):
+        search = self.search_input.text().strip().casefold()
+        visible = 0
+        for row in range(self.table.rowCount()):
+            matches = any(
+                search in item.text().casefold() or search in item.toolTip().casefold()
+                for column in range(self.table.columnCount())
+                if (item := self.table.item(row, column)) is not None
+            )
+            self.table.setRowHidden(row, not matches)
+            visible += matches
+        self.result_count.setText(f"{visible} de {self.table.rowCount()} vendas exibidas")
+        self.empty_label.setText(
+            "Nenhuma venda encontrada para a busca."
+            if self.historico_vendas else "Nenhuma venda registrada nesta empresa."
+        )
+        self.empty_label.setVisible(self.last_error is None and visible == 0)

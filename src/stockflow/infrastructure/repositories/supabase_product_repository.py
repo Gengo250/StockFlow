@@ -296,8 +296,6 @@ class SupabaseProductRepository:
 
     def create(self, data: ProductInput) -> str:
         product_id = self._save(data)
-        if getattr(data, "maximum_stock", None) is not None:
-            self._aplicar_maximo(product_id, data)
         self._ids[data.code] = product_id
         self._publicar(data.code, data)
         return data.code
@@ -311,8 +309,6 @@ class SupabaseProductRepository:
         preco_alterado = produto_atual and produto_atual.sale_price != data.sale_price
 
         self._save(data, product_id)
-        if getattr(data, "maximum_stock", None) is not None:
-            self._aplicar_maximo(product_id, data)
         if data.code != code:
             self._ids.pop(code, None)
         self._ids[data.code] = product_id
@@ -425,6 +421,7 @@ class SupabaseProductRepository:
             stock=str(estoque),
             stock_status=derive_stock_status(estoque, minimo),
             minimum_stock=to_min(minimo),
+            maximum_stock=to_min(getattr(data, "maximum_stock", None)),
             supplier_id=getattr(data, "supplier_id", None),
             description=getattr(data, "description", ""),
             ncm=getattr(data, "ncm", ""),

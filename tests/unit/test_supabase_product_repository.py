@@ -369,18 +369,24 @@ def test_create_category_traduz_recusa_do_banco():
         repositorio(cliente).create_category("Periféricos")
 
 
-def test_create_chama_aplicar_maximo_quando_configurado():
-    """H30: create deve disparar fn_set_max_stock se maximum_stock estiver informado."""
+def test_create_salva_maximo_na_mesma_transacao():
+    """Um cadastro inválido não pode deixar um produto parcialmente salvo."""
     cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_save_product": PRODUTO_ID, "fn_set_max_stock": None})
     repositorio(cliente).create(dados(maximum_stock=50))
-    assert ("fn_set_max_stock", {"p_product_id": PRODUTO_ID, "p_max": 50}) in cliente.chamadas_rpc
+    assert len(cliente.chamadas_rpc) == 1
+    name, args = cliente.chamadas_rpc[0]
+    assert name == "fn_save_product"
+    assert args["p_data"]["maximum_stock"] == 50
 
 
-def test_update_chama_aplicar_maximo_quando_configurado():
-    """H30: update deve disparar fn_set_max_stock se maximum_stock estiver informado."""
+def test_update_salva_maximo_na_mesma_transacao():
+    """O máximo faz parte do mesmo formulário, sem uma segunda gravação."""
     cliente = ClienteFalso(catalogo_falso(), rpc_resultados={"fn_save_product": PRODUTO_ID, "fn_set_max_stock": None})
     repositorio(cliente).update("PRD-009", dados(code="PRD-009", maximum_stock=100))
-    assert ("fn_set_max_stock", {"p_product_id": PRODUTO_ID, "p_max": 100}) in cliente.chamadas_rpc
+    assert len(cliente.chamadas_rpc) == 1
+    name, args = cliente.chamadas_rpc[0]
+    assert name == "fn_save_product"
+    assert args["p_data"]["maximum_stock"] == 100
 
 
 def test_catalogo_mapeia_maximum_stock_do_banco():

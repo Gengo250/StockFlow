@@ -36,7 +36,17 @@ BEGIN
             p_item_category => p_data->>'category');
     END IF;
     PERFORM public.fn_set_product_supplier(v_id, (p_data->>'supplier_id')::uuid);
-    PERFORM public.fn_set_min_stock(v_id, (p_data->>'minimum_stock')::integer);
+    -- Atualiza os dois limites juntos: aumentar mínimo e máximo não pode
+    -- falhar por comparar um limite novo ao outro ainda antigo.
+    UPDATE public.product_stock SET
+        min_quantity = CASE WHEN p_data ? 'minimum_stock'
+            THEN (p_data->>'minimum_stock')::integer ELSE min_quantity END,
+        max_quantity = CASE WHEN p_data ? 'maximum_stock'
+            THEN (p_data->>'maximum_stock')::integer ELSE max_quantity END
+    WHERE product_id = v_id;
+    IF p_data ? 'maximum_stock' THEN
+        PERFORM public.fn_set_max_stock(v_id, (p_data->>'maximum_stock')::integer);
+    END IF;
     PERFORM public.fn_set_product_active(v_id, COALESCE((p_data->>'active')::boolean, true));
     UPDATE public.products SET
         description = COALESCE(p_data->>'description', ''), ncm = COALESCE(p_data->>'ncm', ''),

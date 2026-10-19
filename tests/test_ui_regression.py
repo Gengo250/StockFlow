@@ -55,8 +55,8 @@ class UIRegressionTest(unittest.TestCase):
     def test_catalog_reflow_and_filters(self):
         window = MainWindow(conta_admin().session())
         self.addCleanup(window.close)
-        catalog = window.products_page
-        catalog.setParent(None)
+        from stockflow.presentation.pages.products import ProductsPage
+        catalog = ProductsPage(window.products)
         self.addCleanup(catalog.close)
         catalog.show()
         # Derivado do catálogo, não fixo: o que este teste verifica é o

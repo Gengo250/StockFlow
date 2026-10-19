@@ -3,7 +3,7 @@
 from PySide6.QtCore import Qt, Signal
 import qtawesome as qta
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QDialogButtonBox, QFormLayout, QFrame,
+    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QFrame,
     QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -70,6 +70,7 @@ class SuppliersPage(QWidget):
 
         filter_layout = QHBoxLayout()
         filter_layout.setSpacing(10)
+        filter_layout.addWidget(self.search_input, 1)
         
         filter_label = QLabel("Situação:")
         filter_label.setObjectName("muted")

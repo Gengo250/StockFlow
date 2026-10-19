@@ -17,6 +17,7 @@ import re
 
 import qtawesome as qta
 from PySide6.QtCore import QDate, QSize, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDateEdit, QFrame, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
@@ -31,7 +32,7 @@ from stockflow.domain.product_status import selectable_products
 from stockflow.domain.stock_adjustment import calcular_ajuste
 from stockflow.domain.stock_level import to_int
 from stockflow.presentation.styles import inventory
-from stockflow.presentation.widgets.form_fields import _card, _card_header, _field, FIELD_QSS
+from stockflow.presentation.widgets.form_fields import _card, _card_header, _field, FIELD_QSS, FORM_CONTROL_QSS
 
 COLUMNS = ("Produto", "Espécie", "Quantidade", "Situação", "Observação",
            "Quando", "Fornecedor", "Motivo", "Usuário", "Ações")
@@ -96,7 +97,7 @@ class MovimentacoesPage(QWidget):
     def __init__(self, products=None):
         super().__init__()
         self.setObjectName("movimentacoesPage")
-        self.setStyleSheet("QWidget#movimentacoesPage { background: #F0F5FF; } QLabel { background: transparent; border: none; }")
+        self.setStyleSheet("QWidget#movimentacoesPage { background: #F0F5FF; } QLabel { background: transparent; border: none; }" + FORM_CONTROL_QSS)
 
         # O MESMO dict da janela, nunca uma cópia. É essa identidade que faz
         # um produto desativado no Estoque sair da oferta aqui na hora — a
@@ -208,6 +209,7 @@ class MovimentacoesPage(QWidget):
 
         self.registrar_button = QPushButton(" Registrar")
         self.registrar_button.setFixedHeight(42)
+        self.registrar_button.setStyleSheet(inventory.FILTER_QSS)
         self.registrar_button.setIcon(qta.icon("fa5s.plus", color="#1D4ED8"))
         self.registrar_button.setIconSize(QSize(13, 13))
         self.registrar_button.clicked.connect(lambda: self._registrar(confirmar=False))
@@ -381,8 +383,12 @@ class MovimentacoesPage(QWidget):
         ativa (`_data_ativa` devolve `None` quando não há seleção).
         """
         card = QFrame()
+        card.setObjectName("tableCard")
         card.setStyleSheet(inventory.TABLE_CARD_QSS)
-        fora = QHBoxLayout(card)
+        container = QVBoxLayout(card)
+        container.setContentsMargins(14, 10, 14, 10)
+        fora = QHBoxLayout()
+        container.addLayout(fora)
         fora.setContentsMargins(14, 10, 14, 10)
         fora.setSpacing(10)
 
@@ -444,6 +450,10 @@ class MovimentacoesPage(QWidget):
             self._ao_alterar_periodo_combo
         )
         fora.addWidget(self.filtro_periodo_combo)
+
+        fora.addStretch()
+        fora = QHBoxLayout()
+        container.addLayout(fora)
 
         # Datas para o modo personalizado
         rotulo_de = QLabel("De:")
@@ -706,6 +716,11 @@ class MovimentacoesPage(QWidget):
         """
         filtradas = self._filtrar(self.movimentacoes)
         self._total_filtradas = len(filtradas)
+        self.result_count.setText(
+            f"{self._total_filtradas} de {len(self.movimentacoes)} movimentações"
+            if filtradas or not self.movimentacoes
+            else "Nenhuma movimentação corresponde aos filtros."
+        )
         inicio = self._pagina_atual * PAGE_SIZE
         pagina = filtradas[inicio: inicio + PAGE_SIZE]
         self._desenhar_pagina(pagina)
@@ -747,9 +762,15 @@ class MovimentacoesPage(QWidget):
         especie = self.filtro_especie_combo.currentData()
         usuario = self.filtro_usuario_combo.currentData() if hasattr(self, "filtro_usuario_combo") else None
         data_inicio, data_fim = self._intervalo_de_datas()
+        query = self.search_input.text().strip().casefold()
+        status = self.status_filter.currentText() if self.status_filter.currentIndex() else None
 
         resultado = []
         for mov in movs:
+            if query and query not in " ".join(str(value) for value in mov[1:]).casefold():
+                continue
+            if status and str(mov[MOV_STATUS]) != status:
+                continue
             if produto and mov[MOV_CODE] != produto:
                 continue
             if especie is not None and not _mesma_especie(mov[MOV_KIND], especie):
@@ -770,6 +791,9 @@ class MovimentacoesPage(QWidget):
     def _desenhar_pagina(self, pagina):
         """Renderiza somente as movimentações da página atual na tabela."""
         for row in range(self.table.rowCount()):
+            previous = self.table.cellWidget(row, ACTIONS_COLUMN)
+            if previous is not None:
+                previous.hide()
             self.table.removeCellWidget(row, ACTIONS_COLUMN)
         self.table.clearContents()
         self.table.setRowCount(len(pagina))
@@ -838,11 +862,14 @@ class MovimentacoesPage(QWidget):
         apenas uma basta ao final.
         """
         for widget in (
+            self.search_input, self.status_filter,
             self.filtro_produto_combo, self.filtro_especie_combo,
             self.filtro_periodo_combo, self.filtro_data_inicio, self.filtro_data_fim,
         ):
             widget.blockSignals(True)
 
+        self.search_input.clear()
+        self.status_filter.setCurrentIndex(0)
         self.filtro_produto_combo.setCurrentIndex(0)
         self.filtro_especie_combo.setCurrentIndex(0)
         self.filtro_usuario_combo.setCurrentIndex(0)
@@ -854,6 +881,7 @@ class MovimentacoesPage(QWidget):
         self.filtro_data_fim.setEnabled(False)
 
         for widget in (
+            self.search_input, self.status_filter,
             self.filtro_produto_combo, self.filtro_especie_combo,
             self.filtro_periodo_combo, self.filtro_data_inicio, self.filtro_data_fim,
         ):
@@ -863,15 +891,7 @@ class MovimentacoesPage(QWidget):
         self._aplicar_filtros_e_paginar()
 
     def _filter_rows(self, *_):
-        query = self.search_input.text().strip().casefold()
-        status = self.status_filter.currentText()
-        visible = 0
-        for row, movement in enumerate(self.movimentacoes):
-            matches = query in " ".join(str(value) for value in movement[1:]).casefold()
-            matches = matches and (self.status_filter.currentIndex() == 0 or str(movement[MOV_STATUS]) == status)
-            self.table.setRowHidden(row, not matches)
-            visible += matches
-        self.result_count.setText(f"{visible} de {len(self.movimentacoes)} movimentações" if visible or not self.movimentacoes else "Nenhuma movimentação corresponde aos filtros.")
+        self._ao_alterar_filtro()
 
     def show_load_error(self, erro):
         """Falha fica NA ÁREA DA LISTA, pelo mesmo motivo da tela de Estoque.
@@ -925,7 +945,9 @@ class MovimentacoesPage(QWidget):
     def _algum_filtro_ativo(self) -> bool:
         """Devolve `True` se qualquer filtro está com valor diferente do padrão."""
         return (
-            self.filtro_produto_combo.currentData() is not None
+            bool(self.search_input.text().strip())
+            or self.status_filter.currentIndex() > 0
+            or self.filtro_produto_combo.currentData() is not None
             or self.filtro_especie_combo.currentData() is not None
             or (self.filtro_periodo_combo.currentData() not in (None, "todos"))
         )
@@ -964,9 +986,9 @@ class MovimentacoesPage(QWidget):
             lambda _=False, i=mov[MOV_ID]: self.cancel_requested.emit(i)
         )
 
-        layout.addWidget(detalhes)
         layout.addWidget(confirmar)
         layout.addWidget(cancelar)
+        layout.addWidget(detalhes)
         layout.addStretch()
         return container
 

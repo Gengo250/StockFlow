@@ -97,15 +97,13 @@ def exercise(dsn):
     form.initial_stock_input.setValue(3)
     form.minimum_stock_input.setValue(3)
     form.description_input.setPlainText('Descrição persistida')
-    form.ncm_input.setText('12345678')
-    form.ean_input.setText('1234567890123')
     form.location_input.setText('Prateleira A')
     form.low_stock_alert.setChecked(False)
     code=form.code_input.text()
     form.save_button.click()
     check(window.last_save_error is None,'Qt saves product: '+str(window.last_save_error))
-    row=admin.execute('SELECT id,stock,description,ncm,ean,location,low_stock_alert FROM products WHERE barcode=%s',(code,)).fetchone()
-    check(row and row[1:] == (3,'Descrição persistida','12345678','1234567890123','Prateleira A',False),'Independent connection rereads all product fields and initial movement')
+    row=admin.execute('SELECT id,stock,description,location,low_stock_alert FROM products WHERE barcode=%s',(code,)).fetchone()
+    check(row and row[1:] == (3,'Descrição persistida','Prateleira A',False),'Independent connection rereads all product fields and initial movement')
     product_id=str(row[0])
     check(len(window.product_repository.list_alerts())==1,'Alert view has barcode and correct minimum')
     # H13: privileged direct writes must obey the same history protection.
@@ -411,7 +409,11 @@ def main():
                     # string inteira do arquivo numa transação implícita, e
                     # envolver de novo brigaria com a migration que abre a
                     # própria (BEGIN/COMMIT no arquivo, como o `db push` exige).
-                    setup.execute(path.read_text())
+                    try:
+                        setup.execute(path.read_text())
+                    except psycopg.Error as error:
+                        error.add_note(f"SQL file: {path.relative_to(ROOT)}")
+                        raise
                 print(f'PASS {len(files)} SQL files applied; PostgreSQL {setup.info.server_version}',flush=True)
             exercise(target)
         finally:

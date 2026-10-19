@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import qtawesome as qta
 from PySide6.QtCore import QLocale, Qt
 from PySide6.QtWidgets import (
@@ -18,6 +20,34 @@ FIELD_QSS = """
     }}
     {widget}:focus {{ border: 2px solid #93C5FD; }}
 """
+
+
+FORM_CONTROL_QSS = "\n".join(
+    FIELD_QSS.format(widget=kind)
+    for kind in ("QLineEdit", "QComboBox", "QSpinBox", "QDoubleSpinBox", "QDateEdit")
+) + """
+    QComboBox::drop-down, QDateEdit::drop-down { border: none; width: 24px; }
+    QSpinBox::up-button, QSpinBox::down-button,
+    QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+        width: 20px; border: none; background: transparent;
+    }
+    QComboBox:disabled, QDateEdit:disabled, QSpinBox:disabled,
+    QLineEdit:disabled { color: #94A3B8; background: #F8FAFC; }
+"""
+
+
+_ASSETS = Path(__file__).resolve().parents[1] / "assets"
+FORM_CONTROL_QSS += """
+    QComboBox::down-arrow, QDateEdit::down-arrow,
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+        image: url("DOWN_ICON"); width: 10px; height: 10px;
+    }
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+        image: url("UP_ICON"); width: 10px; height: 10px;
+    }
+""".replace("DOWN_ICON", (_ASSETS / "chevron-down.svg").as_posix()).replace(
+    "UP_ICON", (_ASSETS / "chevron-up.svg").as_posix()
+)
 
 
 def _card(object_name):
@@ -68,14 +98,15 @@ def _card_header(icon_name, title_text, subtitle_text):
     title.setStyleSheet(
         f"{LABEL_QSS} color: #0F172A; font-size: 16px; font-weight: 600;"
     )
+    title.setWordWrap(True)
     subtitle = QLabel(subtitle_text)
+    subtitle.setWordWrap(True)
     subtitle.setStyleSheet(f"{LABEL_QSS} color: #94A3B8; font-size: 12px;")
     text_layout.addWidget(title)
     text_layout.addWidget(subtitle)
 
     layout.addWidget(icon_container)
-    layout.addWidget(text_container)
-    layout.addStretch()
+    layout.addWidget(text_container, 1)
     return layout
 
 
