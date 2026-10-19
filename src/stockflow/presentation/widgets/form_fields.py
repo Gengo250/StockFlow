@@ -168,9 +168,12 @@ def _money_input():
     )
     return widget
 
+class NumericSpinBox(QSpinBox):
+    def wheelEvent(self, event):
+        event.ignore()
 
 def _stock_input():
-    widget = QSpinBox()
+    widget = NumericSpinBox()
     widget.setRange(0, 999999)
     widget.setSingleStep(1)
     widget.setFixedHeight(42)
@@ -180,7 +183,6 @@ def _stock_input():
           "{ width: 20px; border: none; background-color: transparent; }"
     )
     return widget
-
 
 # Valor interno que representa "sem mínimo" no QSpinBox. Um spin sempre tem
 # um número; `setSpecialValueText` troca a exibição do EXTREMO do range por um
