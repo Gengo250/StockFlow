@@ -91,5 +91,6 @@ class UserForm(QDialog):
         except Exception as error:
             self.error_label.setText(str(error))
             return
+        
         self.password_input.clear()
         self.accept()
