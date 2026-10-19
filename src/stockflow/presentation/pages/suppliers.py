@@ -13,8 +13,6 @@ from stockflow.application.services.supplier_service import SupplierService
 from stockflow.domain.entities.supplier import Supplier
 from stockflow.presentation.styles.suppliers import SUPPLIERS_QSS
 from stockflow.presentation.styles import inventory
-from stockflow.presentation.widgets.form_fields import _card, _card_header, _field, _combo
-
 
 class SuppliersPage(QWidget):
     suppliers_changed = Signal()
@@ -70,59 +68,63 @@ class SuppliersPage(QWidget):
         header.addWidget(self.new_supplier_button)
         layout.addLayout(header)
 
-        filters = _card("supplierFilters")
-        filters.layout().setContentsMargins(18, 14, 18, 14)
-        filter_row = QHBoxLayout()
-        search_field = _field("Buscar fornecedor")
-        search_field.layout().addWidget(self.search_input)
-        filter_row.addWidget(search_field, 1)
-        self.status_filter = _combo(["Todos", "Ativos", "Inativos"])
-        self.status_filter.setAccessibleName("Situação do fornecedor")
-        self.status_filter.currentIndexChanged.connect(lambda: self._filter_table(self.search_input.text()))
-        status_field = _field("Situação")
-        status_field.layout().addWidget(self.status_filter)
-        filter_row.addWidget(status_field)
-        filters.layout().addLayout(filter_row)
-        layout.addWidget(filters)
+        filter_layout = QHBoxLayout()
+        filter_layout.setSpacing(10)
+        
+        filter_label = QLabel("Situação:")
+        filter_label.setObjectName("muted")
+        filter_layout.addWidget(filter_label)
 
-        self.table_card = _card("suppliersTableCard")
-        table_layout = self.table_card.layout()
-        table_layout.addLayout(_card_header("fa5s.truck", "Fornecedores cadastrados", "Consulte os contatos e gerencie a situação dos seus parceiros."))
+        self.status_filter = QComboBox()
+        self.status_filter.addItems(["Todos", "Ativos", "Inativos"])
+        self.status_filter.setAccessibleName("Situação do fornecedor")
+        self.status_filter.setMinimumHeight(36)
+        self.status_filter.currentIndexChanged.connect(lambda: self._filter_table(self.search_input.text()))
+        filter_layout.addWidget(self.status_filter)
+        filter_layout.addStretch()
+        
+        layout.addLayout(filter_layout)
+
+       
+        self.table_card = QFrame()
+        self.table_card.setObjectName("suppliersTableCard")
+        table_layout = QVBoxLayout(self.table_card)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+
         self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(
-            [
-                "Nome / razão social", "CPF/CNPJ", "E-mail", "Telefone",
-                "Endereço", "Status", "Ações",
-            ]
-        )
+        self.table.setHorizontalHeaderLabels([
+            "Nome / razão social", "CPF/CNPJ", "E-mail", "Telefone",
+            "Endereço", "Status", "Ações",
+        ])
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setShowGrid(False)
         self.table.setStyleSheet(inventory.TABLE_QSS)
         self.table.verticalHeader().hide()
+        
         header_view = self.table.horizontalHeader()
-        header_view.setMinimumSectionSize(80)
-        header_view.setSectionResizeMode(QHeaderView.Interactive)
-        header_view.setSectionResizeMode(2, QHeaderView.Stretch)
-        for column, width in ((0, 200), (1, 120), (3, 125), (4, 100)):
-            self.table.setColumnWidth(column, width)
+        header_view.setSectionResizeMode(QHeaderView.Stretch)
         header_view.setSectionResizeMode(5, QHeaderView.Fixed)
         header_view.setSectionResizeMode(6, QHeaderView.Fixed)
-        self.table.setColumnWidth(5, 80)
+        self.table.setColumnWidth(5, 100)
         self.table.setColumnWidth(6, 210)
-        table_layout.addWidget(self.table, 1)
+        
+        table_layout.addWidget(self.table)
         layout.addWidget(self.table_card, 1)
+
+        # Estado Vazio / Mensagem
         self.empty_label = QLabel("Nenhum fornecedor cadastrado.")
         self.empty_label.setObjectName("muted")
         self.empty_label.setAlignment(Qt.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setTextFormat(Qt.PlainText)
         self.empty_label.setStyleSheet(inventory.LIST_STATE_QSS)
         table_layout.addWidget(self.empty_label)
+
+        # Contador de Resultados no rodapé
         self.result_count = QLabel()
         self.result_count.setObjectName("muted")
-        table_layout.addWidget(self.result_count)
+        layout.addWidget(self.result_count)
         self.reload_table()
 
     def reload_table(self):
