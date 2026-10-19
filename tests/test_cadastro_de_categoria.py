@@ -183,3 +183,31 @@ def test_cadastrar_categoria_preserva_o_resto_do_formulario(janela, monkeypatch)
     assert page.name_input.text() == "Ar-condicionado"
     assert page.initial_stock_input.value() == 12
     assert page.unit_input.currentText() == unidade
+
+
+def test_botao_cria_categoria_persistida_em_um_so_dialogo(janela):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QPushButton
+    from stockflow.presentation.widgets.category_form import CategoryDialog
+
+    page = janela.novo_produto_page
+    nome = "Climatização"
+    assert callable(page.create_category)
+
+    def preencher_dialogo():
+        dialog = QApplication.activeModalWidget()
+        assert isinstance(dialog, CategoryDialog)
+        dialog.input_new.setText(nome)
+        dialog.btn_add.click()
+        assert nome in janela.product_repository.list_active_categories()
+        concluir = next(
+            button for button in dialog.findChildren(QPushButton)
+            if button.text() == "Concluído"
+        )
+        concluir.click()
+
+    QTimer.singleShot(0, preencher_dialogo)
+    page.new_category_button.click()
+
+    assert nome in janela.product_repository.list_active_categories()
+    assert page.category_input.currentText() == nome

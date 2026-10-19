@@ -40,12 +40,17 @@ class UserTable(QFrame):
         self.table.verticalHeader().setDefaultSectionSize(64)
         header = self.table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setMinimumSectionSize(100)
-        for column, width in ((1, 125), (2, 135), (3, 105), (4, 165), (5, 210)):
+        header.setMinimumSectionSize(90)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        for column, width in ((1, 125), (2, 135), (3, 105), (4, 165)):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
             self.table.setColumnWidth(column, width)
+        # A última seção precisa preencher a largura restante. Sem isso o
+        # viewport do cabeçalho fica com a paleta padrão escura à direita.
+        header.setSectionResizeMode(ACTIONS_COLUMN, QHeaderView.Stretch)
+        self.table.setColumnWidth(ACTIONS_COLUMN, 255)
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.table.setAlternatingRowColors(False)
 
         layout.addWidget(self.table)
         footer = QHBoxLayout()

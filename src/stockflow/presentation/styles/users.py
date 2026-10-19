@@ -1,5 +1,5 @@
 USERS_QSS = """
-    QWidget#usersPage, QDialog#userForm { background: #F0F5FF; }
+    QWidget#usersPage, QDialog#userForm { background: #F5F7FB; }
     QWidget#usersPage QLabel, QDialog#userForm QLabel {
         background: transparent; color: #263650; font-size: 13px;
     }
@@ -10,10 +10,10 @@ USERS_QSS = """
         color: #6980A5; font-size: 12px;
     }
     QFrame#summaryCard, QFrame#userTableCard {
-        background: white; border: 1px solid #D7E5FF; border-radius: 14px;
+        background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 14px;
     }
     QLineEdit, QComboBox {
-        background: white; color: #475569; border: 1px solid #D7E5FF;
+        background: white; color: #334155; border: 1px solid #D7E0EC;
         border-radius: 10px; padding: 10px 12px; font-size: 13px;
     }
     QLineEdit:focus, QComboBox:focus { border: 1px solid #195BFF; }
@@ -33,11 +33,14 @@ USERS_QSS = """
     QPushButton#secondaryButton:disabled { color: #8A9DBA; }
     QPushButton#iconButton { background: transparent; border: none; padding: 4px; }
     QPushButton#iconButton:hover { background: #EAF1FF; }
-    QTableWidget { background: white; color: #6980A5; border: none; font-size: 12px; }
-    QTableWidget::item { padding: 10px; border-bottom: 1px solid #EDF3FF; }
+    QTableWidget { background: #FFFFFF; color: #52627A; border: none; font-size: 12px; }
+    QTableWidget::viewport { background: #FFFFFF; }
+    QTableWidget::item { padding: 8px; border-bottom: 1px solid #EEF2F7; }
     QTableWidget::item:selected { background: #E7EFFF; color: #243F70; }
     QHeaderView::section {
-        background: #F4F8FF; color: #60799E; border: none;
-        border-bottom: 1px solid #D7E5FF; padding: 13px 12px; font-size: 11px;
+        background: #F8FAFC; color: #64748B; border: none;
+        border-bottom: 1px solid #E2E8F0; padding: 12px 12px; font-size: 11px;
     }
+    QTableCornerButton::section { background: #F8FAFC; border: none; border-bottom: 1px solid #E2E8F0; }
+    QTableWidget QHeaderView { background: #F8FAFC; }
 """

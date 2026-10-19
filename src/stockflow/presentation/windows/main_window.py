@@ -279,8 +279,10 @@ class MainWindow(QMainWindow):
         self.top_bar.notifications_button.clicked.connect(self._show_notifications)
         self.novo_produto_page.draft_button.clicked.connect(self._save_product_draft)
         for pagina in (self.novo_produto_page, self.editar_produto_page):
-            pagina.new_category_button.clicked.connect(
-                lambda checked=False, p=pagina: self._cadastrar_categoria(p)
+            pagina.create_category = (
+                lambda name, p=pagina: self.product_service.create_category(
+                    self.session, name
+                )
             )
         self.products_page.product_requested.connect(self._show_product_details)
         self.product_details_page.back_button.clicked.connect(

@@ -63,7 +63,6 @@ class NovoProdutoPage(QWidget):
             QWidget#novoProdutoPage { background-color: #F0F5FF; }
             QWidget#novoProdutoPage QLabel { background-color: transparent; }
         """)
-        self.basic_info_card.new_category_button.clicked.connect(self._open_category_dialog)
         page_layout = QVBoxLayout(self)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(0)
@@ -96,6 +95,10 @@ class NovoProdutoPage(QWidget):
         content_layout.setSpacing(24)
         content_layout.addWidget(self._create_header())
         content_layout.addLayout(self._create_columns())
+        self.create_category = None
+        self.basic_info_card.new_category_button.clicked.connect(
+            self._open_category_dialog
+        )
 
         scroll_container = QWidget()
         scroll_container.setObjectName("novoProdutoScrollContainer")
@@ -116,17 +119,20 @@ class NovoProdutoPage(QWidget):
         self._validate_stock_limits()
 
     def _open_category_dialog(self):
-     current_categories = [
-        self.category_input.itemText(i) 
-        for i in range(self.category_input.count()) 
-        if self.category_input.itemText(i) != "Selecione uma categoria"
-    ]
-
-     dialog = CategoryDialog(current_categories, parent=self)
-     dialog.category_created.connect(lambda new_cat: self.reload_categories(
-        sorted(list(set(current_categories + [new_cat]))), selected=new_cat
-    ))
-     dialog.exec()
+        categories = [
+            self.category_input.itemText(i)
+            for i in range(self.category_input.count())
+            if self.category_input.itemText(i) != "Selecione uma categoria"
+        ]
+        dialog = CategoryDialog(
+            categories, on_create_callback=self.create_category, parent=self
+        )
+        dialog.category_created.connect(
+            lambda category: self.reload_categories(
+                sorted(set(categories + [category])), selected=category
+            )
+        )
+        dialog.exec()
 
     def _create_columns(self):
         columns = QBoxLayout(QBoxLayout.LeftToRight)
