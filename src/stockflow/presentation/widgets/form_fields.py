@@ -175,6 +175,23 @@ def _minimum_stock_input():
     return widget
 
 
+def _maximum_stock_input():
+    """Spin de estoque máximo, inteiro não-negativo.
+
+    Assim como o mínimo, o máximo pode estar "sem configurar" (None).
+    O valor exibido é sempre um número ≥ 0; "Sem máximo" indica que
+    não há limite definido.
+    """
+    widget = _stock_input()
+    widget.setRange(0, 999999)
+    widget.setSpecialValueText("Sem máximo")
+    widget.setToolTip(
+        "Defina o estoque máximo para este produto. "
+        "O sistema bloqueará definições abaixo do estoque mínimo configurado."
+    )
+    return widget
+
+
 class FormCard(QFrame):
     def __init__(self, object_name):
         super().__init__()

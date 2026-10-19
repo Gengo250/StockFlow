@@ -5,32 +5,31 @@ from PySide6.QtWidgets import (
     QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+ALL_ROLES = "Todos os perfis"
+ACTIONS_COLUMN = 5
 
-# Dados demonstrativos exclusivos da apresentação.
-DEMO_USERS = (
-    ("Ana Ferreira", "ana.ferreira@stockflow.com.br", "TI", "Administrador", "Ativo", "Hoje, 09:14", "#8129FF"),
-    ("Carlos Mendes", "c.mendes@stockflow.com.br", "Estoque", "Gerente", "Ativo", "Hoje, 08:47", "#195BFF"),
-    ("Juliana Ramos", "j.ramos@stockflow.com.br", "Vendas", "Operador", "Ativo", "Ontem, 17:30", "#00A77A"),
-    ("Roberto Souza", "r.souza@stockflow.com.br", "Estoque", "Operador", "Ativo", "Ontem, 16:05", "#E98600"),
-    ("Patrícia Lima", "p.lima@stockflow.com.br", "Financeiro", "Financeiro", "Inativo", "12/08/2026", "#E21885"),
-    ("Diego Alves", "d.alves@stockflow.com.br", "Vendas", "Gerente", "Ativo", "28/09/2026, 07:52", "#009BB9"),
-    ("Mariana Costa", "m.costa@stockflow.com.br", "Compras", "Operador", "Pendente", "Nunca", "#6045F5"),
-    ("Felipe Torres", "f.torres@stockflow.com.br", "Financeiro", "Financeiro", "Ativo", "27/09/2026, 18:11", "#EF6500"),
-)
+from stockflow.presentation.demo_users import DEMO_USERS
 
 
 class UserTable(QFrame):
     edit_requested = Signal(object)
+    status_change_requested = Signal(object, bool)
+    venda_requested = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, users=None, parent=None):
         super().__init__(parent)
+        self.users = tuple(DEMO_USERS if users is None else users)
+        self._actions_enabled = False
+        self._search_text = ""
+        self._role_filter = ALL_ROLES
         self.setObjectName("userTableCard")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1)
         layout.setSpacing(0)
-        self.table = QTableWidget(len(DEMO_USERS), 5)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels([
-            "Usuário / Login", "Perfil", "Status", "Último acesso", "Ações",
+            "Usuário / Login", "Departamento", "Perfil", "Status",
+            "Último acesso", "Ações",
         ])
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -43,12 +42,39 @@ class UserTable(QFrame):
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setMinimumSectionSize(100)
-        for column, width in ((1, 150), (2, 110), (3, 165), (4, 105)):
+        for column, width in ((1, 125), (2, 135), (3, 105), (4, 165), (5, 145)):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
             self.table.setColumnWidth(column, width)
-        for row, user in enumerate(DEMO_USERS):
-            name, login, department, role, status, last_access, color = user
-            for column, text in enumerate(("", "", "", last_access, "")):
+
+        layout.addWidget(self.table)
+        footer = QHBoxLayout()
+        footer.setContentsMargins(18, 12, 18, 12)
+        self.count_label = QLabel()
+        self.count_label.setObjectName("muted")
+        footer.addWidget(self.count_label)
+        footer.addStretch()
+        for text in ("Anterior", "1", "Próximo"):
+            button = QPushButton(text)
+            button.setObjectName("primaryButton" if text == "1" else "secondaryButton")
+            button.setEnabled(False)
+            footer.addWidget(button)
+        layout.addLayout(footer)
+        self.table.cellDoubleClicked.connect(self._edit_double_clicked)
+        self.set_users(self.users)
+
+    def set_users(self, users) -> None:
+        """Repovoa a mesma tabela com linhas de demonstração ou do diretório."""
+        self.users = tuple(users)
+        self._render_users()
+
+    def _render_users(self) -> None:
+        self.table.setRowCount(len(self.users))
+
+        for row, user in enumerate(self.users):
+            name, login, department, role, status, last_access, color = user[:7]
+            for column, text in (
+                (1, department), (4, last_access),
+            ):
                 self.table.setItem(row, column, QTableWidgetItem(text))
             identity = QWidget()
             identity_layout = QHBoxLayout(identity)
@@ -71,48 +97,141 @@ class UserTable(QFrame):
             identity.setAttribute(Qt.WA_TransparentForMouseEvents)
             self.table.setCellWidget(row, 0, identity)
             role_color = {"Administrador": "#8129FF", "Gerente": "#195BFF", "Financeiro": "#D67B00"}.get(role, "#526785")
-            self.table.setCellWidget(row, 1, self._badge(role, role_color))
-            status_color = {"Ativo": "#009D73", "Inativo": "#7385A0", "Pendente": "#D67B00"}[status]
-            self.table.setCellWidget(row, 2, self._badge(status, status_color))
-            actions = QWidget()
-            buttons = QHBoxLayout(actions)
-            buttons.setContentsMargins(6, 0, 12, 0)
-            edit = QPushButton()
+            self.table.setCellWidget(row, 2, self._badge(role, role_color))
+            status_color = {"Ativo": "#009D73", "Inativo": "#7385A0", "Pendente": "#D67B00"}.get(status, "#7385A0")
+            self.table.setCellWidget(row, 3, self._badge(status, status_color))
+
+            user_id = getattr(user, "user_id", None)
+            actions = self.table.cellWidget(row, ACTIONS_COLUMN)
+            if actions is None:
+                actions = QWidget()
+                buttons = QHBoxLayout(actions)
+                buttons.setContentsMargins(6, 0, 8, 0)
+                buttons.setSpacing(2)
+                edit = QPushButton()
+                edit.setObjectName("iconButton")
+                edit.setFixedSize(30, 30)
+                edit.clicked.connect(self._edit_button_clicked)
+                venda = QPushButton()
+                venda.setObjectName("iconButton")
+                venda.setFixedSize(30, 30)
+                venda.clicked.connect(self._sale_button_clicked)
+                toggle = QPushButton()
+                toggle.setObjectName("secondaryButton")
+                toggle.setFixedHeight(30)
+                toggle.clicked.connect(self._status_button_clicked)
+                buttons.addWidget(edit)
+                buttons.addWidget(venda)
+                buttons.addWidget(toggle)
+                self.table.setCellWidget(row, ACTIONS_COLUMN, actions)
+            else:
+                buttons = actions.layout()
+                edit = buttons.itemAt(0).widget()
+                venda = buttons.itemAt(1).widget()
+                toggle = buttons.itemAt(2).widget()
+
             edit.setIcon(qta.icon("fa5s.pen", color="#849ABE"))
             edit.setToolTip(f"Editar {name}")
             edit.setAccessibleName(f"Editar {name}")
-            edit.setObjectName("iconButton")
-            edit.setFixedSize(30, 30)
-            edit.clicked.connect(lambda checked=False, index=row: self._edit(index))
-            toggle = QPushButton()
-            toggle.setIcon(qta.icon("fa5s.ban" if status == "Ativo" else "fa5s.check-circle", color="#849ABE"))
+            edit.user_row = row
+            venda.setIcon(qta.icon("fa5s.shopping-cart", color="#849ABE"))
+            venda.setToolTip(f"Abrir vendas para {name}")
+            venda.setAccessibleName(f"Abrir vendas para {name}")
+            venda.customer_name = name
+            venda.setEnabled(status == "Ativo")
             action = "Desativar" if status == "Ativo" else "Ativar"
-            toggle.setToolTip(f"{action} usuário — disponível após integração")
+            toggle.setIcon(qta.icon(
+                "fa5s.ban" if status == "Ativo" else "fa5s.check-circle",
+                color="#849ABE",
+            ))
+            toggle.setText(action)
+            toggle.setToolTip(f"{action} usuário")
             toggle.setAccessibleName(f"{action} {name}")
-            toggle.setObjectName("iconButton")
-            toggle.setFixedSize(30, 30)
-            toggle.setEnabled(False)
-            buttons.addWidget(edit)
-            buttons.addWidget(toggle)
-            self.table.setCellWidget(row, 4, actions)
-        self.table.cellDoubleClicked.connect(lambda row, column: self._edit(row))
-        layout.addWidget(self.table)
-        footer = QHBoxLayout()
-        footer.setContentsMargins(18, 12, 18, 12)
-        count = QLabel("8 de 8 usuários exibidos")
-        count.setObjectName("muted")
-        footer.addWidget(count)
-        footer.addStretch()
-        for text in ("Anterior", "1", "Próximo"):
-            button = QPushButton(text)
-            button.setObjectName("primaryButton" if text == "1" else "secondaryButton")
-            button.setEnabled(False)
-            footer.addWidget(button)
-        layout.addLayout(footer)
+            toggle.user_id = user_id
+            toggle.user_active = status == "Ativo"
+            toggle.setEnabled(bool(user_id))
+
+        self.set_actions_enabled(self._actions_enabled)
+        self._apply_filters()
+
+    def _action_buttons(self, index):
+        actions = self.table.cellWidget(index, ACTIONS_COLUMN)
+        if actions is None:
+            return None
+        return tuple(
+            actions.layout().itemAt(position).widget()
+            for position in range(3)
+        )
+
+    @property
+    def edit_buttons(self):
+        return [
+            buttons[0] for row in range(self.table.rowCount())
+            if (buttons := self._action_buttons(row)) is not None
+        ]
+
+    @property
+    def venda_buttons(self):
+        return [
+            buttons[1] for row in range(self.table.rowCount())
+            if (buttons := self._action_buttons(row)) is not None
+        ]
+
+    @property
+    def status_buttons(self):
+        return [
+            buttons[2] for row in range(self.table.rowCount())
+            if (buttons := self._action_buttons(row)) is not None
+        ]
+
+    def _edit_double_clicked(self, row, _column) -> None:
+        self._edit(row)
+
+    def _edit_button_clicked(self) -> None:
+        self._edit(self.sender().user_row)
+
+    def _sale_button_clicked(self) -> None:
+        self.venda_requested.emit(self.sender().customer_name)
+
+    def _status_button_clicked(self) -> None:
+        button = self.sender()
+        self.status_change_requested.emit(
+            button.user_id, not button.user_active
+        )
 
     def _edit(self, row):
+        if row < 0 or row >= len(self.users):
+            return
         self.table.selectRow(row)
-        self.edit_requested.emit(DEMO_USERS[row])
+        self.edit_requested.emit(self.users[row])
+
+    def set_actions_enabled(self, enabled: bool) -> None:
+        """Habilita ou desabilita os botões/ações de gerenciamento de usuários."""
+        self._actions_enabled = enabled
+        for button in self.edit_buttons:
+            button.setEnabled(enabled)
+        for button, user in zip(self.status_buttons, self.users):
+            button.setEnabled(enabled and bool(getattr(user, "user_id", None)))
+
+    def filter_users(self, search="", role=ALL_ROLES) -> None:
+        self._search_text = search.strip().casefold()
+        self._role_filter = role
+        self._apply_filters()
+
+    def _apply_filters(self) -> None:
+        visible = 0
+        for row, user in enumerate(self.users):
+            search_match = (
+                not self._search_text
+                or any(self._search_text in str(value).casefold() for value in user[:5])
+            )
+            role_match = self._role_filter == ALL_ROLES or user[3] == self._role_filter
+            hidden = not (search_match and role_match)
+            self.table.setRowHidden(row, hidden)
+            visible += not hidden
+        self.count_label.setText(
+            f"{visible} de {len(self.users)} usuários exibidos"
+        )
 
     @staticmethod
     def _badge(text, color):

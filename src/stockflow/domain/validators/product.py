@@ -1,7 +1,8 @@
-"""Validação dos dados obrigatórios para cadastro e edição de produtos."""
-
 from decimal import Decimal, InvalidOperation
 from typing import Callable, Protocol
+import re
+
+from stockflow.domain.stock_level import to_min
 
 
 class ProductValues(Protocol):
@@ -26,8 +27,6 @@ def _valor_monetario(valor, campo: str) -> Decimal:
     texto = _texto_obrigatorio(valor, campo)
     texto = texto.replace("R$", "").replace(" ", "")
 
-    # O formulário exibe a moeda no padrão brasileiro; também são aceitos
-    # valores numéricos sem formatação para chamadas não originadas na UI.
     if "," in texto:
         texto = texto.replace(".", "").replace(",", ".")
 
@@ -70,14 +69,23 @@ def validate_product(
     _valor_monetario(data.sale_price, "Preço de venda")
     _valor_monetario(data.cost, "Custo")
     _validar_estoque(data.stock)
-    import re
+
+    # Converte para inteiro/None antes da comparação para evitar erros de tipo/string
+    minimo = to_min(getattr(data, "minimum_stock", None))
+    maximo = to_min(getattr(data, "maximum_stock", None))
+    if minimo is not None and maximo is not None and maximo < minimo:
+        raise ValueError("Estoque máximo não pode ser menor que o estoque mínimo.")
+
     for field, size in (("ncm", 8),):
         value = getattr(data, field, "")
         if value and not re.fullmatch(r"[0-9]{" + str(size) + "}", value):
             raise ValueError("NCM deve conter 8 dígitos.")
+
     ean = getattr(data, "ean", "")
     if ean and not re.fullmatch(r"(?:[0-9]{8}|[0-9]{12,14})", ean):
         raise ValueError("EAN deve conter 8, 12, 13 ou 14 dígitos.")
+
+    # Aspas corrigidas no campo "location"
     for field, limit in (("description", 2000), ("location", 200), ("image_data", 350000)):
         if len(getattr(data, field, "")) > limit:
             raise ValueError(f"O campo {field} excede o tamanho permitido.")

@@ -137,6 +137,8 @@ def product_input_to_create_args(data, company_id) -> dict:
         "p_unit": unit_to_db(data.unit),
         "p_stock": to_int(data.stock),
         "p_item_category": data.category,
+        "p_minimum_stock": to_min(data.minimum_stock),
+        "p_max_stock": to_min(data.maximum_stock),
     }
 
 
@@ -164,4 +166,6 @@ def product_input_to_update_args(data, product_id) -> dict:
         "p_unit": unit_to_db(data.unit),
         "p_stock": to_int(data.stock),
         "p_item_category": data.category,
+        "p_minimum_stock": to_min(data.minimum_stock),
+        "p_max_stock": to_min(data.maximum_stock),
     }
