@@ -158,14 +158,6 @@ class VendasPage(QWidget):
         self.refresh_button.setCursor(Qt.PointingHandCursor)
         self.refresh_button.clicked.connect(self.reload_sales)
         heading.addWidget(self.refresh_button)
-        # ADICIONE ESTAS LINHAS LOGO ABAIXO DO refresh_button:
-        self.btn_sugestao = QPushButton("Carregar Sugestão")
-        self.btn_sugestao.setObjectName("secondaryButton")
-        self.btn_sugestao.setStyleSheet(inventory.FILTER_QSS)
-        self.btn_sugestao.setFixedHeight(42)
-        self.btn_sugestao.setCursor(Qt.PointingHandCursor)
-        self.btn_sugestao.clicked.connect(self._testar_carregar_sugestao)
-        heading.addWidget(self.btn_sugestao)
         layout.addLayout(heading)
 
 
@@ -575,45 +567,6 @@ class VendasPage(QWidget):
         )
         self._atualizar_total()
 
-    def carregar_sugestao_em_rascunho(self, itens_sugestao):
-        """Permite iniciar um rascunho de venda/compra com base em sugestões de reposição.
-
-        Recebe uma lista de dicionários ou tuplas com os dados do item
-        (ex: [{"codigo": "PRD-001", "quantidade": 5}, ...]) e povoa o carrinho.
-        """
-        if self._saving or not itens_sugestao:
-            return
-
-        self.itens = []
-        for dado in itens_sugestao:
-            codigo = dado.get("codigo") or dado.get("code")
-            quantidade_desejada = dado.get("quantidade") or dado.get("quantity", 1)
-            
-            produto = self.products.get(codigo)
-            if produto is not None and produto.active:
-                try:
-                    qtd = parse_quantity(quantidade_desejada)
-                except ValueError:
-                    qtd = Decimal("1")
-                
-                self.itens.append({
-                    "codigo": produto.code,
-                    "nome": produto.name,
-                    "preco": produto.sale_price,
-                    "quantidade": qtd,
-                })
-
-
-        self.warning_label.setText("")
-        self._atualizar_carrinho()  
-
-        
-    def _testar_carregar_sugestao(self):
-        itens_sugeridos = [
-            {"codigo": "PRD-001", "quantidade": 5},
-            {"codigo": "PRD-002", "quantidade": 2}
-        ]
-        self.carregar_sugestao_em_rascunho(itens_sugeridos) 
 
     def selecionar_cliente_externo(self, cliente_nome):
         """Permite que a tela de clientes peça para associar um cliente específico."""
