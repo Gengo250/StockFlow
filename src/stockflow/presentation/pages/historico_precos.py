@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from stockflow.infrastructure.repositories.product_mapper import money_to_label
+from stockflow.presentation.styles import inventory
 
 COLUNAS = ("Quando", "Produto", "Campo", "De", "Para", "Por")
 
@@ -27,6 +28,11 @@ class HistoricoPrecosPage(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("historicoPrecosPage")
+        self.setStyleSheet("""
+            QWidget#historicoPrecosPage { background: #F0F5FF; }
+            QLabel { background: transparent; color: #334155; }
+        """)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(16)
@@ -59,6 +65,8 @@ class HistoricoPrecosPage(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setStyleSheet(inventory.TABLE_QSS)
+        self.table.setShowGrid(False)
         cabecalho = self.table.horizontalHeader()
         cabecalho.setSectionResizeMode(1, QHeaderView.Stretch)
         for coluna in (0, 2, 3, 4, 5):

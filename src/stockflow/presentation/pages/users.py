@@ -148,15 +148,9 @@ class UsersPage(QWidget):
         self.user_table.set_actions_enabled(pode_gerenciar)
 
     def _open_form(self, user=None):
-        """Abre o formulário de usuário, se o papel permitir.
-
-        Guardar aqui, e não só no botão, fecha os caminhos que não passam por
-        ele — o duplo clique na tabela e qualquer chamada direta ao método.
-        Devolve o diálogo aberto, ou `None` quando a abertura é recusada.
-        """
         if not self._pode_gerenciar:
             return None
         dialog = UserForm(user, self, pode_gerenciar=True, on_save=self.on_save)
-        dialog.setStyleSheet(USERS_QSS)
+        dialog.setStyleSheet(USERS_QSS + " QDialog { background-color: #F0F5FF; }")
         dialog.exec()
         return dialog
