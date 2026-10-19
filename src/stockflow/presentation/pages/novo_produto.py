@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import QBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget
 
 from stockflow.application.dto.product_input import ProductInput
+from stockflow.presentation.widgets.category_form import CategoryDialog
 from stockflow.domain.stock_level import to_min
 from stockflow.presentation.widgets.form_fields import SEM_MINIMO
 from stockflow.presentation.widgets.product_form import (
@@ -62,7 +63,7 @@ class NovoProdutoPage(QWidget):
             QWidget#novoProdutoPage { background-color: #F0F5FF; }
             QWidget#novoProdutoPage QLabel { background-color: transparent; }
         """)
-
+        self.basic_info_card.new_category_button.clicked.connect(self._open_category_dialog)
         page_layout = QVBoxLayout(self)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(0)
@@ -113,6 +114,19 @@ class NovoProdutoPage(QWidget):
         self.minimum_stock_input.valueChanged.connect(self._validate_stock_limits)
         self.maximum_stock_input.valueChanged.connect(self._validate_stock_limits)
         self._validate_stock_limits()
+
+    def _open_category_dialog(self):
+     current_categories = [
+        self.category_input.itemText(i) 
+        for i in range(self.category_input.count()) 
+        if self.category_input.itemText(i) != "Selecione uma categoria"
+    ]
+
+     dialog = CategoryDialog(current_categories, parent=self)
+     dialog.category_created.connect(lambda new_cat: self.reload_categories(
+        sorted(list(set(current_categories + [new_cat]))), selected=new_cat
+    ))
+     dialog.exec()
 
     def _create_columns(self):
         columns = QBoxLayout(QBoxLayout.LeftToRight)
