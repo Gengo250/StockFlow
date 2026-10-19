@@ -233,7 +233,7 @@ class ClientesPage(QWidget):
         buttons.rejected.connect(dialog.reject)
         form.addRow(buttons)
 
-        if dialog.exec() == QDialog.Accepted:
+        while dialog.exec() == QDialog.Accepted:
             payload = ClientInput(
                 client_id=client.client_id if client else None,
                 name=fields["name"].text(),
@@ -249,8 +249,11 @@ class ClientesPage(QWidget):
                 else:
                     self.service.update_client(client.client_id, payload)
                 self.reload_table()
+                break  
             except Exception as error:
                 self._show_error(str(error))
+                if dialog.exec() == QDialog.Rejected:
+                    break
 
     def toggle_status(self, client: Client):
         try:
