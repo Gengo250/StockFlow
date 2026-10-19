@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from stockflow.domain.replenishment import suggest_replenishment
+from stockflow.presentation.workers import PageLoader
 from stockflow.presentation.styles import inventory
 from stockflow.presentation.pages.reports import money
 from stockflow.presentation.widgets.form_fields import _card, _card_header, _line_edit
@@ -22,6 +23,8 @@ class DashboardPage(QWidget):
 
     def __init__(self, products, sales, clients):
         super().__init__()
+        self.loader = PageLoader(self)
+        self.read_products = products.list_all
         self.products, self.sales, self.clients = products, sales, clients
         self.suggestions = []
         self._loaded = False
@@ -144,37 +147,42 @@ class DashboardPage(QWidget):
     def refresh(self):
         self.refresh_button.setEnabled(False)
         self.summary.setText('Atualizando indicadores…')
-        try:
-            products = list(self.products.list_all())
-            sales = list(self.sales.list_all())
-            clients = list(self.clients.list_all())
-            suggestions = suggest_replenishment(products)
-            active = [product for product in products if product.active]
-            total = sum((Decimal(str(sale['total'])) for sale in sales), Decimal(0))
-            values = (len(active), len(suggestions), money(total), sum(client.active for client in clients))
-            details = (f'{sum(int(product.stock) for product in active)} unidades em estoque ativo',
-                       f'{sum(item.status == "Crítico" for item in suggestions)} produtos sem estoque',
-                       f'{len(sales)} vendas · todo o histórico', f'{len(clients)} clientes cadastrados')
-            for label, value, detail_label, detail in zip(self.metric_values, values, self.metric_details, details):
-                label.setText(str(value))
-                detail_label.setText(detail)
-            self.suggestions = suggestions
-            self._loaded = True
-            self._render_suggestions()
-            self.summary.setText('Atualizado em ' + datetime.now().strftime('%d/%m/%Y às %H:%M'))
-        except Exception as error:
-            self._loaded = False
-            self.suggestions = []
-            self.table.setRowCount(0)
-            for label, detail in zip(self.metric_values, self.metric_details):
-                label.setText('—')
-                detail.setText('Dados indisponíveis')
-            self.empty_label.setText('Não foi possível consultar a reposição. Tente atualizar novamente.')
-            self.empty_label.show()
-            self.result_count.clear()
-            self.summary.setText(f'Não foi possível atualizar o resumo: {error}')
-        finally:
-            self.refresh_button.setEnabled(True)
+        self.loader.load(
+            lambda: (list(self.read_products()), list(self.sales.list_all()),
+                     list(self.clients.list_all())),
+            self._loaded_summary, self._load_failed,
+        )
+
+    def _loaded_summary(self, result):
+        products, sales, clients = result
+        suggestions = suggest_replenishment(products)
+        active = [product for product in products if product.active]
+        total = sum((Decimal(str(sale['total'])) for sale in sales), Decimal(0))
+        values = (len(active), len(suggestions), money(total), sum(client.active for client in clients))
+        details = (f'{sum(int(product.stock) for product in active)} unidades em estoque ativo',
+                   f'{sum(item.status == "Crítico" for item in suggestions)} produtos sem estoque',
+                   f'{len(sales)} vendas · todo o histórico', f'{len(clients)} clientes cadastrados')
+        for label, value, detail_label, detail in zip(self.metric_values, values, self.metric_details, details):
+            label.setText(str(value))
+            detail_label.setText(detail)
+        self.suggestions = suggestions
+        self._loaded = True
+        self._render_suggestions()
+        self.summary.setText('Atualizado em ' + datetime.now().strftime('%d/%m/%Y às %H:%M'))
+        self.refresh_button.setEnabled(True)
+
+    def _load_failed(self, error):
+        self._loaded = False
+        self.suggestions = []
+        self.table.setRowCount(0)
+        for label, detail in zip(self.metric_values, self.metric_details):
+            label.setText('—')
+            detail.setText('Dados indisponíveis')
+        self.empty_label.setText('Não foi possível consultar a reposição. Tente atualizar novamente.')
+        self.empty_label.show()
+        self.result_count.clear()
+        self.summary.setText(f'Não foi possível atualizar o resumo: {error}')
+        self.refresh_button.setEnabled(True)
 
     def _render_suggestions(self):
         self.table.setRowCount(len(self.suggestions))

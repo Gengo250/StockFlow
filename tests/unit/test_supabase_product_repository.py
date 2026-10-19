@@ -395,3 +395,14 @@ def test_catalogo_mapeia_maximum_stock_do_banco():
     tabelas["product_stock"] = [{"product_id": PRODUTO_ID, "min_quantity": 5, "max_quantity": 80}]
     produto = repositorio(ClienteFalso(tabelas)).load_catalog()["PRD-009"]
     assert produto.maximum_stock == 80
+
+
+def test_snapshot_nao_muda_catalogo_ate_ser_aplicado_pela_interface():
+    repo = repositorio()
+    catalog = repo.load_catalog()
+    original = dict(catalog)
+    snapshot = repo.fetch_catalog()
+    snapshot[0].clear()
+    assert catalog == original
+    assert repo.apply_catalog(snapshot) is catalog
+    assert catalog == {}

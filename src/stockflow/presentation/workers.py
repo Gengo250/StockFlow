@@ -76,6 +76,8 @@ class _Entregador(QObject):
         self._ao_concluir = ao_concluir
         self._ao_falhar = ao_falhar
         self._registro = None
+        self._entregue = False
+        self._terminou = False
 
     def registrar(self, registro):
         self._registro = registro
@@ -85,6 +87,7 @@ class _Entregador(QObject):
         try:
             self._ao_concluir(resultado)
         finally:
+            self._entregue = True
             self._liberar()
 
     @Slot(object)
@@ -92,6 +95,7 @@ class _Entregador(QObject):
         try:
             self._ao_falhar(erro)
         finally:
+            self._entregue = True
             self._liberar()
 
     def _liberar(self):
@@ -103,8 +107,18 @@ class _Entregador(QObject):
         entregador é coletado e a entrega nunca acontece — uma recarga que
         some sem erro nenhum.
         """
+        if not (self._entregue and self._terminou):
+            return
         _EM_ANDAMENTO.discard(self._registro)
         self._registro = None
+
+
+    @Slot()
+    def terminou(self):
+        # finished precede a limpeza de objetos Qt e do estado local da thread.
+        self._registro[0].wait()
+        self._terminou = True
+        self._liberar()
 
 
 def executar_em_segundo_plano(funcao, ao_concluir, ao_falhar):
@@ -122,17 +136,12 @@ def executar_em_segundo_plano(funcao, ao_concluir, ao_falhar):
     thread.started.connect(tarefa.executar)
     tarefa.concluida.connect(entregador.concluir)
     tarefa.falhou.connect(entregador.falhar)
+    thread.finished.connect(entregador.terminou)
+    thread.finished.connect(tarefa.deleteLater)
 
     registro = (thread, tarefa, entregador)
     _EM_ANDAMENTO.add(registro)
     entregador.registrar(registro)
-
-    # Sem `deleteLater` aqui, de propósito. Na thread: quem chama recebe a
-    # `QThread` de volta e pode esperá-la, e agendar a destruição faria a
-    # referência dele apontar para um objeto C++ já apagado. Na tarefa: ela
-    # vive na thread secundária, cujo laço de eventos já encerrou — um
-    # `deleteLater` ali nunca seria processado. As duas são liberadas pelo
-    # coletor do Python quando o registro sai de `_EM_ANDAMENTO`.
 
     thread.start()
     return thread
@@ -153,3 +162,51 @@ def executar_agora(funcao, ao_concluir, ao_falhar):
     else:
         ao_concluir(resultado)
     return None
+
+
+class PageLoader(QObject):
+    """Serializa leituras e descarta respostas substituídas ou de telas fechadas."""
+
+    def __init__(self, owner, execute=executar_agora):
+        super().__init__(owner)
+        self.execute = execute
+        self._busy = False
+        self._pending = None
+        self._closed = False
+
+    def close(self):
+        self._closed = True
+        self._pending = None
+
+    def load(self, fetch, loaded, failed):
+        if self._closed:
+            return
+        if self._busy:
+            self._pending = (fetch, loaded, failed)
+            return
+        self._busy = True
+
+        def deliver(callback, value):
+            from shiboken6 import isValid
+            if not isValid(self) or self._closed:
+                return
+            self._busy = False
+            pending, self._pending = self._pending, None
+            if pending is not None:
+                self.load(*pending)
+            else:
+                try:
+                    callback(value)
+                except Exception as error:
+                    if callback is failed:
+                        raise
+                    failed(error)
+
+        self.execute(fetch, lambda value: deliver(loaded, value),
+                     lambda error: deliver(failed, error))
+
+
+def wait_for_workers():
+    """Conclui I/O pendente antes de destruir o QApplication ao sair."""
+    for thread, _, _ in tuple(_EM_ANDAMENTO):
+        thread.wait()

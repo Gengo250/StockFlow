@@ -72,7 +72,7 @@ def authenticate(email: str, password: str):
         raise
 
 
-def build_catalog(session):
+def build_catalog(session, *, load=True):
     """Devolve `(catalogo, repositorio)` para a janela montar as telas.
 
     Os dois juntos porque precisam compartilhar o MESMO dict: é a identidade
@@ -101,6 +101,8 @@ def build_catalog(session):
     repositorio = SupabaseProductRepository(
         _client(), company_id, role=getattr(session, "role", None)
     )
+    if not load:
+        return repositorio.apply_catalog(({}, {})), repositorio
     return repositorio.load_catalog(), repositorio
 
 

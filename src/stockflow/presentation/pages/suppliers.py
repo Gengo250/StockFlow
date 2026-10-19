@@ -11,14 +11,16 @@ from PySide6.QtWidgets import (
 from stockflow.application.dto.supplier_input import SupplierInput
 from stockflow.application.services.supplier_service import SupplierService
 from stockflow.domain.entities.supplier import Supplier
+from stockflow.presentation.workers import PageLoader
 from stockflow.presentation.styles.suppliers import SUPPLIERS_QSS
 from stockflow.presentation.styles import inventory
 
 class SuppliersPage(QWidget):
     suppliers_changed = Signal()
 
-    def __init__(self, service: SupplierService, session=None, parent=None):
+    def __init__(self, service: SupplierService, session=None, parent=None, *, autoload=True):
         super().__init__(parent)
+        self.loader = PageLoader(self)
         self.service = service
         self.session = session
         self._suppliers = ()
@@ -126,26 +128,30 @@ class SuppliersPage(QWidget):
         self.result_count = QLabel()
         self.result_count.setObjectName("muted")
         layout.addWidget(self.result_count)
-        self.reload_table()
+        if autoload:
+            self.reload_table()
 
     def reload_table(self):
-        try:
-            self._suppliers = tuple(
-                sorted(
-                    self.service.list_suppliers(self.session),
-                    key=lambda supplier: supplier.name.casefold(),
-                )
-            )
-        except Exception as error:
-            self.last_error = error
-            self._suppliers = ()
-            self.table.setRowCount(0)
-            self.result_count.setText("Cadastro indisponível")
-            self.empty_label.setStyleSheet(inventory.LOAD_ERROR_QSS)
-            self.empty_label.setText(f"Não foi possível carregar fornecedores.\n{error}")
-            self.empty_label.show()
-            self.table.hide()
-            return
+        self.refresh_button.setEnabled(False)
+        self.result_count.setText("Carregando fornecedores…")
+        session = self.session
+        self.loader.load(lambda: self.service.list_suppliers(session),
+                         self._loaded_suppliers, self._load_failed)
+
+    def _load_failed(self, error):
+        self.refresh_button.setEnabled(True)
+        self.last_error = error
+        self._suppliers = ()
+        self.table.setRowCount(0)
+        self.result_count.setText("Cadastro indisponível")
+        self.empty_label.setStyleSheet(inventory.LOAD_ERROR_QSS)
+        self.empty_label.setText(f"Não foi possível carregar fornecedores.\n{error}")
+        self.empty_label.show()
+        self.table.hide()
+
+    def _loaded_suppliers(self, suppliers):
+        self.refresh_button.setEnabled(True)
+        self._suppliers = tuple(sorted(suppliers, key=lambda supplier: supplier.name.casefold()))
         self.last_error = None
         self.empty_label.setStyleSheet(inventory.LIST_STATE_QSS)
         self.table.show()

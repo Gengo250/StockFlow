@@ -42,6 +42,9 @@ class ProductsPage(QWidget):
         self.search_input.setAccessibleName('Buscar no catálogo de produtos')
         self.search_input.addAction(qta.icon('fa5s.search', color='#94A3B8'), QLineEdit.LeadingPosition)
         layout.addWidget(self.search_input)
+        self.load_status = QLabel()
+        self.load_status.setWordWrap(True)
+        layout.addWidget(self.load_status)
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
@@ -52,6 +55,7 @@ class ProductsPage(QWidget):
         self.grid.setSpacing(16)
         self.grid.setAlignment(Qt.AlignTop)
         self.cards = {}
+        self._card_states = {}
         self._layout_state = None
         self._cards_container = content
         self._build_cards()
@@ -65,11 +69,24 @@ class ProductsPage(QWidget):
         self._arrange_cards()
 
     def _build_cards(self):
-        """Cria um card por produto do catálogo atual."""
+        """Reaproveita cards cuja apresentação não mudou."""
         maximum = max(
             (int(product.stock) for product in self.products.values()), default=1
         )
+        for code in set(self.cards) - self.products.keys():
+            card = self.cards.pop(code)
+            card.setParent(None)
+            card.deleteLater()
+            self._card_states.pop(code)
         for code, product in self.products.items():
+            state = (product.code, product.name, product.category, product.active,
+                     product.stock, product.stock_status, product.sale_price, maximum)
+            if self._card_states.get(code) == state:
+                continue
+            if code in self.cards:
+                self.cards[code].setParent(None)
+                self.cards[code].deleteLater()
+            self._card_states[code] = state
             card = ProductCard(product, max(maximum, 1))
             card.setParent(self._cards_container)
             card.clicked.connect(
@@ -78,23 +95,10 @@ class ProductsPage(QWidget):
             self.cards[code] = card
 
     def reload_products(self, products=None):
-        """Reconstrói os cards a partir do catálogo.
-
-        Os cards são widgets montados com os valores do produto no momento da
-        criação; não existe caminho de atualização dentro do `ProductCard`.
-        Então refletir uma gravação é refazê-los. A busca digitada é
-        preservada de propósito: o usuário que salvou um produto no meio de
-        uma pesquisa não deve perder o filtro — `_arrange_cards` relê o texto
-        que já está no campo.
-        """
+        """Atualiza cards alterados preservando a busca atual."""
         if products is not None:
             self.products = products
-        for card in self.cards.values():
-            # setParent(None) tira o card do grid; deleteLater devolve a
-            # memória sem derrubar um sinal que ainda esteja em curso.
-            card.setParent(None)
-            card.deleteLater()
-        self.cards = {}
+        self.load_status.clear()
         self._build_cards()
         # O layout anterior descrevia cards que não existem mais: sem zerar o
         # estado, `_arrange_cards` acharia que não há nada a redesenhar.

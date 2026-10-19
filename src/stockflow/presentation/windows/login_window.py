@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (
 # `autenticar` vem do seletor de backend, não de `demo_accounts`: é ele que
 # decide entre as contas locais e o Supabase Auth. `DEMO_ACCOUNTS` continua
 # vindo daqui porque só alimenta o aviso de "acesso à demonstração".
-from stockflow.presentation.backend import authenticate as autenticar
+from stockflow.presentation.backend import authenticate as autenticar, using_supabase
+from stockflow.presentation.workers import PageLoader, executar_agora, executar_em_segundo_plano
 from stockflow.presentation.demo_accounts import DEMO_ACCOUNTS, conta_admin
 from stockflow.presentation.roles import rotulo_de_papel
 from stockflow.presentation.styles.login import LOGIN_QSS
@@ -37,6 +38,7 @@ class LoginWindow(QWidget):
 
     def __init__(self, settings=None):
         super().__init__()
+        self._auth_loader = PageLoader(self)
         self.settings = settings if settings is not None else QSettings("StockFlow", "StockFlow")
         self.setObjectName("loginWindow")
         self.setWindowTitle("StockFlow — Acesse sua conta")
@@ -205,30 +207,46 @@ class LoginWindow(QWidget):
         )
 
     def _submit(self):
+        if getattr(self, "_authenticating", False):
+            return
         email = self.email_input.text().strip().casefold()
         password = self.password_input.text()
         if not email or not password:
             self.error.setText("Preencha o e-mail e a senha para entrar.")
             (self.email_input if not email else self.password_input).setFocus()
             return
-        try:
-            session = autenticar(email, password)
-        except Exception as erro:
-            # Falha de infraestrutura, não de credencial: conta do Auth sem
-            # vínculo, usuário sem empresa, `.env` ausente ou servidor fora.
-            # Digitar de novo não resolve nenhuma delas, então a senha NÃO é
-            # limpa e a mensagem é a real — tratá-las como "senha incorreta"
-            # mandaria o usuário tentar a mesma coisa indefinidamente.
-            self.error.setText(str(erro))
-            return
-        if session is None:
-            self.error.setText("E-mail ou senha incorretos. Tente novamente.")
-            self.password_input.clear()
-            self.password_input.setFocus()
-            return
-        self.settings.setValue("login/email", email if self.remember_email.isChecked() else "")
-        self.reset()
-        self.authenticated.emit(session)
+        self._authenticating = True
+        self.submit_button.setEnabled(False)
+        self.submit_button.setText("Entrando…")
+        self.error.setText("Autenticando…")
+        self._auth_loader.execute = executar_em_segundo_plano if using_supabase() else executar_agora
+
+        def finish():
+            self._authenticating = False
+            self.submit_button.setEnabled(True)
+            self.submit_button.setText("Entrar no StockFlow  →")
+
+        def failed(error):
+            finish()
+            self.error.setText(str(error))
+
+        def loaded(session):
+            finish()
+            if session is None:
+                self.error.setText("E-mail ou senha incorretos. Tente novamente.")
+                self.password_input.clear()
+                self.password_input.setFocus()
+                return
+            self.settings.setValue("login/email", email if self.remember_email.isChecked() else "")
+            self.reset()
+            self.authenticated.emit(session)
+
+        self._auth_loader.load(lambda: autenticar(email, password), loaded, failed)
+
+    def closeEvent(self, event):
+        if hasattr(self, "_auth_loader"):
+            self._auth_loader.close()
+        super().closeEvent(event)
 
     def reset(self):
         self.password_input.clear()

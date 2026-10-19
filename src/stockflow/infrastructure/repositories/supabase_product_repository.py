@@ -140,7 +140,7 @@ class SupabaseProductRepository:
             for row in self._rows(response)
         }
 
-    def load_catalog(self) -> dict:
+    def fetch_catalog(self) -> tuple[dict, dict]:
         """Catálogo inteiro como o dict `code -> Product` que as telas usam.
 
         Três consultas em vez de um join: a FK de categoria é composta
@@ -153,7 +153,7 @@ class SupabaseProductRepository:
         minimos_data = self._minimums([row["id"] for row in rows])
 
         catalogo = {}
-        self._ids = {}
+        ids = {}
         for row in rows:
             minimos = minimos_data.get(row["id"], (None, None))
             produto = row_to_product(
@@ -163,8 +163,12 @@ class SupabaseProductRepository:
                 maximum_stock=minimos[1],
             )
             catalogo[produto.code] = produto
-            self._ids[produto.code] = row["id"]
+            ids[produto.code] = row["id"]
 
+        return catalogo, ids
+
+    def apply_catalog(self, snapshot):
+        catalogo, self._ids = snapshot
         # Preenche NO LUGAR a partir da segunda chamada. Devolver um dict novo
         # toda vez desligaria as telas da foto: elas guardam a referência que
         # receberam na montagem, e `list_all` chama este método — sem o
@@ -176,6 +180,14 @@ class SupabaseProductRepository:
             self._catalog.clear()
             self._catalog.update(catalogo)
         return self._catalog
+
+    def load_catalog(self) -> dict:
+        return self.apply_catalog(self.fetch_catalog())
+
+    def list_snapshot(self):
+        """Leitura para relatórios sem alterar o catálogo usado pela interface."""
+        catalog, _ = self.fetch_catalog()
+        return tuple(catalog.values())
 
     def list_all(self):
         """Catálogo na ordem de cadastro, ativos e inativos."""

@@ -130,3 +130,19 @@ def test_supabase_sem_empresa_na_sessao_falha_alto(monkeypatch):
 
     with pytest.raises(RuntimeError, match="empresa"):
         backend.build_catalog(sessao)
+
+
+def test_catalogo_remoto_pode_ser_construido_sem_consultar_rede(monkeypatch):
+    from dataclasses import replace
+    from stockflow.infrastructure.repositories.supabase_product_repository import SupabaseProductRepository
+
+    monkeypatch.setenv(backend.BACKEND_VAR, 'supabase')
+    monkeypatch.setattr(backend, '_client', lambda: object())
+    calls = []
+    monkeypatch.setattr(SupabaseProductRepository, 'load_catalog', lambda self: calls.append(1))
+    catalog, repository = backend.build_catalog(
+        replace(conta_admin().session(), company_id='test-company'), load=False,
+    )
+    assert calls == []
+    assert catalog == {}
+    assert repository._catalog is catalog
