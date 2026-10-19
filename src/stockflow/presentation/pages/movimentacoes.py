@@ -33,13 +33,11 @@ from stockflow.domain.stock_level import to_int
 from stockflow.presentation.styles import inventory
 
 COLUMNS = ("Produto", "Espécie", "Quantidade", "Situação", "Observação",
-           "Quando", "Fornecedor", "Motivo", "Ações")
+           "Quando", "Fornecedor", "Motivo", "Usuário", "Ações")
 ACTIONS_COLUMN = len(COLUMNS) - 1
 
-# Índices da tupla que o repositório devolve. DEZ posições, sempre — ausência
-# é travessão. Ver a nota em `movement_mapper.row_to_movement`.
 (MOV_ID, MOV_CODE, MOV_NAME, MOV_KIND, MOV_QTY, MOV_STATUS, MOV_NOTE,
- MOV_WHEN, MOV_SUPPLIER, MOV_REASON) = range(10)
+ MOV_WHEN, MOV_SUPPLIER, MOV_REASON, MOV_USER) = range(11)
 
 # Aparência do aviso de recusa. Constante porque os DOIS cards têm o seu, e
 # duas folhas de estilo copiadas fariam a mesma recusa parecer mais grave num
@@ -349,6 +347,7 @@ class MovimentacoesPage(QWidget):
         return card
 
     def _create_filter_bar(self):
+        
         """Barra de filtros do histórico: produto, espécie e período.
 
         Os filtros operam sobre `self.movimentacoes` em memória — sem nova
@@ -393,6 +392,19 @@ class MovimentacoesPage(QWidget):
             self._ao_alterar_filtro
         )
         fora.addWidget(self.filtro_especie_combo)
+
+        self.filtro_usuario_combo = QComboBox()
+        self.filtro_usuario_combo.setFixedHeight(36)
+        self.filtro_usuario_combo.setMinimumContentsLength(14)
+        self.filtro_usuario_combo.setSizeAdjustPolicy(
+            QComboBox.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.filtro_usuario_combo.setAccessibleName("Filtrar por usuário")
+        self.filtro_usuario_combo.addItem("Todos os usuários", None)
+        self.filtro_usuario_combo.currentIndexChanged.connect(
+            self._ao_alterar_filtro
+        )
+        fora.addWidget(self.filtro_usuario_combo)
 
         # Filtro por período
         self.filtro_periodo_combo = QComboBox()
@@ -563,6 +575,7 @@ class MovimentacoesPage(QWidget):
         self.load_error_label.setVisible(False)
 
         self._repopular_filtro_de_produtos()
+        self._repopular_filtro_de_usuarios()
 
         self._pagina_atual = 0
         self._aplicar_filtros_e_paginar()
@@ -607,6 +620,27 @@ class MovimentacoesPage(QWidget):
         self.filtro_produto_combo.blockSignals(False)
 
         return self.filtro_produto_combo.currentData() == anterior
+
+    def _repopular_filtro_de_usuarios(self):
+        """Popula o combo de usuários com base nos registros do histórico."""
+        if not hasattr(self, "filtro_usuario_combo"):
+            return
+
+        anterior = self.filtro_usuario_combo.currentData()
+        usuarios = sorted(set(
+            mov[MOV_USER] for mov in self.movimentacoes 
+            if len(mov) > MOV_USER and mov[MOV_USER] and mov[MOV_USER] != "—"
+        ))
+
+        self.filtro_usuario_combo.blockSignals(True)
+        self.filtro_usuario_combo.clear()
+        self.filtro_usuario_combo.addItem("Todos os usuários", None)
+        for usuario in usuarios:
+            self.filtro_usuario_combo.addItem(usuario, usuario)
+        if anterior is not None:
+            indice = self.filtro_usuario_combo.findData(anterior)
+            self.filtro_usuario_combo.setCurrentIndex(max(indice, 0))
+        self.filtro_usuario_combo.blockSignals(False)
 
     # -------------------------------------------------------------- filtros
 
@@ -688,6 +722,7 @@ class MovimentacoesPage(QWidget):
         """
         produto = self.filtro_produto_combo.currentData()
         especie = self.filtro_especie_combo.currentData()
+        usuario = self.filtro_usuario_combo.currentData() if hasattr(self, "filtro_usuario_combo") else None
         data_inicio, data_fim = self._intervalo_de_datas()
 
         resultado = []
@@ -695,6 +730,8 @@ class MovimentacoesPage(QWidget):
             if produto and mov[MOV_CODE] != produto:
                 continue
             if especie is not None and not _mesma_especie(mov[MOV_KIND], especie):
+                continue
+            if usuario and (len(mov) <= MOV_USER or mov[MOV_USER] != usuario):
                 continue
             if data_inicio is not None or data_fim is not None:
                 data_mov = _data_da_movimentacao(mov[MOV_WHEN])
@@ -725,6 +762,8 @@ class MovimentacoesPage(QWidget):
             self.table.setItem(row, 5, QTableWidgetItem(str(mov[MOV_WHEN])))
             self.table.setItem(row, 6, QTableWidgetItem(str(mov[MOV_SUPPLIER])))
             self.table.setItem(row, 7, QTableWidgetItem(str(mov[MOV_REASON])))
+            usuario_texto = str(mov[MOV_USER]) if len(mov) > MOV_USER and mov[MOV_USER] else "—"
+            self.table.setItem(row, 8, QTableWidgetItem(usuario_texto))
             self.table.setCellWidget(row, ACTIONS_COLUMN, self._acoes(mov))
 
         # Enquanto a falha de carga estiver na tela, quem manda é ela: filtrar
@@ -774,6 +813,7 @@ class MovimentacoesPage(QWidget):
 
         self.filtro_produto_combo.setCurrentIndex(0)
         self.filtro_especie_combo.setCurrentIndex(0)
+        self.filtro_usuario_combo.setCurrentIndex(0)
         self.filtro_periodo_combo.setCurrentIndex(0)
         hoje_qd = QDate.currentDate()
         self.filtro_data_inicio.setDate(hoje_qd)
