@@ -90,6 +90,7 @@ class MovimentacoesPage(QWidget):
     confirm_requested = Signal(str)         # id da movimentação
     cancel_requested = Signal(str)
     adjust_requested = Signal(object)       # AdjustmentInput
+    detail_requested = Signal(object)
 
     def __init__(self, products=None):
         super().__init__()
@@ -902,6 +903,11 @@ class MovimentacoesPage(QWidget):
         pendente = str(mov[MOV_STATUS]) == MovementStatus.PENDENTE.label
         cancelavel = str(mov[MOV_STATUS]) != MovementStatus.CANCELADA.label
 
+        detalhes = self._botao("fa5s.eye", "Ver detalhes da movimentação", "#EFF6FF")
+        detalhes.clicked.connect(
+            lambda _=False, m=mov: self.detail_requested.emit(m)
+        )
+
         confirmar = self._botao("fa5s.check", "Confirmar movimentação", "#ECFDF5")
         # Só pendente pode ser confirmada — confirmar duas vezes somaria duas
         # vezes, e é por isso que `fn_confirm_movement` recusa o resto.
@@ -916,6 +922,7 @@ class MovimentacoesPage(QWidget):
             lambda _=False, i=mov[MOV_ID]: self.cancel_requested.emit(i)
         )
 
+        layout.addWidget(detalhes)
         layout.addWidget(confirmar)
         layout.addWidget(cancelar)
         layout.addStretch()
