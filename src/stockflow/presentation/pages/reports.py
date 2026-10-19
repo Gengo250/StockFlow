@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from stockflow.presentation.workers import PageLoader
 from stockflow.presentation.styles import inventory
 from stockflow.presentation.widgets.form_fields import _card, _combo, _field, _line_edit
 
@@ -23,6 +24,8 @@ def money(value):
 class ReportsPage(QWidget):
     def __init__(self, products, sales):
         super().__init__()
+        self.loader = PageLoader(self)
+        self.read_products = products.list_all
         self.products, self.sales = products, sales
         self.rows, self.headers, self._all_rows = [], [], []
         self._loaded = False
@@ -167,29 +170,44 @@ class ReportsPage(QWidget):
         self._set_metrics(('Produtos no resultado', 'Unidades em estoque', 'Produtos ativos') if stock
                           else ('Vendas no resultado', 'Valor total', 'Valor médio por venda'))
         self.error.hide()
-        try:
+        self._loaded = False
+        self._all_rows = []
+        self._apply_filters()
+        self.updated_at.setText('Carregando…')
+        self.refresh_button.setEnabled(False)
+
+        def fetch():
             if stock:
                 rows = [(p.code, p.name, p.category, p.stock,
                          '' if p.minimum_stock is None else p.minimum_stock, 'Sim' if p.active else 'Não')
-                        for p in self.products.list_all()]
+                        for p in self.read_products()]
             else:
                 rows = [(s['id'], s['cliente'], s['produto'], s['total'], s['data'])
                         for s in self.sales.list_all()]
-            self._all_rows = rows
-            self._loaded = True
-            self._apply_filters()
-            self.updated_at.setText('Atualizado às ' + datetime.now().strftime('%H:%M'))
-        except Exception as error:
-            self._loaded = False
-            self._all_rows = []
-            self._apply_filters()
-            for _, value in self.metrics:
-                value.setText('—')
-            self.updated_at.setText('Atualização não concluída')
-            self.empty.setText('Não foi possível carregar o relatório. Tente atualizar novamente.')
-            self.error.setStyleSheet(inventory.LOAD_ERROR_QSS)
-            self.error.setText(f'Não foi possível atualizar: {error}')
-            self.error.show()
+            return rows
+
+        self.loader.load(fetch, self._loaded_rows, self._load_failed)
+
+    def _loaded_rows(self, rows):
+        self._all_rows = rows
+        self._loaded = True
+        self._apply_filters()
+        self.updated_at.setText('Atualizado às ' + datetime.now().strftime('%H:%M'))
+        self.refresh_button.setEnabled(True)
+
+    def _load_failed(self, error):
+        self._loaded = False
+        self._all_rows = []
+        self._apply_filters()
+        for _, value in self.metrics:
+            value.setText('—')
+        self.updated_at.setText('Atualização não concluída')
+        self.empty.setText('Não foi possível carregar o relatório. Tente atualizar novamente.')
+        self.error.setStyleSheet(inventory.LOAD_ERROR_QSS)
+        self.error.setText(f'Não foi possível atualizar: {error}')
+        self.error.show()
+
+        self.refresh_button.setEnabled(True)
 
     def _apply_filters(self):
         query = self.search.text().strip().casefold()

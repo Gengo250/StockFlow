@@ -61,7 +61,7 @@ class VendasPage(QWidget):
 
     sale_registered = Signal(object)
 
-    def __init__(self, products=None, product_selection=None, parent=None, service=None, session=None):
+    def __init__(self, products=None, product_selection=None, parent=None, service=None, session=None, *, autoload=True):
         """Monta a tela sobre o catálogo compartilhado `code -> Product`.
 
         Sem argumento cai numa CÓPIA de `DEMO_PRODUCTS`, para a página
@@ -132,7 +132,8 @@ class VendasPage(QWidget):
         # venda de um produto só continua sendo feita direto no formulário,
         # sem obrigar a passar pelo carrinho para vender uma coisa.
         self.itens = []
-        self._carregar_dados()
+        if autoload:
+            self._carregar_dados()
 
 
         layout = QVBoxLayout(self)

@@ -106,3 +106,22 @@ def test_executar_agora_tambem_captura_a_falha(qapp):
 
     executar_agora(explodir, lambda _r: None, erros.append)
     assert isinstance(erros[0], ValueError)
+
+
+def test_entregas_rapidas_sem_reter_threads_nao_destroem_thread_ativa(qapp):
+    import time
+    from PySide6.QtTest import QTest
+    from stockflow.presentation.workers import _EM_ANDAMENTO, wait_for_workers
+
+    recebidos = []
+    for number in range(100):
+        executar_em_segundo_plano(lambda n=number: n, recebidos.append, recebidos.append)
+        qapp.processEvents()
+    deadline = time.monotonic() + 5
+    while _EM_ANDAMENTO and time.monotonic() < deadline:
+        qapp.processEvents()
+        QTest.qWait(1)
+    wait_for_workers()
+    qapp.processEvents()
+    assert not _EM_ANDAMENTO
+    assert sorted(recebidos) == list(range(100))

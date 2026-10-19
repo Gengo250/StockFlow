@@ -65,6 +65,7 @@ def remote_window(qapp, monkeypatch):
     })
     monkeypatch.setenv('STOCKFLOW_BACKEND', 'supabase')
     monkeypatch.setattr(backend, '_client', lambda: client)
+    monkeypatch.setattr('stockflow.presentation.windows.main_window.executar_em_segundo_plano', executar_agora)
     session = dataclasses.replace(conta_por_papel(UserRole.ADMIN).session(), company_id=COMPANY)
     w = MainWindow(session)
     w.executar_em_segundo_plano = executar_agora
@@ -86,6 +87,7 @@ def test_remote_clients_use_persistent_repository(remote_window):
 
 def test_remote_sale_reaches_rpc(remote_window):
     w, client = remote_window
+    w.show_page("vendas")
     choose_sale(w.vendas_page)
     client.chamadas_rpc.clear()
     w.vendas_page._registrar_venda()

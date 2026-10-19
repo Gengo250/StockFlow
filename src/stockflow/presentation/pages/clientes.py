@@ -26,6 +26,7 @@ from stockflow.domain.entities.client import Client
 from stockflow.domain.permissions import can_manage_clients
 from stockflow.infrastructure.repositories.demo_client_repository import DemoClientRepository
 from stockflow.presentation.demo_data import base_de_clientes
+from stockflow.presentation.workers import PageLoader
 from stockflow.presentation.styles.clients import CLIENTS_QSS
 from stockflow.presentation.widgets.client_inputs import (
     ClientDocumentInput,
@@ -34,8 +35,11 @@ from stockflow.presentation.widgets.client_inputs import (
 
 
 class ClientesPage(QWidget):
-    def __init__(self, sales_page=None, clients=None, parent=None, repository=None, session=None):
+    def __init__(self, sales_page=None, clients=None, parent=None, repository=None, session=None, *, autoload=True):
         super().__init__(parent)
+        self.loader = PageLoader(self)
+        self._clients = []
+        self.last_error = None
         self.sales_page = sales_page
         self.setObjectName("clientsPage")
         self.setStyleSheet(CLIENTS_QSS)
@@ -43,13 +47,14 @@ class ClientesPage(QWidget):
         self.service = ClientService(self.repository, session)
         self.session = session
         self._build_ui()
-        self.apply_session(session)
+        self.apply_session(session, reload=autoload)
 
-    def apply_session(self, session):
+    def apply_session(self, session, *, reload=True):
         self.session = session
         self.service.session = session
         self.new_client_button.setEnabled(can_manage_clients(session))
-        self.reload_table()
+        if reload:
+            self.reload_table()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -110,9 +115,22 @@ class ClientesPage(QWidget):
         self.table.setColumnWidth(5, 210)
         table_layout.addWidget(self.table)
         layout.addWidget(self.table_card)
+        self.load_status = QLabel()
+        self.load_status.setWordWrap(True)
+        layout.addWidget(self.load_status)
 
     def reload_table(self):
-        clientes = sorted(self.service.list_clients(), key=lambda c: c.name.casefold())
+        self.load_status.setText("Carregando clientes…")
+        self.loader.load(self.service.list_clients, self._loaded_clients, self._load_failed)
+
+    def _load_failed(self, error):
+        self.last_error = error
+        self.load_status.setText(f"Não foi possível carregar clientes. Abra a página novamente para tentar.\n{error}")
+
+    def _loaded_clients(self, clients):
+        self.last_error = None
+        self.load_status.clear()
+        clientes = self._clients = sorted(clients, key=lambda c: c.name.casefold())
         self.table.clearContents()
         self.table.setRowCount(len(clientes))
         for row, cliente in enumerate(clientes):
@@ -163,7 +181,7 @@ class ClientesPage(QWidget):
         if self.sales_page is not None:
             self.sales_page.clientes = [
                 {"id": c.client_id, "nome": c.name, "status": c.status}
-                for c in self.service.list_clients()
+                for c in self._clients
             ]
             self.sales_page.recarregar_clientes_disponiveis()
 

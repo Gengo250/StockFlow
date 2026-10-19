@@ -31,7 +31,7 @@ from stockflow.presentation.backend import (
     save_user,
     using_supabase,
 )
-from stockflow.presentation.workers import executar_em_segundo_plano
+from stockflow.presentation.workers import PageLoader, executar_agora, executar_em_segundo_plano
 from stockflow.presentation.styles import theme
 from stockflow.presentation.widgets.sidebar import (
     MENU_ITEMS,
@@ -90,6 +90,8 @@ class MainWindow(QMainWindow):
         # para que o teste possa substituir pela versão síncrona sem precisar
         # de um laço de eventos girando.
         self.executar_em_segundo_plano = executar_em_segundo_plano
+        self._closed = False
+        self._loaders = {}
 
         self.setWindowTitle("StockFlow")
         self.resize(1280, 800)
@@ -131,6 +133,8 @@ class MainWindow(QMainWindow):
         self._connect()
 
         self.setCentralWidget(central_widget)
+        if using_supabase() and self.pages.currentWidget() not in (self.estoque_page, self.products_page):
+            self._reconsultar_estoque()
 
     # ======================================================
     # PÁGINAS
@@ -154,13 +158,16 @@ class MainWindow(QMainWindow):
         # por `STOCKFLOW_BACKEND`. A janela não sabe qual dos dois veio: a
         # porta é a mesma, e o serviço aplica a regra de papel por cima de
         # qualquer um deles.
-        self.products, self.product_repository = build_catalog(self.session)
+        remote = using_supabase()
+        self.products, self.product_repository = (
+            build_catalog(self.session, load=False) if remote else build_catalog(self.session)
+        )
         self.supplier_repository = build_supplier_repository(self.session)
         self.supplier_service = SupplierService(self.supplier_repository)
         self.product_service = ProductService(
             self.product_repository, self.supplier_repository
         )
-        self.suppliers_page = SuppliersPage(self.supplier_service, self.session)
+        self.suppliers_page = SuppliersPage(self.supplier_service, self.session, autoload=not remote)
 
         self.estoque_page = EstoquePage(self.products)
 
@@ -187,15 +194,15 @@ class MainWindow(QMainWindow):
         if not using_supabase():
             self.sale_repository.movements = self.movement_repository
         self.sale_service = SaleService(self.sale_repository, self.client_repository, self.product_repository)
-        self.vendas_page = VendasPage(self.products, service=self.sale_service, session=self.session)
-        self.clientes_page = ClientesPage(sales_page=self.vendas_page, repository=self.client_repository, session=self.session)
+        self.vendas_page = VendasPage(self.products, service=self.sale_service, session=self.session, autoload=not remote)
+        self.clientes_page = ClientesPage(sales_page=self.vendas_page, repository=self.client_repository, session=self.session, autoload=not remote)
         self.users_page = UsersPage(users=() if using_supabase() else None, on_save=self._save_user)
 
         # Movimentações recebe o MESMO catálogo: a oferta de produtos tem que
         # acompanhar desativações feitas no Estoque, pela mesma razão da tela
         # de Vendas (US02).
         if using_supabase():
-            self.vendas_page.execute = lambda *args: self.executar_em_segundo_plano(*args)
+            self.vendas_page.execute = self._execute
         self.movement_service = MovementService(
             self.movement_repository, self.supplier_repository, self.product_repository
         )
@@ -217,7 +224,7 @@ class MainWindow(QMainWindow):
         try:
             fornecedores = (
                 self.supplier_service.list_suppliers(self.session)
-                if can_manage_suppliers(self.session) else ()
+                if not remote and can_manage_suppliers(self.session) else ()
             )
         except Exception as erro:
             self.supplier_load_error = erro
@@ -230,6 +237,12 @@ class MainWindow(QMainWindow):
         self.dashboard_page.navigate_requested.connect(self.show_page)
         self.reports_page = ReportsPage(self.product_repository, self.sale_repository)
         self.settings_page = SettingsPage(self.session)
+        if remote:
+            if hasattr(type(self.product_repository), "list_snapshot"):
+                self.dashboard_page.read_products = self.product_repository.list_snapshot
+                self.reports_page.read_products = self.product_repository.list_snapshot
+            for page in (self.dashboard_page, self.reports_page, self.clientes_page, self.suppliers_page):
+                page.loader.execute = self._execute
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": self.dashboard_page,
@@ -362,6 +375,8 @@ class MainWindow(QMainWindow):
                 return False
 
         self.last_navigation_error = None
+        self.pages.setCurrentWidget(self.page_widgets[key])
+        self.sidebar.set_active(key)
 
         if key == "dashboard":
             self.dashboard_page.refresh()
@@ -369,8 +384,9 @@ class MainWindow(QMainWindow):
             self.reports_page.refresh()
         if key in {"clientes", "vendas"}:
             try:
-                self.clientes_page.reload_table()
-                if key == "vendas":
+                if key == "clientes":
+                    self.clientes_page.reload_table()
+                else:
                     self.vendas_page.reload_sales()
             except Exception as error:
                 QMessageBox.warning(self, "Não foi possível atualizar", str(error))
@@ -379,21 +395,44 @@ class MainWindow(QMainWindow):
         if key == "fornecedores":
             self.suppliers_page.session = self.session
             self.suppliers_page.reload_table()
-        if key == "estoque":
+        if key in {"estoque", "produtos"}:
             self._reconsultar_estoque()
+        if key == "historico_precos":
+            self._carregar_historico_precos()
         if key == "movimentacoes":
             self._recarregar_movimentacoes()
+            if using_supabase():
+                self._load("movement_suppliers", lambda: self._active_suppliers(),
+                           self.movimentacoes_page.set_suppliers,
+                           self.movimentacoes_page.show_load_error)
 
-        self.pages.setCurrentWidget(
-            self.page_widgets[key]
-        )
-
-        self.sidebar.set_active(key)
         return True
 
     # ======================================================
     # MOVIMENTAÇÕES
     # ======================================================
+
+    def _execute(self, fetch, loaded, failed):
+        from shiboken6 import isValid
+
+        def deliver(callback, value):
+            if isValid(self) and not self._closed:
+                callback(value)
+
+        execute = self.executar_em_segundo_plano if using_supabase() else executar_agora
+        return execute(fetch, lambda value: deliver(loaded, value),
+                       lambda error: deliver(failed, error))
+
+    def _load(self, key, fetch, loaded, failed):
+        if key not in self._loaders:
+            self._loaders[key] = PageLoader(self, self._execute)
+        self._loaders[key].load(fetch, loaded, failed)
+
+    def closeEvent(self, event):
+        self._closed = True
+        for loader in self.findChildren(PageLoader):
+            loader.close()
+        super().closeEvent(event)
 
     def _venda_registrada(self, venda):
         """Venda concluída invalida saldo, alertas e histórico de movimentos."""
@@ -404,12 +443,10 @@ class MainWindow(QMainWindow):
 
     def _recarregar_movimentacoes(self):
         """Recarrega o histórico. A permissão já foi checada na navegação."""
-        try:
-            self.movimentacoes_page.set_movements(
-                self.movement_service.list_movements(self.session)
-            )
-        except Exception as erro:
-            self.movimentacoes_page.show_load_error(erro)
+        session = self.session
+        self._load("movements", lambda: self.movement_service.list_movements(session),
+                   self.movimentacoes_page.set_movements,
+                   self.movimentacoes_page.show_load_error)
 
     def _registrar_movimentacao(self, dados):
         """Registra e, se foi pedido, já confirma.
@@ -455,20 +492,18 @@ class MainWindow(QMainWindow):
         page.preencher_produtos(
             sorted((p.code, p.name) for p in self.products.values())
         )
-        try:
-            page.carregar(
-                self.price_history_service.list_changes(
-                    self.session, page.produto_combo.currentData()
-                )
-            )
+        session, code = self.session, page.produto_combo.currentData()
+
+        def loaded(rows):
             self.last_history_error = None
-        except Exception as erro:
-            # A consulta pode falhar por rede ou por recusa do banco. A tela
-            # fica de pé com a mensagem no lugar da tabela, pelo mesmo motivo
-            # de `test_janela_sobrevive_a_fonte_indisponivel`: uma janela que
-            # não abre esconde qual das telas falhou.
-            self.last_history_error = erro
-            page.mostrar_recusa(erro)
+            page.carregar(rows)
+
+        def failed(error):
+            self.last_history_error = error
+            page.mostrar_recusa(error)
+
+        self._load("history", lambda: self.price_history_service.list_changes(session, code),
+                   loaded, failed)
 
     def _aplicar_ajuste(self, dados):
         """Ajuste manual: grava e reconsulta, porque o saldo mudou na hora.
@@ -587,10 +622,21 @@ class MainWindow(QMainWindow):
         # o catálogo novo com o alerta velho por um instante, e cobraria uma
         # ida à rede a mais por abertura.
         self.estoque_page.begin_loading()
-        self.executar_em_segundo_plano(
+        self.products_page.load_status.setText("Carregando catálogo…")
+        if "stock" not in self._loaders:
+            self._loaders["stock"] = PageLoader(
+                self, lambda *args: self.executar_em_segundo_plano(*args)
+            )
+        self._loaders["stock"].load(
             self._buscar_estoque,
             self._estoque_recarregado,
-            self.estoque_page.show_load_error,
+            self._stock_load_failed,
+        )
+
+    def _stock_load_failed(self, error):
+        self.estoque_page.show_load_error(error)
+        self.products_page.load_status.setText(
+            f"Não foi possível carregar o catálogo. Abra a página novamente para tentar.\n{error}"
         )
 
     def _buscar_estoque(self):
@@ -606,7 +652,8 @@ class MainWindow(QMainWindow):
         cria a coluna ter sido aplicada: o catálogo carregava normalmente e o
         usuário via uma tela de erro.
         """
-        catalogo = self.product_repository.load_catalog()
+        fetch = getattr(self.product_repository, "fetch_catalog", self.product_repository.load_catalog)
+        catalogo = fetch()
         try:
             return catalogo, self.product_repository.list_alerts(), None
         except Exception as erro:
@@ -615,6 +662,8 @@ class MainWindow(QMainWindow):
     def _estoque_recarregado(self, resultado):
         """Chegada das consultas, já de volta na thread da interface."""
         catalogo, alertas, erro_do_alerta = resultado
+        if hasattr(self.product_repository, "apply_catalog"):
+            catalogo = self.product_repository.apply_catalog(catalogo)
         self.estoque_page.reload_products(catalogo)
 
         if alertas is None:
@@ -627,6 +676,10 @@ class MainWindow(QMainWindow):
         self.products_page.reload_products(catalogo)
         self.vendas_page.reload_products(catalogo)
         self.movimentacoes_page.reload_products(catalogo)
+        if pode_ver(self.session, "historico_precos"):
+            self.historico_precos_page.preencher_produtos(
+                sorted((p.code, p.name) for p in catalogo.values())
+            )
 
     def _publicar_alertas(self):
         """Entrega à tela o resultado da consulta de alerta.
@@ -662,24 +715,27 @@ class MainWindow(QMainWindow):
         """
         if self._usuarios_carregados:
             return
-        try:
-            linhas = build_user_directory(self.session)
-        except Exception as erro:
-            self.last_users_error = erro
-            QMessageBox.warning(
-                self,
-                "Não foi possível carregar os usuários",
-                f"{erro}\n\nA tela segue mostrando os dados anteriores.",
-            )
-            return
+        session = self.session
+        previous_subtitle = self.users_page.subtitle.text()
+        self.users_page.subtitle.setText("Carregando usuários…")
 
-        self.last_users_error = None
-        # `None` significa "sem banco configurado": a tela mantém a
-        # demonstração com que nasceu. Lista vazia é resposta do banco e
-        # precisa aparecer como vazia.
-        if linhas is not None:
-            self.users_page.load_users(linhas)
-        self._usuarios_carregados = True
+        def loaded(rows):
+            if session is not self.session:
+                return
+            self.last_users_error = None
+            if rows is not None:
+                self.users_page.load_users(rows)
+            else:
+                self.users_page.subtitle.setText(previous_subtitle)
+            self._usuarios_carregados = True
+
+        def failed(error):
+            self.last_users_error = error
+            self.users_page.subtitle.setText(f"Não foi possível carregar usuários: {error}")
+            QMessageBox.warning(self, "Não foi possível carregar os usuários",
+                                f"{error}\n\nA tela segue mostrando os dados anteriores.")
+
+        self._load("users", lambda: build_user_directory(session), loaded, failed)
 
     def _save_user(self, **data):
         save_user(self.session, **data)
@@ -732,23 +788,32 @@ class MainWindow(QMainWindow):
         self._new_product_origin = origin
 
         self.novo_produto_page.clear_form()
-        self.novo_produto_page.set_catalog_options(
-            self.product_repository.list_active_categories(),
-            self.product_repository.list_active_units(),
-            self._active_suppliers(),
-        )
-        settings = self.settings_page.settings
-        draft = settings.value(self.settings_page.prefix + "/product_draft", "")
-        if draft:
-            import json
-            from types import SimpleNamespace
-            try:
-                self.novo_produto_page.load_product(SimpleNamespace(**json.loads(draft)))
-            except (ValueError, TypeError, AttributeError):
-                pass
-        self.novo_produto_page.set_code(self.product_repository.next_code())
+        page = self.novo_produto_page
+        self.pages.setCurrentWidget(page)
+        page.save_button.setEnabled(False)
 
-        self.pages.setCurrentWidget(self.novo_produto_page)
+        def fetch():
+            return (self.product_repository.list_active_categories(),
+                    self.product_repository.list_active_units(),
+                    self._active_suppliers(), self.product_repository.next_code())
+
+        def loaded(result):
+            categories, units, suppliers, code = result
+            page.set_catalog_options(categories, units, suppliers)
+            settings = self.settings_page.settings
+            draft = settings.value(self.settings_page.prefix + "/product_draft", "")
+            if draft:
+                import json
+                from types import SimpleNamespace
+                try:
+                    page.load_product(SimpleNamespace(**json.loads(draft)))
+                except (ValueError, TypeError, AttributeError):
+                    pass
+            page.set_code(code)
+            page.apply_permission(pode_gravar(self.session, "produtos"))
+
+        self._load("new_product", fetch, loaded,
+                   lambda error: self._report_save_error("Não foi possível carregar o cadastro", error))
 
     def _show_edit_product(self, product):
         """Abre a edição do produto escolhido na tabela de Estoque.
@@ -771,26 +836,30 @@ class MainWindow(QMainWindow):
         # o widget mostra.
         self._editing_code = code
 
-        suppliers = list(self._active_suppliers())
-        product_atual = self.products.get(code)
+        page = self.editar_produto_page
+        product_atual = self.products.get(code, product)
         current_supplier_id = getattr(product_atual, "supplier_id", None)
-        if current_supplier_id and all(
-            supplier.supplier_id != current_supplier_id for supplier in suppliers
-        ):
-            current_supplier = self.supplier_repository.get(current_supplier_id)
-            if current_supplier is not None:
-                suppliers.append(current_supplier)
-        self.editar_produto_page.set_catalog_options(
-            self.product_repository.list_active_categories(),
-            self.product_repository.list_active_units(),
-            suppliers,
-        )
-        self.editar_produto_page.load_product(self.products.get(code, product))
+        page.load_product(product_atual)
+        self.pages.setCurrentWidget(page)
+        page.save_button.setEnabled(False)
 
-        self.pages.setCurrentWidget(
-            self.editar_produto_page
-        )
-        
+        def fetch():
+            suppliers = list(self._active_suppliers())
+            if current_supplier_id and all(s.supplier_id != current_supplier_id for s in suppliers):
+                current = self.supplier_repository.get(current_supplier_id)
+                if current is not None:
+                    suppliers.append(current)
+            return (self.product_repository.list_active_categories(),
+                    self.product_repository.list_active_units(), suppliers)
+
+        def loaded(options):
+            page.set_catalog_options(*options)
+            page.load_product(product_atual)
+            page.apply_permission(pode_gravar(self.session, "produtos"))
+
+        self._load("edit_product", fetch, loaded,
+                   lambda error: self._report_save_error("Não foi possível carregar a edição", error))
+
     # ======================================================
     # SESSÃO E PERMISSÃO
     # ======================================================
@@ -812,7 +881,7 @@ class MainWindow(QMainWindow):
 
         # `can_manage_products` já nega sessão ausente, então não há caminho
         # em que a janela sem login apareça com os controles liberados.
-        self.clientes_page.apply_session(self.session)
+        self.clientes_page.apply_session(self.session, reload=not using_supabase())
         self.vendas_page.apply_session(self.session)
         # Escrita: cada área habilita os widgets que ela controla. As alçadas
         # continuam SEPARADAS de propósito — administrar usuário é só do
@@ -844,7 +913,8 @@ class MainWindow(QMainWindow):
                 self.show_page(DEFAULT_KEY)
                 break
 
-        self._carregar_historico_precos()
+        if not using_supabase():
+            self._carregar_historico_precos()
 
         self.sidebar.set_user(self.session)
         self.top_bar.set_user(self.session)

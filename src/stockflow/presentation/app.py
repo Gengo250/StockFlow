@@ -66,4 +66,9 @@ def run():
     flow = LoginFlow()
     flow.login.show()
 
-    return app.exec()
+    from stockflow.presentation.workers import wait_for_workers
+
+    try:
+        return app.exec()
+    finally:
+        wait_for_workers()
