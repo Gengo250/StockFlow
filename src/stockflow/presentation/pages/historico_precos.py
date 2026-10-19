@@ -8,8 +8,8 @@ lugares — com o agravante de que o desempate do banco (pelo id da linha) não
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QHeaderView, QLabel, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget,
+    QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from stockflow.infrastructure.repositories.product_mapper import money_to_label
@@ -30,12 +30,22 @@ class HistoricoPrecosPage(QWidget):
         super().__init__()
         self.setObjectName("historicoPrecosPage")
         self.setStyleSheet("""
-            QWidget#historicoPrecosPage { background: #F0F5FF; }
-            QLabel { background: transparent; color: #334155; }
+            QWidget#historicoPrecosPage { background: #F5F7FB; }
+            QWidget#historicoPrecosPage QLabel { background: transparent; color: #334155; }
+            QLabel#pageTitle { color: #0F172A; font-size: 24px; font-weight: 700; }
+            QLabel#pageSubtitle { color: #64748B; font-size: 13px; }
+            QFrame#historyFilter, QFrame#historyTableCard {
+                background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 14px;
+            }
+            QComboBox {
+                background: #FFFFFF; color: #334155; border: 1px solid #D7E0EC;
+                border-radius: 9px; padding: 8px 12px;
+            }
+            QLabel#emptyState { color: #64748B; padding: 18px; }
         """)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(16)
+        layout.setContentsMargins(24, 22, 24, 20)
+        layout.setSpacing(12)
 
         titulo = QLabel("Histórico de preços")
         titulo.setObjectName("pageTitle")
@@ -55,10 +65,21 @@ class HistoricoPrecosPage(QWidget):
         self.produto_combo.addItem("Todos os produtos", None)
         self.produto_combo.currentIndexChanged.connect(self._emitir_filtro)
 
-        filtro = QHBoxLayout()
-        filtro.addWidget(QLabel("Produto"))
+        self.filter_card = QFrame()
+        self.filter_card.setObjectName("historyFilter")
+        filtro = QHBoxLayout(self.filter_card)
+        filtro.setContentsMargins(16, 12, 16, 12)
+        filtro.setSpacing(12)
+        filtro_label = QLabel("Filtrar por produto")
+        filtro_label.setStyleSheet("font-weight: 600; color: #475569;")
+        filtro.addWidget(filtro_label)
         filtro.addWidget(self.produto_combo, 1)
-        filtro.addStretch(1)
+
+        self.table_card = QFrame()
+        self.table_card.setObjectName("historyTableCard")
+        table_layout = QVBoxLayout(self.table_card)
+        table_layout.setContentsMargins(1, 1, 1, 1)
+        table_layout.setSpacing(0)
 
         self.table = QTableWidget(0, len(COLUNAS))
         self.table.setHorizontalHeaderLabels(list(COLUNAS))
@@ -71,6 +92,17 @@ class HistoricoPrecosPage(QWidget):
         cabecalho.setSectionResizeMode(1, QHeaderView.Stretch)
         for coluna in (0, 2, 3, 4, 5):
             cabecalho.setSectionResizeMode(coluna, QHeaderView.ResizeToContents)
+        cabecalho.setMinimumSectionSize(90)
+        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.setAlternatingRowColors(False)
+        self.table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
+
+        self.empty_label = QLabel("Nenhuma alteração de preço encontrada.")
+        self.empty_label.setObjectName("emptyState")
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.hide()
+        table_layout.addWidget(self.table, 1)
+        table_layout.addWidget(self.empty_label)
 
         self.aviso_label = QLabel("")
         self.aviso_label.setObjectName("warningLabel")
@@ -81,7 +113,7 @@ class HistoricoPrecosPage(QWidget):
         layout.addWidget(subtitulo)
         layout.addLayout(filtro)
         layout.addWidget(self.aviso_label)
-        layout.addWidget(self.table, 1)
+        layout.addWidget(self.table_card, 1)
 
     # ------------------------------------------------------------ entrada
 
@@ -106,6 +138,7 @@ class HistoricoPrecosPage(QWidget):
         self.aviso_label.hide()
         mudancas = tuple(mudancas)
         self.table.setRowCount(len(mudancas))
+        self.empty_label.setVisible(not mudancas)
         for linha, mudanca in enumerate(mudancas):
             for coluna, texto in enumerate(_celulas(mudanca)):
                 item = QTableWidgetItem(texto)
@@ -121,6 +154,7 @@ class HistoricoPrecosPage(QWidget):
         usuário tentou consultar.
         """
         self.table.setRowCount(0)
+        self.empty_label.hide()
         self.aviso_label.setText(str(erro))
         self.aviso_label.show()
 

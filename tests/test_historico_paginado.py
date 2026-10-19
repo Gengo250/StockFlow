@@ -438,4 +438,7 @@ def test_apply_permission_preserva_a_pagina_atual(qapp, catalogo):
     assert "Página 2 de 2" in page.paginacao_label.text()
     assert page.table.rowCount() == 1
     acoes = page.table.cellWidget(0, ACTIONS_COLUMN)
-    assert [b.isEnabled() for b in acoes.findChildren(QPushButton)] == [False, False]
+    confirmar, cancelar, detalhes = acoes.findChildren(QPushButton)
+    assert not confirmar.isEnabled()
+    assert not cancelar.isEnabled()
+    assert detalhes.isEnabled()  # Consulta de detalhes não altera movimentações.
