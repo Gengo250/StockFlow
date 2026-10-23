@@ -1,5 +1,8 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
@@ -55,13 +58,17 @@ class StockTable(QFrame):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.verticalHeader().hide()
+        self.table.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.table.setShowGrid(False)
         self.table.setAlternatingRowColors(False)
         self.table.setFocusPolicy(Qt.NoFocus)
         self.table.setStyleSheet(inventory.TABLE_QSS)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        for column in (3, 4, 5):
+            self.table.horizontalHeaderItem(column).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         # Os botões de ação só existem dentro de cellWidget; sem esta lista,
         # aplicar a permissão do papel exigiria varrer a tabela por índice de
         # coluna — e qualquer mudança de layout quebraria o controle em
@@ -78,7 +85,7 @@ class StockTable(QFrame):
         # devolveria editar/excluir a quem não pode gravar.
         self._actions_enabled = True
         self.set_products(products)
-        self.table.verticalHeader().setDefaultSectionSize(62)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         layout.addWidget(self.table)
 
     def set_products(self, products):
@@ -108,7 +115,13 @@ class StockTable(QFrame):
             for column in range(min(TEXT_COLUMNS, len(product))):
                 item = QTableWidgetItem(str(product[column]))
                 if column == 0:
-                    item.setForeground(Qt.blue)
+                    item.setForeground(QColor(ds.PRIMARY))
+                if column in (3, 4, 5):
+                    item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                if column == STATUS_COLUMN:
+                    color = {"Crítico": "#B91C1C", "Baixo": "#B45309",
+                             "Atenção": "#B45309", "Normal": "#047857"}.get(str(product[column]), ds.MUTED)
+                    item.setForeground(QColor(color))
                 self.table.setItem(row, column, item)
             # A situação de estoque NÃO é mais sobrescrita por "Inativo": as
             # duas informações são independentes e cabem em colunas próprias.

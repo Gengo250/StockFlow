@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 
 from PySide6.QtCore import Qt, QBuffer, QIODevice
@@ -44,15 +46,8 @@ class BasicInfoCard(FormCard):
         sku = _field("Código / SKU")
         sku_wrapper = QFrame()
         sku_wrapper.setObjectName("skuWrapper")
-        sku_wrapper.setFixedHeight(42)
-        sku_wrapper.setStyleSheet("""
-            QFrame#skuWrapper {
-                background-color: #FFFFFF;
-                border: 1px solid #CBD5E1;
-                border-radius: 10px;
-            }
-            QFrame#skuWrapper QLabel { background-color: transparent; }
-        """)
+        sku_wrapper.setFixedHeight(ds.CONTROL_HEIGHT)
+        sku_wrapper.setStyleSheet(ds.surface_qss("QFrame#skuWrapper"))
         sku_layout = QHBoxLayout(sku_wrapper)
         sku_layout.setContentsMargins(12, 0, 12, 0)
         sku_layout.setSpacing(8)
@@ -84,9 +79,9 @@ class BasicInfoCard(FormCard):
         self.new_category_button = QPushButton("Nova")
         self.new_category_button.setObjectName("secondaryButton")
         self.new_category_button.setToolTip("Cadastrar uma categoria nesta empresa")
-        self.new_category_button.setFixedHeight(42)
+        self.new_category_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.new_category_button.setCursor(Qt.PointingHandCursor)
-        self.new_category_button.setStyleSheet("QPushButton { color: #2563EB; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 0 12px; } QPushButton:hover { background: #DBEAFE; } QPushButton:disabled { color: #94A3B8; }")
+        self.new_category_button.setStyleSheet(ds.button_qss())
         category_row.addWidget(self.category_input, 1)
         category_row.addWidget(self.new_category_button)
         category.layout().addLayout(category_row)
@@ -100,17 +95,7 @@ class BasicInfoCard(FormCard):
             "Descreva as principais características do produto..."
         )
         self.description_input.setFixedHeight(100)
-        self.description_input.setStyleSheet("""
-            QTextEdit {
-                background-color: #FFFFFF;
-                color: #0F172A;
-                border: 1px solid #CBD5E1;
-                border-radius: 10px;
-                padding: 10px;
-                font-size: 14px;
-            }
-            QTextEdit:focus { border: 2px solid #93C5FD; }
-        """)
+        self.description_input.setStyleSheet(ds.field_qss("QTextEdit") + "QTextEdit { padding: 10px; }")
         self.description_counter = QLabel("0 / 500 caracteres")
         self.description_counter.setAlignment(Qt.AlignRight)
         self.description_counter.setStyleSheet(
@@ -236,7 +221,7 @@ class StockControlCard(FormCard):
             "Você receberá uma notificação quando o estoque atingir o limite mínimo definido."
         )
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(f"{LABEL_QSS} color: #94A3B8; font-size: 12px;")
+        subtitle.setStyleSheet(ds.SUBTITLE_QSS)
         texts_layout.addWidget(title)
         texts_layout.addWidget(subtitle)
         alert_layout.addWidget(self.low_stock_alert, 0, Qt.AlignTop)
@@ -261,7 +246,7 @@ class ProductStatusCard(FormCard):
         )
         subtitle = QLabel("Disponível para vendas e movimentações.")
         subtitle.setWordWrap(True)
-        subtitle.setStyleSheet(f"{LABEL_QSS} color: #94A3B8; font-size: 12px;")
+        subtitle.setStyleSheet(ds.SUBTITLE_QSS)
         texts_layout.addWidget(title)
         texts_layout.addWidget(subtitle)
 
@@ -392,7 +377,7 @@ class ProductImageCard(FormCard):
         for button in (self.choose_button, self.remove_button):
             button.setFixedHeight(40)
             button.setCursor(Qt.PointingHandCursor)
-            button.setStyleSheet("QPushButton { background: white; color: #334155; border: 1px solid #CBD5E1; border-radius: 8px; padding: 0 12px; } QPushButton:hover { background: #EFF6FF; } QPushButton:focus { border: 2px solid #93C5FD; } QPushButton:disabled { color: #94A3B8; background: #F8FAFC; }")
+            button.setStyleSheet(ds.button_qss())
         layout.addWidget(self.choose_button)
         layout.addWidget(self.remove_button)
         self.remove_button.setEnabled(False)

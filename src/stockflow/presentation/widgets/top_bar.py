@@ -11,12 +11,15 @@ class TopBar(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("topBar")
-        self.setFixedHeight(52)
+        self.setFixedHeight(56)
         self.setStyleSheet(theme.TOP_BAR_QSS)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setContentsMargins(24, 0, 24, 0)
         layout.setSpacing(18)
+        workspace = QLabel("ÁREA DE TRABALHO  /  Gestão de estoque")
+        workspace.setObjectName("workspaceLabel")
+        layout.addWidget(workspace)
         layout.addStretch()
 
         self.search_input = QLineEdit()
@@ -24,9 +27,9 @@ class TopBar(QFrame):
         self.search_input.setPlaceholderText("Busca rápida...")
         self.search_input.setAccessibleName("Busca rápida")
         self.search_input.setToolTip("Buscar produtos no estoque (Enter)")
-        self.search_input.setFixedHeight(32)
+        self.search_input.setFixedHeight(34)
         self.search_input.setMinimumWidth(120)
-        self.search_input.setMaximumWidth(204)
+        self.search_input.setMaximumWidth(240)
         self.search_input.addAction(
             qta.icon("fa5s.search", color="#8BA1BF"),
             QLineEdit.ActionPosition.LeadingPosition,

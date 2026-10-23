@@ -1,5 +1,7 @@
 """Resumo, exportação e preferências sobre os dados da sessão atual."""
 
+from stockflow.presentation.styles import design_system as ds
+
 
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtWidgets import (
@@ -25,10 +27,10 @@ class SettingsPage(QWidget):
         self.settings = settings or QSettings("StockFlow", "StockFlow")
         self.prefix = preference_prefix(session)
         self.setObjectName("settingsPage")
-        self.setStyleSheet("QWidget#settingsPage { background: #F0F5FF; } QLabel { background: transparent; color: #334155; }")
+        self.setStyleSheet(ds.page_qss("settingsPage"))
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(26, 24, 26, 24)
-        outer.setSpacing(18)
+        outer.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        outer.setSpacing(ds.SECTION_GAP)
         title = QLabel("Configurações")
         title.setStyleSheet(inventory.TITLE_QSS)
         outer.addWidget(title)
@@ -39,13 +41,13 @@ class SettingsPage(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("QScrollArea { background: transparent; }")
+        scroll.setStyleSheet(ds.SCROLL_QSS)
         content = QWidget()
         content.setObjectName("settingsContent")
-        content.setStyleSheet("QWidget#settingsContent { background: #F0F5FF; }")
+        content.setStyleSheet(ds.page_qss("settingsContent"))
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 8, 0)
-        layout.setSpacing(18)
+        layout.setSpacing(ds.SECTION_GAP)
         account = _card("settingsAccount")
         account.layout().addLayout(_card_header("fa5s.user-circle", "Conta e dispositivo", "As preferências são individuais para cada conta e empresa."))
         email = QLabel(getattr(session, "email", "") or "Sem sessão")
@@ -64,7 +66,7 @@ class SettingsPage(QWidget):
         # menu apontando para outra.
         key = self.settings.value(self.prefix + "/start_page", DEFAULT_KEY)
         self.start_page.setCurrentIndex(max(0, self.start_page.findData(key)))
-        self.start_page.setFixedHeight(42)
+        self.start_page.setFixedHeight(ds.CONTROL_HEIGHT)
         self.start_page.setStyleSheet(FIELD_QSS.format(widget="QComboBox"))
         field = _field("Tela inicial")
         field.layout().addWidget(self.start_page)
@@ -84,7 +86,7 @@ class SettingsPage(QWidget):
         footer = QHBoxLayout()
         save = QPushButton("Salvar preferências")
         save.clicked.connect(self.save)
-        save.setFixedHeight(42)
+        save.setFixedHeight(ds.CONTROL_HEIGHT)
         save.setCursor(Qt.PointingHandCursor)
         save.setStyleSheet(inventory.NEW_BUTTON_QSS)
         self.feedback = QLabel()

@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -17,7 +19,7 @@ class CategoryDialog(QDialog):
         self.setWindowTitle("Gerenciar Categorias")
         self.setMinimumWidth(400)
         self.setMinimumHeight(450)
-        self.setStyleSheet(PRODUCTS_QSS)
+        self.setStyleSheet(PRODUCTS_QSS + ds.page_qss("categoryDialog"))
 
         self.categories = list(categories or [])
         self.on_create_callback = on_create_callback
@@ -42,12 +44,12 @@ class CategoryDialog(QDialog):
         
         self.input_new = QLineEdit()
         self.input_new.setPlaceholderText("Nome da nova categoria...")
-        self.input_new.setFixedHeight(42)
+        self.input_new.setFixedHeight(ds.CONTROL_HEIGHT)
         add_layout.addWidget(self.input_new, 1)
 
         self.btn_add = QPushButton("Adicionar")
         self.btn_add.setObjectName("newProductButton")
-        self.btn_add.setFixedHeight(42)
+        self.btn_add.setFixedHeight(ds.CONTROL_HEIGHT)
         self.btn_add.setCursor(Qt.PointingHandCursor)
         self.btn_add.clicked.connect(self._handle_create)
         add_layout.addWidget(self.btn_add)
@@ -59,7 +61,7 @@ class CategoryDialog(QDialog):
         self.list_widget.setStyleSheet("""
             QListWidget {
                 background: white;
-                border: 1px solid #DBEAFE;
+                border: 1px solid #E2E8F0;
                 border-radius: 12px;
                 padding: 8px;
                 font-size: 14px;
@@ -81,7 +83,7 @@ class CategoryDialog(QDialog):
         footer_layout.addStretch()
         
         btn_close = QPushButton("Concluído")
-        btn_close.setFixedHeight(38)
+        btn_close.setFixedHeight(ds.CONTROL_HEIGHT)
         btn_close.setCursor(Qt.PointingHandCursor)
         btn_close.clicked.connect(self.accept)
         footer_layout.addWidget(btn_close)
