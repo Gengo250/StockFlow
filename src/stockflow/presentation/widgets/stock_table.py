@@ -1,7 +1,7 @@
 from stockflow.presentation.styles import design_system as ds
 
 import qtawesome as qta
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QPushButton,
@@ -65,7 +65,7 @@ class StockTable(QFrame):
         self.table.setStyleSheet(inventory.TABLE_QSS)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         for column in (3, 4, 5):
             self.table.horizontalHeaderItem(column).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -84,9 +84,10 @@ class StockTable(QFrame):
         # QPushButton nasce habilitado. Sem esta memória, cada recarga
         # devolveria editar/excluir a quem não pode gravar.
         self._actions_enabled = True
-        self.set_products(products)
         self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         layout.addWidget(self.table)
+        self.table.viewport().installEventFilter(self)
+        self.set_products(products)
 
     def set_products(self, products):
         """Repovoa a tabela com a lista de tuplas recebida.
@@ -133,6 +134,26 @@ class StockTable(QFrame):
         # Reaplicar é obrigatório, não cosmético: os botões acima são novos e
         # vieram habilitados.
         self.set_actions_enabled(self._actions_enabled)
+        self._fit_content()
+
+    def eventFilter(self, watched, event):
+        if watched is self.table.viewport() and event.type() == QEvent.Resize:
+            self._fit_content()
+        return super().eventFilter(watched, event)
+
+    def _fit_content(self):
+        # Fill spare width with the product name without truncating names on
+        # small windows. Other columns retain their natural content width.
+        header = self.table.horizontalHeader()
+        natural = max(self.table.sizeHintForColumn(1), header.sectionSizeHint(1))
+        others = sum(header.sectionSize(c) for c in range(len(COLUMNS)) if c != 1)
+        header.resizeSection(1, max(natural, self.table.viewport().width() - others))
+        # Cap the card at the actual rows; large lists still scroll vertically.
+        height = header.height() + sum(self.table.rowHeight(r)
+                                       for r in range(self.table.rowCount()))
+        if header.length() > self.table.viewport().width():
+            height += self.table.horizontalScrollBar().sizeHint().height()
+        self.setMaximumHeight(height + 2 * self.table.frameWidth() + 2 * self.frameWidth())
 
     @staticmethod
     def _esta_ativo(product) -> bool:

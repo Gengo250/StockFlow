@@ -3,7 +3,7 @@ from stockflow.presentation.styles import design_system as ds
 import dataclasses
 
 import qtawesome as qta
-from PySide6.QtCore import QSize, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from stockflow.domain.stock_level import (
@@ -89,6 +89,7 @@ class EstoquePage(QWidget):
         self.produtos = self._build_rows()
         layout = QVBoxLayout(self)
         ds.page_layout(layout)
+        layout.setAlignment(Qt.AlignTop)
         layout.setSpacing(ds.SECTION_GAP)
         layout.addLayout(self._create_header())
         layout.addLayout(self._create_filters())

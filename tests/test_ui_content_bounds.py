@@ -100,3 +100,54 @@ def test_stock_product_names_remain_readable_in_a_small_viewport(qapp):
         assert table.columnWidth(1) >= required
     finally:
         page.close()
+
+
+def test_stock_table_uses_available_width_without_blank_header(qapp):
+    from stockflow.presentation.pages.estoque import EstoquePage
+    page = EstoquePage()
+    page.resize(1400, 850)
+    page.show()
+    try:
+        qapp.processEvents()
+        assert abs(page.table.horizontalHeader().length() - page.table.viewport().width()) <= 2
+    finally:
+        page.close()
+
+
+def test_stock_table_ends_after_visible_rows_and_shrinks_on_search(qapp):
+    from stockflow.presentation.pages.estoque import EstoquePage
+    page = EstoquePage()
+    page.resize(1400, 850)
+    page.show()
+    try:
+        for query in ('', 'PRD-009', 'missing-product'):
+            page.search_input.setText(query)
+            qapp.processEvents()
+            rows_height = sum(page.table.rowHeight(r) for r in range(page.table.rowCount()))
+            assert page.table.viewport().height() <= rows_height + 4
+    finally:
+        page.close()
+
+
+def test_stock_large_list_keeps_last_row_and_actions_reachable(qapp):
+    from dataclasses import replace
+    from stockflow.presentation.pages.estoque import EstoquePage
+    product = next(iter(DEMO_PRODUCTS.values()))
+    products = {f'SKU-{i}': replace(product, code=f'SKU-{i}') for i in range(100)}
+    page = EstoquePage(products)
+    page.resize(900, 600)
+    page.show()
+    try:
+        qapp.processEvents()
+        table = page.table
+        table.scrollToBottom()
+        table.horizontalScrollBar().setValue(table.horizontalScrollBar().maximum())
+        qapp.processEvents()
+        assert table.verticalScrollBar().maximum() > 0
+        last = table.visualItemRect(table.item(99, 0))
+        assert 0 <= last.top() < table.viewport().height()
+        actions = table.cellWidget(99, 8)
+        assert actions.geometry().right() <= table.viewport().width()
+        assert page.rect().contains(page.stock_table.geometry())
+    finally:
+        page.close()
