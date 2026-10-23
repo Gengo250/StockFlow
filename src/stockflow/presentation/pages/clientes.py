@@ -1,5 +1,7 @@
 """Página de cadastro, consulta e edição de clientes."""
 
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -58,8 +60,8 @@ class ClientesPage(QWidget):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
 
         header = QHBoxLayout()
         heading = QVBoxLayout()
@@ -69,16 +71,16 @@ class ClientesPage(QWidget):
         heading.addWidget(title)
         subtitle = QLabel("Cadastre, consulte e mantenha os clientes ativos ou inativos.")
         subtitle.setObjectName("muted")
+        subtitle.setWordWrap(True)
         heading.addWidget(subtitle)
         header.addLayout(heading, 1)
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Buscar por nome ou e-mail")
         self.search_input.setAccessibleName("Buscar clientes")
-        self.search_input.setMinimumHeight(42)
+        self.search_input.setFixedHeight(ds.CONTROL_HEIGHT)
         self.search_input.addAction(qta.icon("fa5s.search", color="#94A3B8"), QLineEdit.LeadingPosition)
         self.search_input.textChanged.connect(self._filter_table)
-        header.addWidget(self.search_input, 2)
 
         self.new_client_button = QPushButton("Novo Cliente")
         self.new_client_button.setObjectName("primaryButton")
@@ -87,6 +89,7 @@ class ClientesPage(QWidget):
         self.new_client_button.clicked.connect(lambda: self.open_form())
         header.addWidget(self.new_client_button)
         layout.addLayout(header)
+        layout.addWidget(self.search_input)
 
         self.table_card = QFrame()
         self.table_card.setObjectName("clientsTableCard")
@@ -107,6 +110,8 @@ class ClientesPage(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setShowGrid(False)
         self.table.verticalHeader().hide()
+        self.table.verticalHeader().setMinimumSectionSize(ds.ROW_HEIGHT)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.Stretch)
         header.setSectionResizeMode(4, QHeaderView.Fixed)
@@ -146,14 +151,10 @@ class ClientesPage(QWidget):
             status_label.setProperty("status", cliente.status)
             status_label.setAlignment(Qt.AlignCenter)
             status_label.setStyleSheet(
-                "QLabel { border-radius: 999px; padding: 6px 10px; font-weight: 600; }"
-                + (
-                    "QLabel { background: #E4F7EF; color: #0F7B4F; }"
-                    if cliente.status == "Ativo"
-                    else "QLabel { background: #FBE9E9; color: #8A3B3B; }"
-                    if cliente.status == "Inativo"
-                    else "QLabel { background: #FDF3DF; color: #8A6A1F; }"
-                )
+                ds.status_badge_qss(*{
+                    "Ativo": ("#047857", "#ECFDF5"),
+                    "Inativo": ("#64748B", "#F1F5F9"),
+                }.get(cliente.status, ("#B45309", "#FFFBEB")))
             )
             self.table.setCellWidget(row, 4, status_label)
 
@@ -195,8 +196,12 @@ class ClientesPage(QWidget):
         dialog.setStyleSheet(CLIENTS_QSS)
         form = QFormLayout(dialog)
         form.setContentsMargins(24, 24, 24, 24)
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         form.setHorizontalSpacing(16)
         form.setVerticalSpacing(12)
+        form_title = QLabel(dialog.windowTitle())
+        form_title.setObjectName("pageTitle")
+        form.addRow(form_title)
 
         fields = {
             "name": QLineEdit(client.name if client else ""),
@@ -231,7 +236,12 @@ class ClientesPage(QWidget):
         cancel_button.setObjectName("secondaryButton")
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        form.addRow(buttons)
+        # Keep cancel on the left and the primary action on the right.
+        buttons.setLayoutDirection(Qt.RightToLeft)
+        actions = QHBoxLayout()
+        actions.addStretch()
+        actions.addWidget(buttons)
+        form.addRow(actions)
 
         while dialog.exec() == QDialog.Accepted:
             payload = ClientInput(

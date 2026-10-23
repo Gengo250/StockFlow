@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 from decimal import Decimal
 
 import qtawesome as qta
@@ -72,7 +74,7 @@ class VendasPage(QWidget):
         """
         super().__init__(parent)
         self.setObjectName("vendasPage")
-        self.setStyleSheet("QWidget#vendasPage { background: #F0F5FF; } QLabel { background: transparent; color: #334155; }" + FORM_CONTROL_QSS)
+        self.setStyleSheet(ds.page_qss("vendasPage") + FORM_CONTROL_QSS)
 
         # Base de clientes para simulação [ID, Nome, Status].
         # Vem de demo_data, a mesma fonte da tabela de Usuários: enquanto as
@@ -137,8 +139,8 @@ class VendasPage(QWidget):
 
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
 
         heading = QHBoxLayout()
         titles = QVBoxLayout()
@@ -154,7 +156,7 @@ class VendasPage(QWidget):
         self.refresh_button = QPushButton("Atualizar")
         self.refresh_button.setIcon(qta.icon("fa5s.sync-alt", color="#475569"))
         self.refresh_button.setStyleSheet(inventory.FILTER_QSS)
-        self.refresh_button.setFixedHeight(42)
+        self.refresh_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.refresh_button.setCursor(Qt.PointingHandCursor)
         self.refresh_button.clicked.connect(self.reload_sales)
         heading.addWidget(self.refresh_button)
@@ -171,7 +173,7 @@ class VendasPage(QWidget):
 
         # Combo para seleção de cliente
         self.cliente_combo = QComboBox()
-        self.cliente_combo.setFixedHeight(42)
+        self.cliente_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         self.cliente_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.cliente_combo.setMinimumContentsLength(12)
         self.cliente_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -185,7 +187,7 @@ class VendasPage(QWidget):
 
         # Combo de produto: só entra aqui o que a política deixa vender.
         self.produto_combo = QComboBox()
-        self.produto_combo.setFixedHeight(42)
+        self.produto_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         self.produto_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.produto_combo.setMinimumContentsLength(12)
         self.produto_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -194,13 +196,13 @@ class VendasPage(QWidget):
 
         self.qtd_input = QLineEdit()
         self.qtd_input.setPlaceholderText("Qtd")
-        self.qtd_input.setFixedHeight(42)
+        self.qtd_input.setFixedHeight(ds.CONTROL_HEIGHT)
         self.qtd_input.setMaximumWidth(100)
         self.qtd_input.setAccessibleName("Quantidade")
 
         self.val_input = QLineEdit()
         self.val_input.setPlaceholderText("R$ 0,00")
-        self.val_input.setFixedHeight(42)
+        self.val_input.setFixedHeight(ds.CONTROL_HEIGHT)
         self.val_input.setReadOnly(True)
         self.val_input.setAccessibleName("Preço unitário do catálogo")
         self.val_input.setMaximumWidth(170)
@@ -211,14 +213,14 @@ class VendasPage(QWidget):
         self.add_button = btn_item = QPushButton(" Adicionar item")
         btn_item.setObjectName("primaryButton")
         btn_item.setStyleSheet(inventory.NEW_BUTTON_QSS)
-        btn_item.setFixedHeight(42)
+        btn_item.setFixedHeight(ds.CONTROL_HEIGHT)
         btn_item.setIcon(qta.icon("fa5s.plus", color="white"))
         btn_item.clicked.connect(self._adicionar_item)
 
         self.save_button = btn_salvar = QPushButton("Finalizar venda")
         btn_salvar.setObjectName("primaryButton")
         btn_salvar.setStyleSheet(inventory.NEW_BUTTON_QSS)
-        btn_salvar.setFixedHeight(42)
+        btn_salvar.setFixedHeight(ds.CONTROL_HEIGHT)
         btn_salvar.setIcon(qta.icon("fa5s.check", color="white"))
         btn_salvar.clicked.connect(self._registrar_venda)
 
@@ -255,6 +257,8 @@ class VendasPage(QWidget):
             ["Produto", "Qtd", "Preço unit.", "Subtotal"]
         )
         self.itens_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.itens_table.setStyleSheet(inventory.TABLE_QSS)
+        self.itens_table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         self.itens_table.setShowGrid(False)
         self.itens_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.itens_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -267,17 +271,17 @@ class VendasPage(QWidget):
         fecho.setSpacing(12)
 
         self.pagamento_combo = QComboBox()
-        self.pagamento_combo.setFixedHeight(42)
+        self.pagamento_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         for forma in FORMAS_DE_PAGAMENTO:
             self.pagamento_combo.addItem(forma.capitalize(), forma)
 
         self.desconto_input = QLineEdit()
         self.desconto_input.setPlaceholderText("Desconto (R$)")
-        self.desconto_input.setFixedHeight(42)
+        self.desconto_input.setFixedHeight(ds.CONTROL_HEIGHT)
 
         self.remove_button = btn_remover = QPushButton(" Remover último item")
-        btn_remover.setFixedHeight(42)
-        btn_remover.setStyleSheet(inventory.NEW_BUTTON_QSS)
+        btn_remover.setFixedHeight(ds.CONTROL_HEIGHT)
+        btn_remover.setStyleSheet(inventory.FILTER_QSS)
         btn_remover.clicked.connect(self._remover_ultimo_item)
 
         self.total_label = QLabel("")
@@ -328,7 +332,7 @@ class VendasPage(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         self.table.setShowGrid(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -345,7 +349,7 @@ class VendasPage(QWidget):
         table_layout.addWidget(self.load_error_label)
         self.retry_button = QPushButton("Atualizar histórico e clientes")
         self.retry_button.setFixedHeight(34)
-        self.retry_button.setStyleSheet(inventory.NEW_BUTTON_QSS)
+        self.retry_button.setStyleSheet(inventory.FILTER_QSS)
         self.retry_button.clicked.connect(self.reload_sales)
         table_layout.addWidget(self.retry_button)
         table_layout.addWidget(self.table, 1)

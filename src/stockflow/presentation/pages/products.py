@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 
 from PySide6.QtCore import Qt, Signal
@@ -19,8 +21,8 @@ class ProductsPage(QWidget):
         self.setObjectName('productsPage')
         self.setStyleSheet(PRODUCTS_QSS)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
         header = QHBoxLayout()
         heading = QVBoxLayout()
         heading.setSpacing(4)

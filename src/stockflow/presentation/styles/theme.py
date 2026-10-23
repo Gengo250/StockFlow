@@ -1,165 +1,46 @@
-"""Estilos da janela principal, barra superior e menu lateral."""
+"""Application shell: navy navigation and a neutral work area."""
+from .design_system import qss, SCROLL_QSS
 
-MAIN_WINDOW_QSS = """
-    QMainWindow {
-        background-color: #F0F5FF;
-    }
-"""
-
-
-TOP_BAR_QSS = """
-    QFrame#topBar {
-        background-color: #FFFFFF;
-        border: none;
-        border-bottom: 1px solid #E5ECF7;
-    }
-
+MAIN_WINDOW_QSS = qss("QMainWindow { background: $BACKGROUND; }")
+CENTRAL_WIDGET_QSS = qss("QWidget#centralWidget { background: $BACKGROUND; }")
+PAGES_QSS = qss("QStackedWidget#pages { background: $BACKGROUND; }") + SCROLL_QSS
+DASHBOARD_PAGE_QSS = qss("background: $BACKGROUND;")
+TOP_BAR_QSS = qss("""
+    QFrame#topBar { background: $SURFACE; border: none; border-bottom: 1px solid $BORDER; }
+    QLabel#workspaceLabel { color: $MUTED; background: transparent; font-size: 12px; }
     QLineEdit#quickSearch {
-        background-color: #F0F6FF;
-        color: #425B80;
-        placeholder-text-color: #8BA1BF;
-        border: 1px solid transparent;
-        border-radius: 12px;
-        padding: 0 8px;
-        font-size: 13px;
-        selection-background-color: #3482FF;
-        selection-color: white;
+        background: #F8FAFC; color: #475569; placeholder-text-color: $SUBTLE;
+        border: 1px solid $BORDER; border-radius: 8px; padding: 0 10px;
+        font-size: 12px; selection-background-color: $PRIMARY; selection-color: white;
     }
-
-    QLineEdit#quickSearch:focus {
-        border-color: #8BB9FF;
-    }
-
-    QToolButton#notificationsButton {
-        background-color: transparent;
-        border: 1px solid transparent;
-        border-radius: 8px;
-    }
-
-    QToolButton#notificationsButton:hover {
-        background-color: #F0F6FF;
-    }
-
-    QToolButton#notificationsButton:focus {
-        border-color: #8BB9FF;
-    }
-
-    QLabel#topBarAvatar {
-        background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-            stop:0 #4B9AFF, stop:1 #2164F5);
-        color: white;
-        border-radius: 10px;
-        font-size: 12px;
-        font-weight: 500;
-    }
-"""
-
-CENTRAL_WIDGET_QSS = """
-    QWidget#centralWidget {
-        background-color: #F0F5FF;
-    }
-"""
-
-PAGES_QSS = """
-    QStackedWidget#pages {
-        background-color: #F0F5FF;
-    }
-"""
-
-DASHBOARD_PAGE_QSS = """
-    background-color: #F0F5FF;
-"""
-
-SIDEBAR_QSS = """
-    QFrame {
-        background-color: #0E2971;
-    }
-
-    QLabel {
-        background-color: transparent;
-        color: white;
-    }
-
+    QLineEdit#quickSearch:focus { border-color: $PRIMARY; }
+    QToolButton#notificationsButton { background: transparent; border: 1px solid transparent; border-radius: 6px; }
+    QToolButton#notificationsButton:hover { background: #F1F5F9; }
+    QToolButton#notificationsButton:focus { border-color: $PRIMARY; }
+    QLabel#topBarAvatar { background: $PRIMARY; color: white; border-radius: 8px; font-size: 12px; font-weight: 600; }
+""")
+SIDEBAR_QSS = qss("""
+    QFrame { background: $NAVY; border: none; }
+    QLabel { background: transparent; color: white; }
     QPushButton {
-        background-color: transparent;
-        color: #D7E4FF;
-
-        border: none;
-        border-radius: 10px;
-
-        text-align: left;
-
-        padding: 10px 12px;
-
-        font-size: 15px;
+        background: transparent; color: #CCD8F4; border: 1px solid transparent;
+        border-radius: 8px; text-align: left; padding: 8px 12px;
+        font-size: 13px; font-weight: 500;
     }
-
-    QPushButton:hover {
-        background-color: #24479B;
-    }
-
-    QPushButton#activeButton {
-        background-color: #4566B1;
-        color: white;
-        font-weight: 600;
-    }
-"""
-
-DIVIDER_QSS = """
-    background-color: #29458C;
-"""
-
-LOGO_ICON_QSS = """
-    background-color: #365BB3;
-    border-radius: 10px;
-"""
-
-APP_NAME_QSS = """
-    color: white;
-    font-size: 15px;
-    font-weight: 500;
-"""
-
-APP_SUBTITLE_QSS = """
-    color: #9DB7E8;
-    font-size: 11px;
-"""
-
-SECTION_TITLE_QSS = """
-    color: #5EAEF7;
-    font-size: 12px;
-    font-weight: 600;
-    padding-left: 12px;
-"""
-
-AVATAR_QSS = """
-    background-color: #3482FF;
-    color: white;
-
-    border-radius: 10px;
-
-    font-size: 14px;
-"""
-
-USER_NAME_QSS = """
-    color: white;
-    font-size: 14px;
-    font-weight: 600;
-"""
-
-USER_ROLE_QSS = """
-    color: #9DB7E8;
-    font-size: 11px;
-"""
-
+    QPushButton:hover { background: #1B3877; color: white; }
+    QPushButton:focus { border-color: #6C91E0; }
+    QPushButton#activeButton { background: #284783; color: white; font-weight: 600; }
+""")
+DIVIDER_QSS = "background: #284174; border: none;"
+LOGO_ICON_QSS = "background: #284C9C; border-radius: 10px;"
+APP_NAME_QSS = "color: white; background: transparent; font-size: 18px; font-weight: 700;"
+APP_SUBTITLE_QSS = "color: #A4B7DD; background: transparent; font-size: 11px;"
+SECTION_TITLE_QSS = "color: #8EA7D5; background: transparent; font-size: 10px; font-weight: 600; padding-left: 12px; letter-spacing: 1px;"
+AVATAR_QSS = qss("background: $PRIMARY; color: white; border-radius: 9px; font-size: 13px; font-weight: 600;")
+USER_NAME_QSS = "color: white; background: transparent; font-size: 13px; font-weight: 600;"
+USER_ROLE_QSS = "color: #A4B7DD; background: transparent; font-size: 11px;"
 LOGOUT_BUTTON_QSS = """
-    QPushButton {
-        background-color: transparent;
-        border: none;
-    }
-
-    QPushButton:hover {
-        background-color: #24479B;
-        border-radius: 8px;
-    }
+    QPushButton { background: transparent; border: 1px solid transparent; border-radius: 6px; }
+    QPushButton:hover { background: #284783; }
+    QPushButton:focus { border-color: #6C91E0; }
 """

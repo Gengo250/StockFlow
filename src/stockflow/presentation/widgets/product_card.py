@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
@@ -27,7 +29,7 @@ class ProductCard(QPushButton):
             'Crítico': ('#DC2626', '#FEF2F2', '#FECACA'),
         }
         foreground, background, border = colors.get(status_text, ('#475569', '#F1F5F9', '#CBD5E1'))
-        status.setStyleSheet(f'color: {foreground}; background: {background}; border: 1px solid {border}; border-radius: 9px; padding: 2px 9px; font-size: 11px;')
+        status.setStyleSheet(ds.status_badge_qss(foreground, background))
         top.addWidget(status)
         layout.addLayout(top)
         name = QLabel(product.name)

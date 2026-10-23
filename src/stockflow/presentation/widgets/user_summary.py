@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
@@ -61,17 +63,17 @@ class UserSummary(QWidget):
             icon, color = ROLE_STYLE.get(role, DEFAULT_STYLE)
             card = QFrame()
             card.setObjectName("summaryCard")
-            card.setFixedHeight(112)
+            card.setFixedHeight(120)
             content = QVBoxLayout(card)
             content.setContentsMargins(16, 14, 16, 14)
             content.setSpacing(4)
             badge = QLabel()
-            badge.setFixedSize(30, 30)
+            badge.setFixedSize(26, 26)
             badge.setAlignment(Qt.AlignCenter)
-            badge.setStyleSheet(f"background: {color}; border-radius: 11px;")
-            badge.setPixmap(qta.icon(icon, color="white").pixmap(18, 18))
+            badge.setStyleSheet(ds.qss("background: $PRIMARY_SOFT; border-radius: 6px;"))
+            badge.setPixmap(qta.icon(icon, color=ds.PRIMARY).pixmap(14, 14))
             number = QLabel(str(sum(user[ROLE_INDEX] == role for user in self.users)))
-            number.setStyleSheet(f"color: {color}; font-size: 27px; font-weight: 600;")
+            number.setStyleSheet(ds.METRIC_QSS)
             caption = QLabel(PLURALS.get(role, role))
             caption.setObjectName("muted")
             content.addWidget(badge)

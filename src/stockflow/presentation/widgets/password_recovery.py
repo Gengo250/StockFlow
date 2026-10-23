@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 from PySide6.QtWidgets import QDialog, QFormLayout, QLabel, QLineEdit, QPushButton
 
 from stockflow.presentation.backend import independent_auth_client
+from stockflow.presentation.styles import design_system as ds
 
 
 class PasswordRecoveryDialog(QDialog):
@@ -12,11 +13,18 @@ class PasswordRecoveryDialog(QDialog):
         super().__init__(parent)
         self.client = client or independent_auth_client()
         self.setWindowTitle("Recuperar acesso")
+        self.setObjectName("passwordRecovery")
         self.setMinimumWidth(460)
+        self.setStyleSheet(ds.page_qss("passwordRecovery") + ds.field_qss()
+                          + ds.button_qss() + ds.button_qss("QPushButton#primaryButton", primary=True))
         layout = QFormLayout(self)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(12)
+        layout.setRowWrapPolicy(QFormLayout.WrapAllRows)
         self.email_input = QLineEdit(email)
         layout.addRow("E-mail", self.email_input)
         send = QPushButton("Enviar recuperação por e-mail")
+        send.setFixedHeight(ds.CONTROL_HEIGHT)
         send.clicked.connect(self.send)
         layout.addRow(send)
         instructions = QLabel("Copie o link de recuperação recebido no e-mail, sem abri-lo, e cole abaixo. Se recebeu um código, pode usá-lo aqui.")
@@ -29,8 +37,12 @@ class PasswordRecoveryDialog(QDialog):
         self.password_input.setEchoMode(QLineEdit.Password)
         layout.addRow("Nova senha", self.password_input)
         save = QPushButton("Definir nova senha")
+        save.setObjectName("primaryButton")
+        save.setFixedHeight(ds.CONTROL_HEIGHT)
         save.clicked.connect(self.save)
         layout.addRow(save)
+        for field in (self.email_input, self.token_input, self.password_input):
+            field.setFixedHeight(ds.CONTROL_HEIGHT)
         self.message = QLabel()
         self.message.setWordWrap(True)
         layout.addRow(self.message)

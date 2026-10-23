@@ -4,6 +4,8 @@ from PySide6.QtWidgets import (
 )
 
 from stockflow.presentation.demo_users import USER_ROLES
+from stockflow.presentation.styles.users import USERS_QSS
+from stockflow.presentation.styles import design_system as ds
 
 
 class UserForm(QDialog):
@@ -17,10 +19,11 @@ class UserForm(QDialog):
         """
         super().__init__(parent)
         self.setObjectName("userForm")
+        self.setStyleSheet(USERS_QSS)
         self.setWindowTitle("Editar usuário" if user else "Novo usuário")
         self.setMinimumWidth(480)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 24, 28, 24)
+        ds.page_layout(layout)
         layout.setSpacing(18)
         title = QLabel(self.windowTitle())
         title.setObjectName("pageTitle")
@@ -29,7 +32,8 @@ class UserForm(QDialog):
         subtitle.setObjectName("muted")
         layout.addWidget(subtitle)
         fields = QFormLayout()
-        fields.setSpacing(14)
+        fields.setSpacing(12)
+        fields.setRowWrapPolicy(QFormLayout.WrapAllRows)
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Nome completo")
         self.login_input = QLineEdit()

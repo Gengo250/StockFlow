@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 
 from PySide6.QtCore import Qt
@@ -14,9 +16,10 @@ class ProductDetailsPage(QWidget):
         self.setObjectName("productDetailsPage")
         self.setStyleSheet(PRODUCTS_QSS)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
         self.back_button = QPushButton("Voltar para produtos")
+        self.back_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.back_button.setIcon(qta.icon("fa5s.arrow-left", color="#2563EB"))
         layout.addWidget(self.back_button, 0, Qt.AlignLeft)
         title = QLabel("Detalhes do produto")
@@ -88,8 +91,7 @@ class ProductDetailsPage(QWidget):
             ("#166534", "#DCFCE7") if product.active else ("#475569", "#E2E8F0")
         )
         status.setStyleSheet(
-            f"color: {foreground}; background: {background}; border-radius: 8px;"
-            "padding: 8px 14px; font-weight: 600;"
+            ds.status_badge_qss(foreground, background)
         )
         status.setAlignment(Qt.AlignLeft)
         self.scroll.verticalScrollBar().setValue(0)

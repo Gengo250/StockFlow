@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -37,7 +39,7 @@ class UserTable(QFrame):
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setShowGrid(False)
         self.table.verticalHeader().hide()
-        self.table.verticalHeader().setDefaultSectionSize(64)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT + 16)
         header = self.table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         header.setMinimumSectionSize(90)

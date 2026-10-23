@@ -8,19 +8,18 @@ from PySide6.QtWidgets import (
 )
 
 
-LABEL_QSS = "background-color: transparent;"
-FIELD_QSS = """
-    {widget} {{
-        background-color: #FFFFFF;
-        color: #0F172A;
-        border: 1px solid #CBD5E1;
-        border-radius: 10px;
-        padding: 0px 12px;
-        font-size: 14px;
-    }}
-    {widget}:focus {{ border: 2px solid #93C5FD; }}
-"""
+from stockflow.presentation.styles import design_system as ds
 
+
+LABEL_QSS = "background-color: transparent;"
+FIELD_QSS = ds.qss("""
+    {widget} {{
+        background: $SURFACE; color: $TEXT; border: 1px solid $BORDER;
+        border-radius: 8px; padding: 0 12px; font-size: 13px;
+        selection-background-color: $PRIMARY; selection-color: white;
+    }}
+    {widget}:focus {{ border: 1px solid $PRIMARY; }}
+""")
 
 FORM_CONTROL_QSS = "\n".join(
     FIELD_QSS.format(widget=kind)
@@ -53,16 +52,10 @@ FORM_CONTROL_QSS += """
 def _card(object_name):
     card = QFrame()
     card.setObjectName(object_name)
-    card.setStyleSheet(f"""
-        QFrame#{object_name} {{
-            background-color: #FFFFFF;
-            border: 1px solid #DBEAFE;
-            border-radius: 16px;
-        }}
-        QFrame#{object_name} QLabel {{ background-color: transparent; }}
-    """)
+    card.setStyleSheet(ds.surface_qss(f"QFrame#{object_name}") +
+                       f"QFrame#{object_name} QLabel {{ background: transparent; }}")
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(22, 22, 22, 22)
+    layout.setContentsMargins(20, 20, 20, 20)
     layout.setSpacing(16)
     return card
 
@@ -70,7 +63,7 @@ def _card(object_name):
 def _divider():
     divider = QFrame()
     divider.setFixedHeight(1)
-    divider.setStyleSheet("background-color: #EFF6FF; border: none;")
+    divider.setStyleSheet(ds.qss("background: $BORDER; border: none;"))
     return divider
 
 
@@ -79,9 +72,9 @@ def _card_header(icon_name, title_text, subtitle_text):
     layout.setSpacing(12)
 
     icon_container = QFrame()
-    icon_container.setFixedSize(38, 38)
+    icon_container.setFixedSize(34, 34)
     icon_container.setStyleSheet(
-        "background-color: #EFF6FF; border: none; border-radius: 10px;"
+        ds.qss("background: $PRIMARY_SOFT; border: none; border-radius: 8px;")
     )
     icon_layout = QVBoxLayout(icon_container)
     icon_layout.setContentsMargins(0, 0, 0, 0)
@@ -95,13 +88,11 @@ def _card_header(icon_name, title_text, subtitle_text):
     text_layout.setContentsMargins(0, 0, 0, 0)
     text_layout.setSpacing(2)
     title = QLabel(title_text)
-    title.setStyleSheet(
-        f"{LABEL_QSS} color: #0F172A; font-size: 16px; font-weight: 600;"
-    )
+    title.setStyleSheet(ds.SECTION_TITLE_QSS)
     title.setWordWrap(True)
     subtitle = QLabel(subtitle_text)
     subtitle.setWordWrap(True)
-    subtitle.setStyleSheet(f"{LABEL_QSS} color: #94A3B8; font-size: 12px;")
+    subtitle.setStyleSheet(ds.SUBTITLE_QSS)
     text_layout.addWidget(title)
     text_layout.addWidget(subtitle)
 
@@ -136,7 +127,7 @@ def _field(label_text, optional=False):
 def _line_edit(placeholder=""):
     widget = QLineEdit()
     widget.setPlaceholderText(placeholder)
-    widget.setFixedHeight(42)
+    widget.setFixedHeight(ds.CONTROL_HEIGHT)
     widget.setStyleSheet(FIELD_QSS.format(widget="QLineEdit"))
     return widget
 
@@ -144,7 +135,7 @@ def _line_edit(placeholder=""):
 def _combo(items):
     widget = QComboBox()
     widget.addItems(items)
-    widget.setFixedHeight(42)
+    widget.setFixedHeight(ds.CONTROL_HEIGHT)
     widget.setStyleSheet(
         FIELD_QSS.format(widget="QComboBox")
         + "QComboBox::drop-down { border: none; width: 30px; }"
@@ -160,7 +151,7 @@ def _money_input():
     widget.setDecimals(2)
     widget.setSingleStep(1)
     widget.setPrefix("R$ ")
-    widget.setFixedHeight(42)
+    widget.setFixedHeight(ds.CONTROL_HEIGHT)
     widget.setStyleSheet(
         FIELD_QSS.format(widget="QDoubleSpinBox")
         + "QDoubleSpinBox::up-button, QDoubleSpinBox::down-button "
@@ -176,7 +167,7 @@ def _stock_input():
     widget = NumericSpinBox()
     widget.setRange(0, 999999)
     widget.setSingleStep(1)
-    widget.setFixedHeight(42)
+    widget.setFixedHeight(ds.CONTROL_HEIGHT)
     widget.setStyleSheet(
         FIELD_QSS.format(widget="QSpinBox")
         + "QSpinBox::up-button, QSpinBox::down-button "

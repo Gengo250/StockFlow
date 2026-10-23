@@ -12,6 +12,8 @@ aconteceu. Para o caso comum, lançar algo que já ocorreu, há o atalho
 "Registrar e confirmar".
 """
 
+from stockflow.presentation.styles import design_system as ds
+
 from datetime import date, datetime, timedelta
 import re
 
@@ -60,24 +62,7 @@ PAGE_SIZE = 50
 
 # QSS dos botões de navegação de página. Usam as mesmas cores do FILTER_QSS
 # (branco/azul) para sinalizar que são controles de navegação, e não de ação.
-PAGINACAO_BUTTON_QSS = """
-    QPushButton {
-        background-color: white;
-        color: #475569;
-        border: 1px solid #DBEAFE;
-        border-radius: 8px;
-        padding: 4px 14px;
-        font-size: 13px;
-    }
-    QPushButton:hover:enabled {
-        border: 1px solid #93C5FD;
-        color: #1D4ED8;
-    }
-    QPushButton:disabled {
-        color: #CBD5E1;
-        border: 1px solid #EFF6FF;
-    }
-"""
+PAGINACAO_BUTTON_QSS = ds.button_qss()
 
 
 class MovimentacoesPage(QWidget):
@@ -97,7 +82,7 @@ class MovimentacoesPage(QWidget):
     def __init__(self, products=None):
         super().__init__()
         self.setObjectName("movimentacoesPage")
-        self.setStyleSheet("QWidget#movimentacoesPage { background: #F0F5FF; } QLabel { background: transparent; border: none; }" + FORM_CONTROL_QSS)
+        self.setStyleSheet(ds.page_qss("movimentacoesPage") + FORM_CONTROL_QSS)
 
         # O MESMO dict da janela, nunca uma cópia. É essa identidade que faz
         # um produto desativado no Estoque sair da oferta aqui na hora — a
@@ -122,8 +107,8 @@ class MovimentacoesPage(QWidget):
         self._list_state_error = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
         layout.addLayout(self._create_header())
         layout.addWidget(self._create_form())
         layout.addWidget(self._create_adjustment_form())
@@ -181,11 +166,11 @@ class MovimentacoesPage(QWidget):
         self.produto_combo = QComboBox()
         self.produto_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.produto_combo.setMinimumContentsLength(12)
-        self.produto_combo.setFixedHeight(42)
+        self.produto_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         self.produto_combo.setAccessibleName("Produto da movimentação")
 
         self.especie_combo = QComboBox()
-        self.especie_combo.setFixedHeight(42)
+        self.especie_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         self.especie_combo.setAccessibleName("Espécie da movimentação")
         for especie in MovementKind:
             self.especie_combo.addItem(especie.label, especie)
@@ -194,28 +179,28 @@ class MovimentacoesPage(QWidget):
         self.fornecedor_combo = QComboBox()
         self.fornecedor_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.fornecedor_combo.setMinimumContentsLength(12)
-        self.fornecedor_combo.setFixedHeight(42)
+        self.fornecedor_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         self.fornecedor_combo.setAccessibleName("Fornecedor da entrada")
         self.fornecedor_combo.addItem("Selecione um fornecedor...", None)
 
         self.quantidade_input = QSpinBox()
         self.quantidade_input.setRange(1, 999999)
-        self.quantidade_input.setFixedHeight(42)
+        self.quantidade_input.setFixedHeight(ds.CONTROL_HEIGHT)
         self.quantidade_input.setAccessibleName("Quantidade")
 
         self.nota_input = QLineEdit()
         self.nota_input.setPlaceholderText("Observação (opcional)")
-        self.nota_input.setFixedHeight(42)
+        self.nota_input.setFixedHeight(ds.CONTROL_HEIGHT)
 
         self.registrar_button = QPushButton(" Registrar")
-        self.registrar_button.setFixedHeight(42)
+        self.registrar_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.registrar_button.setStyleSheet(inventory.FILTER_QSS)
         self.registrar_button.setIcon(qta.icon("fa5s.plus", color="#1D4ED8"))
         self.registrar_button.setIconSize(QSize(13, 13))
         self.registrar_button.clicked.connect(lambda: self._registrar(confirmar=False))
 
         self.registrar_confirmar_button = QPushButton(" Registrar e confirmar")
-        self.registrar_confirmar_button.setFixedHeight(42)
+        self.registrar_confirmar_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.registrar_confirmar_button.setStyleSheet(inventory.NEW_BUTTON_QSS)
         self.registrar_confirmar_button.setIcon(qta.icon("fa5s.check", color="white"))
         self.registrar_confirmar_button.setIconSize(QSize(13, 13))
@@ -271,7 +256,7 @@ class MovimentacoesPage(QWidget):
             QComboBox.AdjustToMinimumContentsLengthWithIcon
         )
         self.ajuste_produto_combo.setMinimumContentsLength(12)
-        self.ajuste_produto_combo.setFixedHeight(42)
+        self.ajuste_produto_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         self.ajuste_produto_combo.setAccessibleName("Produto do ajuste")
         self.ajuste_produto_combo.currentIndexChanged.connect(self._atualizar_previa)
 
@@ -280,7 +265,7 @@ class MovimentacoesPage(QWidget):
 
         self.ajuste_contado_input = QSpinBox()
         self.ajuste_contado_input.setRange(0, 999999)
-        self.ajuste_contado_input.setFixedHeight(42)
+        self.ajuste_contado_input.setFixedHeight(ds.CONTROL_HEIGHT)
         self.ajuste_contado_input.setAccessibleName("Saldo contado")
         self.ajuste_contado_input.valueChanged.connect(self._atualizar_previa)
 
@@ -297,17 +282,17 @@ class MovimentacoesPage(QWidget):
         acoes.setSpacing(10)
 
         self.ajuste_motivo_combo = QComboBox()
-        self.ajuste_motivo_combo.setFixedHeight(42)
+        self.ajuste_motivo_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         self.ajuste_motivo_combo.setAccessibleName("Motivo do ajuste")
         for motivo in AdjustmentReason:
             self.ajuste_motivo_combo.addItem(motivo.label, motivo)
         self.ajuste_motivo_combo.currentIndexChanged.connect(self._atualizar_detalhe)
 
         self.ajuste_detalhe_input = QLineEdit()
-        self.ajuste_detalhe_input.setFixedHeight(42)
+        self.ajuste_detalhe_input.setFixedHeight(ds.CONTROL_HEIGHT)
 
         self.ajuste_aplicar_button = QPushButton(" Aplicar ajuste")
-        self.ajuste_aplicar_button.setFixedHeight(42)
+        self.ajuste_aplicar_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.ajuste_aplicar_button.setStyleSheet(inventory.NEW_BUTTON_QSS)
         self.ajuste_aplicar_button.setIcon(qta.icon("fa5s.balance-scale", color="white"))
         self.ajuste_aplicar_button.setIconSize(QSize(13, 13))
@@ -366,7 +351,7 @@ class MovimentacoesPage(QWidget):
         cabecalho = self.table.horizontalHeader()
         cabecalho.setSectionResizeMode(QHeaderView.ResizeToContents)
         cabecalho.setSectionResizeMode(COLUMNS.index("Observação"), QHeaderView.Stretch)
-        self.table.verticalHeader().setDefaultSectionSize(56)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         fora.addWidget(self.table, 1)
         fora.addWidget(self.result_count)
         return card
