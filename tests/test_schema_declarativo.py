@@ -827,3 +827,61 @@ def test_us17_consulta_esta_na_allowlist_de_execute():
     assert "'fn_list_sales'" in allowlist, (
         "função fora da allowlist aplica no banco e quebra o app em runtime"
     )
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_resolve_a_empresa_pelo_dado_persistido(nome):
+    """Padrão do projeto: tenant vem da linha, nunca do chamador."""
+    corpo = corpo_da_funcao(nome)
+    assert corpo, f"{nome} não declarada em database/code"
+    assert "SECURITY DEFINER" in corpo
+    assert "SET search_path = public" in corpo
+    assert re.search(r"FROM public\.sales s\s+WHERE s\.id = p_sale_id FOR UPDATE", corpo)
+    assert "p_company_id" not in corpo
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_e_so_do_admin(nome):
+    """Uma lista de papéis só: o teste de espelhamento da matriz exige isso."""
+    corpo = corpo_da_funcao(nome)
+    assert "fn_has_role(v_company, ARRAY['ADMIN']::public.user_role[])" in corpo
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_so_aceita_venda_concluida(nome):
+    assert "v_status <> 'CONCLUIDA'" in corpo_da_funcao(nome)
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_exige_motivo(nome):
+    assert "v_reason = ''" in corpo_da_funcao(nome)
+
+
+def test_us17_cancelamento_anula_a_saida_da_venda():
+    """Cancelar devolve o saldo pelo recálculo, que é o padrão do projeto."""
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    assert "UPDATE public.stock_movements" in corpo
+    assert "SET status = 'CANCELADA'" in corpo
+    assert "INSERT INTO public.stock_movements" not in corpo
+
+
+def test_us17_devolucao_grava_entrada_compensatoria():
+    """Devolver preserva que a venda aconteceu: a saída original fica."""
+    corpo = corpo_da_funcao("fn_return_sale")
+    assert "INSERT INTO public.stock_movements" in corpo
+    assert "'ENTRADA'" in corpo
+    assert "'DEVOLUCAO_VENDA - venda '" in corpo
+    assert "UPDATE public.stock_movements" not in corpo
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_nunca_escreve_o_saldo_direto(nome):
+    """Saldo é a soma das movimentações confirmadas; escrevê-lo direto seria
+    sobrescrito pelo recálculo do trigger na movimentação seguinte."""
+    assert "UPDATE public.products" not in corpo_da_funcao(nome)
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_esta_na_allowlist_de_execute(nome):
+    allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    assert f"'{nome}'" in allowlist

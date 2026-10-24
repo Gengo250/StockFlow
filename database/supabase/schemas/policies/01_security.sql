@@ -217,6 +217,9 @@ DECLARE
     -- `sales_select`, repetida dentro da função porque SECURITY DEFINER
     -- passa por cima da RLS.
     'fn_list_sales',
+    -- Cancelamento e devolução de venda (US17). Só o ADMIN; a função
+    -- repete essa alçada, e o teste de espelhamento da matriz compara.
+    'fn_cancel_sale', 'fn_return_sale',
     'fn_list_price_edits','fn_set_company_max_stock_limit','fn_set_max_stock','fn_get_effective_max_stock'
   ];
   v_name    text;
