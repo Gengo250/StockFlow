@@ -124,7 +124,10 @@ def test_report_type_change_during_load_discards_old_shape(qapp):
     assert page.rows == []
     jobs[1][1](jobs[1][0]())
     assert page.headers[0] == 'Venda'
-    assert all(len(row) == 5 for row in page.rows)
+    # A invariante é a FORMA casar com o cabeçalho do tipo atual, não um
+    # número fixo: a coluna Status entrou na US17 e um 5 cravado aqui só
+    # dizia quantas colunas havia naquele dia.
+    assert all(len(row) == len(page.headers) for row in page.rows)
     assert page.refresh_button.isEnabled()
     page.close()
 
