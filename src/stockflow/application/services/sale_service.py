@@ -3,9 +3,19 @@
 from decimal import Decimal, InvalidOperation
 import re
 
+from stockflow.application.dto.sale_filter import (
+    MOTIVO_MAXIMO,
+    TAMANHO_MAXIMO,
+    TAMANHO_PADRAO,
+    SaleFilter,
+)
 from stockflow.application.dto.sale_item import SaleItemInput, SaleItemValidator
 from stockflow.domain.enums.operation_kind import OperationKind
-from stockflow.domain.permissions import ensure_can_register_sales
+from stockflow.domain.permissions import (
+    ensure_can_register_sales,
+    ensure_can_reverse_sales,
+    exigir_ver,
+)
 from stockflow.domain.product_status import ensure_product_selectable
 
 _MONEY_PATTERN = re.compile(
@@ -129,8 +139,56 @@ class SaleService:
             session, client_id, normalized_items, payment_method, discount
         )
 
-    def list_sales(self):
-        return self.repository.list_all()
+    def list_sales(self, session, filtro=None, page=1, size=TAMANHO_PADRAO):
+        """Página do histórico, com a alçada conferida antes da consulta.
+
+        Antes da US17 este método não recebia sessão: a RLS escopava por
+        empresa e o resultado ficava certo por CONSEQUÊNCIA, não por
+        decisão. A guarda explícita alinha vendas às demais áreas, e é ela
+        que fica vermelha se a matriz mudar.
+        """
+        exigir_ver(session, "vendas", "consultar o histórico de vendas")
+        if not isinstance(page, int) or isinstance(page, bool) or page < 1:
+            raise ValueError("Página inválida.")
+        if (not isinstance(size, int) or isinstance(size, bool)
+                or not 1 <= size <= TAMANHO_MAXIMO):
+            raise ValueError(
+                f"Tamanho de página inválido: use entre 1 e {TAMANHO_MAXIMO}."
+            )
+        return self.repository.list_page(filtro or SaleFilter(), page, size)
+
+    def get_sale(self, session, sale_id):
+        exigir_ver(session, "vendas", "consultar o histórico de vendas")
+        if not sale_id:
+            raise ValueError("Não foi possível identificar a venda.")
+        return self.repository.get(sale_id)
+
+    def cancel_sale(self, session, sale_id, reason):
+        """Anula a venda. Alçada e motivo conferidos antes do repositório."""
+        ensure_can_reverse_sales(session, action="cancelar vendas")
+        return self.repository.cancel(sale_id, self._motivo(reason))
+
+    def return_sale(self, session, sale_id, reason):
+        """Devolve a venda. Mesma alçada e mesma exigência de motivo."""
+        ensure_can_reverse_sales(session, action="devolver vendas")
+        return self.repository.revert(sale_id, self._motivo(reason))
+
+    @staticmethod
+    def _motivo(reason) -> str:
+        """O motivo é obrigatório e nasce aqui, não na tela.
+
+        O banco recusa vazio também, mas deixar a recusa só lá gastaria uma
+        ida à rede para dizer o que a aplicação já sabia — e a mensagem que
+        voltaria seria a do Postgres, não a do domínio.
+        """
+        texto = (reason or "").strip()
+        if not texto:
+            raise ValueError("Informe o motivo da operação.")
+        if len(texto) > MOTIVO_MAXIMO:
+            raise ValueError(
+                f"O motivo deve ter no máximo {MOTIVO_MAXIMO} caracteres."
+            )
+        return texto
 
     def register_multiple(
         self,
