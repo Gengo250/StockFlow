@@ -213,6 +213,10 @@ DECLARE
     -- Histórico cronológico de preço e custo (H09). Só leitura, e só do ADMIN:
     -- a própria função repete a alçada de `price_edit_log_select`, porque
     -- SECURITY DEFINER passa por cima da RLS que protege a tabela.
+    -- Histórico de vendas (US17). Só leitura; a alçada é a mesma de
+    -- `sales_select`, repetida dentro da função porque SECURITY DEFINER
+    -- passa por cima da RLS.
+    'fn_list_sales',
     'fn_list_price_edits','fn_set_company_max_stock_limit','fn_set_max_stock','fn_get_effective_max_stock'
   ];
   v_name    text;

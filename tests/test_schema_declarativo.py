@@ -757,3 +757,73 @@ def test_us17_aplicacao_nao_escreve_na_tabela_de_reversao():
     assert re.search(
         r"ALTER TABLE public\.sale_reversals\s+ENABLE ROW LEVEL SECURITY", politicas
     )
+
+
+def corpo_da_funcao(nome: str) -> str:
+    """Texto de uma função em database/code, do seu CREATE até o próximo."""
+    achado = re.search(
+        rf"CREATE OR REPLACE FUNCTION public\.{nome}\b(.*?)"
+        r"(?=CREATE OR REPLACE FUNCTION|\Z)",
+        CODE_SQL,
+        re.S,
+    )
+    return achado.group(1) if achado else ""
+
+
+def test_us17_consulta_repete_a_checagem_da_policy():
+    """SECURITY DEFINER passa por cima da RLS.
+
+    Sem `fn_is_member` na entrada, esta função vira a porta dos fundos do
+    histórico — a mesma lição já registrada em fn_list_price_edits.
+    """
+    corpo = corpo_da_funcao("fn_list_sales")
+    assert corpo, "fn_list_sales não declarada em database/code"
+    assert "SECURITY DEFINER" in corpo
+    assert "SET search_path = public" in corpo
+    assert "fn_is_member(p_company_id)" in corpo
+
+
+def test_us17_consulta_devolve_o_total_na_mesma_leitura():
+    """Uma segunda contagem poderia divergir da página sob concorrência."""
+    assert "count(*) OVER ()" in corpo_da_funcao("fn_list_sales")
+
+
+def test_us17_consulta_desempata_a_ordem_pelo_id():
+    """Sem desempate, a página seguinte repete ou pula linha."""
+    assert re.search(r"ORDER BY.*?f\.id DESC", corpo_da_funcao("fn_list_sales"), re.S)
+
+
+def test_us17_ordenacao_nunca_e_sql_dinamico():
+    """Texto do chamador virando ORDER BY é injeção."""
+    corpo = corpo_da_funcao("fn_list_sales")
+    assert "EXECUTE " not in corpo
+    for criterio in ("DATA_DESC", "DATA_ASC", "VALOR_DESC", "VALOR_ASC", "CLIENTE_ASC"):
+        assert criterio in corpo, criterio
+
+
+def test_us17_todos_os_filtros_sao_opcionais_e_combinaveis():
+    corpo = corpo_da_funcao("fn_list_sales")
+    for parametro, coluna in (
+        ("p_from", "s.created_on >="),
+        ("p_to", "s.created_on <"),
+        ("p_client_id", "s.client_id ="),
+        ("p_seller_id", "s.created_by ="),
+        ("p_status", "s.status ="),
+    ):
+        # Tolerante ao alinhamento em coluna usado no WHERE da função.
+        assert re.search(
+            rf"{parametro}\s+IS NULL OR {re.escape(coluna)}", corpo
+        ), parametro
+
+
+def test_us17_consulta_limita_o_tamanho_da_pagina():
+    """Página sem teto é `list_all` com outro nome."""
+    corpo = corpo_da_funcao("fn_list_sales")
+    assert "p_limit <= 0 OR p_limit > 200" in corpo
+
+
+def test_us17_consulta_esta_na_allowlist_de_execute():
+    allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    assert "'fn_list_sales'" in allowlist, (
+        "função fora da allowlist aplica no banco e quebra o app em runtime"
+    )
