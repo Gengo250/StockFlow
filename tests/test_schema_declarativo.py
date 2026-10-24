@@ -16,6 +16,8 @@ Não há Postgres neste ambiente, então a verificação é estática.
 import re
 from pathlib import Path
 
+import pytest
+
 RAIZ = Path(__file__).resolve().parents[1]
 CODE = RAIZ / "database" / "code"
 SCHEMAS = RAIZ / "database" / "supabase" / "schemas"
@@ -660,4 +662,98 @@ def test_h09_consulta_do_historico_esta_na_allowlist_de_execute():
     allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
     assert "'fn_list_price_edits'" in allowlist, (
         "função fora da allowlist aplica no banco e quebra o app em runtime"
+    )
+
+
+# --------------------------------------------------------------------- US17
+# A reversão de venda é uma RELAÇÃO, não um atributo do cabeçalho. Estes
+# testes cobram que a tabela de vínculo e os dois enums estejam na FONTE
+# declarativa: `code/` é o que o declarative sync diffa contra o banco, e o
+# que ficar de fora dele o diff seguinte propõe derrubar.
+
+
+def corpo_da_tabela(nome: str) -> str:
+    """Texto entre os parênteses de um CREATE TABLE em database/code."""
+    achado = re.search(
+        rf"CREATE TABLE\s+{SE_NAO_EXISTIR}public\.{nome}\s*\((.*?)\n\);",
+        CODE_SQL,
+        re.S,
+    )
+    return achado.group(1) if achado else ""
+
+
+def test_us17_status_de_venda_inclui_devolvida():
+    """A fonte declarativa descreve o ESTADO FINAL do tipo.
+
+    `code/` é aplicado em banco limpo (`verify_postgres.py --schema`), onde
+    o tipo nasce com os quatro rótulos. Quem precisa de `ALTER TYPE` é a
+    migration, que roda sobre um remoto que já tem o tipo com três.
+    """
+    achado = re.search(
+        r"CREATE TYPE public\.sale_status AS ENUM\s*\((.*?)\)", CODE_SQL, re.S
+    )
+    assert achado, "tipo public.sale_status não declarado em database/code"
+    assert set(re.findall(r"'(\w+)'", achado.group(1))) == {
+        "PENDENTE",
+        "CONCLUIDA",
+        "CANCELADA",
+        "DEVOLVIDA",
+    }
+
+
+def test_us17_migration_acrescenta_devolvida_ao_tipo_existente():
+    """`CREATE TYPE` no remoto falharia: o tipo já existe com três rótulos."""
+    migration = (
+        MIGRATIONS / "20261024120000_us17_sales_history.sql"
+    ).read_text(encoding="utf-8")
+    assert (
+        "ALTER TYPE public.sale_status ADD VALUE IF NOT EXISTS 'DEVOLVIDA'"
+        in migration
+    )
+
+
+def test_us17_especie_de_reversao_tem_os_dois_valores():
+    achado = re.search(
+        r"CREATE TYPE public\.sale_reversal_kind AS ENUM\s*\((.*?)\)",
+        CODE_SQL,
+        re.S,
+    )
+    assert achado, "tipo public.sale_reversal_kind não declarado em database/code"
+    assert set(re.findall(r"'(\w+)'", achado.group(1))) == {
+        "CANCELAMENTO",
+        "DEVOLUCAO",
+    }
+
+
+def test_us17_reversao_e_terminal_por_indice_unico():
+    """Venda revertida não vira outra coisa depois.
+
+    A função confere também, mas o UNIQUE é o que torna a regra verdadeira
+    para quem chegue por outro caminho.
+    """
+    corpo = corpo_da_tabela("sale_reversals")
+    assert corpo, "tabela sale_reversals não encontrada em database/code"
+    assert "UNIQUE (sale_id)" in corpo
+
+
+def test_us17_reversao_escopa_por_coluna_propria():
+    corpo = corpo_da_tabela("sale_reversals")
+    assert "company_id  uuid NOT NULL" in corpo
+    assert "REFERENCES public.sales (company_id, id) ON DELETE CASCADE" in corpo
+
+
+def test_us17_reversao_exige_motivo_nao_vazio():
+    corpo = corpo_da_tabela("sale_reversals")
+    assert "CHECK (btrim(reason) <> '')" in corpo
+
+
+def test_us17_aplicacao_nao_escreve_na_tabela_de_reversao():
+    """Mesma proteção de `sales`: só SELECT. A escrita é das funções."""
+    politicas = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    concedido = politicas.split("GRANT SELECT ON", 1)[1].split(";", 1)[0]
+    assert "public.sale_reversals" in concedido
+    assert "CREATE POLICY sale_reversals_select ON public.sale_reversals" in politicas
+    # Tolerante ao alinhamento: este arquivo alinha a coluna do ENABLE.
+    assert re.search(
+        r"ALTER TABLE public\.sale_reversals\s+ENABLE ROW LEVEL SECURITY", politicas
     )

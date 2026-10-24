@@ -28,6 +28,7 @@ ALTER TABLE public.clients        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_items      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales_log       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sale_reversals  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.role_change_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.price_edit_log  ENABLE ROW LEVEL SECURITY;
@@ -67,6 +68,7 @@ GRANT SELECT ON public.company,
                 public.sales,
                 public.sale_items,
                 public.sales_log,
+                public.sale_reversals,
                 public.role_change_log,
                 public.price_edit_log,
                 public.vw_stock_situation,
@@ -89,6 +91,7 @@ DROP POLICY IF EXISTS clients_select          ON public.clients;
 DROP POLICY IF EXISTS sales_select            ON public.sales;
 DROP POLICY IF EXISTS sale_items_select        ON public.sale_items;
 DROP POLICY IF EXISTS sales_log_select         ON public.sales_log;
+DROP POLICY IF EXISTS sale_reversals_select    ON public.sale_reversals;
 DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
 DROP POLICY IF EXISTS role_change_log_select  ON public.role_change_log;
 DROP POLICY IF EXISTS price_edit_log_select   ON public.price_edit_log;
@@ -129,6 +132,13 @@ CREATE POLICY sale_items_select ON public.sale_items
   USING (public.fn_is_member(company_id));
 
 CREATE POLICY sales_log_select ON public.sales_log
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_is_member(company_id));
+
+-- Mesma proteção de `sales`: SELECT e nada mais. A escrita é exclusiva de
+-- fn_cancel_sale/fn_return_sale, que são SECURITY DEFINER. Dar INSERT aqui
+-- deixaria a aplicação forjar o vínculo que a auditoria deveria provar.
+CREATE POLICY sale_reversals_select ON public.sale_reversals
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
 
