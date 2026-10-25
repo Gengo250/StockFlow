@@ -592,10 +592,13 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = public AS $$
--- Os nomes de RETURNS TABLE viram variáveis e competem com os nomes de
--- coluna. Toda referência abaixo é qualificada, e esta diretiva é a rede
--- para a próxima linha que alguém acrescentar sem qualificar.
-#variable_conflict use_column
+-- ATENÇÃO: os nomes de RETURNS TABLE viram variáveis e competem com os
+-- nomes de coluna. TODA referência abaixo precisa continuar qualificada
+-- (`f.id`, `f.total`, ...). Já existiu aqui um `#variable_conflict
+-- use_column` como rede, e ele saiu: era a única diretiva desse tipo em
+-- todo o `database/`, e a migration que a carregava chegou ao remoto sem
+-- criar função nenhuma. Qualificar é suficiente e não depende de como o
+-- arquivo é parseado no caminho até o banco.
 BEGIN
     -- SECURITY DEFINER passa por cima da RLS, então a checagem que
     -- `sales_select` faz na tabela precisa ser repetida aqui. Sem ela, esta
