@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from stockflow.domain.enums.sale_status import SaleStatus
 from stockflow.domain.replenishment import suggest_replenishment
 from stockflow.presentation.workers import PageLoader
 from stockflow.presentation.styles import inventory
@@ -157,11 +158,18 @@ class DashboardPage(QWidget):
         products, sales, clients = result
         suggestions = suggest_replenishment(products)
         active = [product for product in products if product.active]
-        total = sum((Decimal(str(sale['total'])) for sale in sales), Decimal(0))
+        # Venda cancelada ou devolvida NÃO é receita (US17). A contagem de
+        # operações continua incluindo todas — o histórico aconteceu — mas o
+        # dinheiro não: somá-lo reportaria faturamento que foi desfeito.
+        vendidas = [
+            sale for sale in sales
+            if not SaleStatus.from_value(sale.get('status') or 'CONCLUIDA').revertida
+        ]
+        total = sum((Decimal(str(sale['total'])) for sale in vendidas), Decimal(0))
         values = (len(active), len(suggestions), money(total), sum(client.active for client in clients))
         details = (f'{sum(int(product.stock) for product in active)} unidades em estoque ativo',
                    f'{sum(item.status == "Crítico" for item in suggestions)} produtos sem estoque',
-                   f'{len(sales)} vendas · todo o histórico', f'{len(clients)} clientes cadastrados')
+                   f'{len(vendidas)} de {len(sales)} vendas valem · todo o histórico', f'{len(clients)} clientes cadastrados')
         for label, value, detail_label, detail in zip(self.metric_values, values, self.metric_details, details):
             label.setText(str(value))
             detail_label.setText(detail)

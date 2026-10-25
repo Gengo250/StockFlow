@@ -110,7 +110,19 @@ CREATE INDEX idx_clients_company_name
 -- enquanto a de cliente é RESTRICT — cliente com venda não some; produto sim,
 -- e a venda guarda o que foi vendido.
 
-CREATE TYPE public.sale_status AS ENUM ('PENDENTE', 'CONCLUIDA', 'CANCELADA');
+-- `DEVOLVIDA` entra na US17, junto com o cancelamento de venda. Os dois
+-- estados são TERMINAIS e chegam por portas diferentes: cancelar anula as
+-- saídas da venda; devolver grava entradas compensatórias e deixa a saída
+-- original de pé. Quem distingue um do outro no registro é `sale_reversals`,
+-- no fim deste arquivo.
+CREATE TYPE public.sale_status AS ENUM (
+    'PENDENTE', 'CONCLUIDA', 'CANCELADA', 'DEVOLVIDA'
+);
+
+-- Cancelar e devolver não são a mesma operação, e a diferença precisa
+-- sobreviver no registro: cancelamento diz que a venda não deveria ter
+-- existido; devolução diz que existiu e a mercadoria voltou.
+CREATE TYPE public.sale_reversal_kind AS ENUM ('CANCELAMENTO', 'DEVOLUCAO');
 
 -- Segue a nomenclatura de movement_kind/movement_status: rótulo em português
 -- no banco, como o resto do domínio desta árvore.
@@ -190,3 +202,30 @@ ALTER TABLE public.stock_movements
     ADD COLUMN sale_id uuid REFERENCES public.sales(id) ON DELETE SET NULL,
     ADD COLUMN sale_item_id uuid REFERENCES public.sale_items(id) ON DELETE SET NULL;
 CREATE INDEX idx_stock_movements_sale ON public.stock_movements (sale_id);
+
+-- Vínculo entre a venda original e a operação que a desfez (US17).
+--
+-- Tabela, e não colunas em `sales`: o vínculo é uma RELAÇÃO com autor,
+-- motivo e instante próprios. Como atributo do cabeçalho ele engordaria a
+-- cada motivo novo e não teria onde guardar autoria separada da autoria da
+-- venda. É o mesmo papel que `sales_log` cumpre para a conclusão.
+CREATE TABLE public.sale_reversals (
+    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- Redundante com sales.company_id, e proposital: a policy escopa por
+    -- esta coluna sem entrar em `sales` a cada linha, como em sale_items.
+    company_id  uuid NOT NULL,
+    sale_id     uuid NOT NULL,
+    kind        public.sale_reversal_kind NOT NULL,
+    reason      text NOT NULL CHECK (btrim(reason) <> ''),
+    -- Sem FK, como sales.created_by: a autoria da reversão precisa
+    -- sobreviver à remoção da conta que a fez.
+    created_by  uuid,
+    created_on  timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (company_id, sale_id)
+        REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
+    -- Reversão é TERMINAL: venda cancelada não vira devolvida depois, nem
+    -- acumula reversões. As funções conferem também, mas é este índice que
+    -- torna a regra verdadeira para quem chegue por outro caminho.
+    UNIQUE (sale_id)
+);
+CREATE INDEX idx_sale_reversals_company ON public.sale_reversals (company_id);

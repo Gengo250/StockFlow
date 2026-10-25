@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from threading import RLock
 from uuid import uuid4
@@ -56,6 +56,37 @@ def resumo_dos_itens(itens):
     return "", f"{len(itens)} itens"
 
 
+def data_da_linha(linha):
+    """A linha guarda a data já formatada para a tela; o filtro precisa de
+    `date`. Aceita os dois formatos que `sale_row` produz."""
+    texto = str(linha.get("data", ""))[:10]
+    for formato in ("%d/%m/%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(texto, formato).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _total_da_linha(linha):
+    try:
+        return Decimal(str(linha.get("total", "0")))
+    except Exception:
+        return Decimal("0")
+
+
+#: Chave e sentido por critério, espelhando o `CASE` de `fn_list_sales`. O
+#: desempate pelo `id` entra em TODOS porque é o que o banco faz: sem ele a
+#: página seguinte repete ou pula linha.
+CHAVE_DE_ORDEM = {
+    "DATA_DESC": (lambda l: (data_da_linha(l) or date.min, str(l["id"])), True),
+    "DATA_ASC": (lambda l: (data_da_linha(l) or date.min, str(l["id"])), False),
+    "VALOR_DESC": (lambda l: (_total_da_linha(l), str(l["id"])), True),
+    "VALOR_ASC": (lambda l: (_total_da_linha(l), str(l["id"])), False),
+    "CLIENTE_ASC": (lambda l: (str(l.get("cliente", "")).casefold(), str(l["id"])), False),
+}
+
+
 class DemoSaleRepository:
     def __init__(self, products=None, movements=None, movement_repository=None):
         from stockflow.infrastructure.repositories.demo_movement_repository import DemoMovementRepository
@@ -90,6 +121,78 @@ class DemoSaleRepository:
     def list_all(self):
         with self._lock:
             return list(self.rows)
+
+    def _combina(self, linha, filtro):
+        """Mesmas regras de `fn_list_sales`, inclusive o período inclusivo.
+
+        Se este método divergir da função SQL, os testes de interface passam
+        a validar um comportamento que o banco não tem.
+        """
+        if filtro.sale_id and not str(linha["id"]).lower().startswith(
+            filtro.sale_id.strip().lower()
+        ):
+            return False
+        if filtro.client_id and linha.get("client_id") != filtro.client_id:
+            return False
+        if filtro.seller_id and linha.get("seller_id") != filtro.seller_id:
+            return False
+        if filtro.status and linha.get("status", "CONCLUIDA") != filtro.status:
+            return False
+        quando = data_da_linha(linha)
+        if filtro.date_from and (quando is None or quando < filtro.date_from):
+            return False
+        # Inclusivo na tela: "até dia 5" inclui o dia 5 inteiro. O adaptador
+        # do Supabase converte para o limite exclusivo que o banco espera.
+        if filtro.date_to and (quando is None or quando > filtro.date_to):
+            return False
+        return True
+
+    def list_page(self, filtro, page, size):
+        from stockflow.application.dto.sale_filter import SalePage
+
+        with self._lock:
+            linhas = [l for l in self.rows if self._combina(l, filtro)]
+        chave, reverso = CHAVE_DE_ORDEM[filtro.sort]
+        linhas.sort(key=chave, reverse=reverso)
+        inicio = (page - 1) * size
+        return SalePage(rows=tuple(linhas[inicio:inicio + size]),
+                        total=len(linhas), page=page, size=size)
+
+    def get(self, sale_id):
+        with self._lock:
+            return next(
+                (dict(l) for l in self.rows if str(l["id"]) == str(sale_id)), None
+            )
+
+    def cancel(self, sale_id, reason):
+        return self._reverter(sale_id, reason, "CANCELAMENTO", "CANCELADA")
+
+    def revert(self, sale_id, reason):
+        return self._reverter(sale_id, reason, "DEVOLUCAO", "DEVOLVIDA")
+
+    def _reverter(self, sale_id, reason, kind, status):
+        """Devolve o saldo pelo repositório de MOVIMENTAÇÃO, nunca escrevendo
+        `Product.stock` direto — o mesmo contrato que o banco impõe."""
+        with self._lock:
+            linha = next(
+                (l for l in self.rows if str(l["id"]) == str(sale_id)), None
+            )
+            if linha is None:
+                raise ValueError("Venda não encontrada.")
+            atual = linha.get("status", "CONCLUIDA")
+            if atual != "CONCLUIDA":
+                # Mesma recusa de `fn_cancel_sale`: reversão é terminal.
+                rotulo = "cancelada" if atual == "CANCELADA" else "devolvida"
+                raise ValueError(f"Esta venda já foi {rotulo}.")
+            self.movements.reverse_sale(sale_id, linha.get("items", []), kind)
+            linha.update(
+                status=status,
+                reversal_kind=kind,
+                reversal_reason=reason,
+                reversal_on=datetime.now().strftime("%d/%m/%Y %H:%M"),
+                reversal_by="Demonstração",
+            )
+            return dict(linha)
 
     def register(self, client, product, total):
         from stockflow.application.dto.sale_item import SaleItemInput
@@ -165,6 +268,17 @@ class DemoSaleRepository:
                 row["discount"] = str(discount)
                 row["status"] = "CONCLUIDA"
                 row["items"] = summary
+                # Mesmos campos que `fn_list_sales` devolve. Sem eles, uma
+                # venda recém-registrada não seria encontrada pelo filtro de
+                # cliente ou de vendedor, e o modo demonstração divergiria do
+                # banco justamente no caminho que o usuário acabou de usar.
+                row["client_id"] = getattr(client, "client_id", None)
+                row["seller_id"] = None
+                row["seller"] = ""
+                row["reversal_kind"] = None
+                row["reversal_reason"] = None
+                row["reversal_on"] = None
+                row["reversal_by"] = ""
                 self.rows.insert(0, row)
                 return row
             except Exception:

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from stockflow.domain.enums.sale_status import SaleStatus
 from stockflow.presentation.workers import PageLoader
 from stockflow.presentation.styles import inventory
 from stockflow.presentation.widgets.form_fields import _card, _combo, _field, _line_edit
@@ -166,7 +167,7 @@ class ReportsPage(QWidget):
         self.search.setPlaceholderText('Buscar código, produto ou categoria…' if stock else 'Buscar venda, cliente ou produto…')
         self.result_title.setText('Posição de estoque' if stock else 'Vendas registradas')
         self.headers = (['Código', 'Produto', 'Categoria', 'Saldo', 'Mínimo', 'Ativo'] if stock
-                        else ['Venda', 'Cliente', 'Produto', 'Valor', 'Data'])
+                        else ['Venda', 'Cliente', 'Produto', 'Valor', 'Data', 'Status'])
         self._set_metrics(('Produtos no resultado', 'Unidades em estoque', 'Produtos ativos') if stock
                           else ('Vendas no resultado', 'Valor total', 'Valor médio por venda'))
         self.error.hide()
@@ -182,7 +183,8 @@ class ReportsPage(QWidget):
                          '' if p.minimum_stock is None else p.minimum_stock, 'Sim' if p.active else 'Não')
                         for p in self.read_products()]
             else:
-                rows = [(s['id'], s['cliente'], s['produto'], s['total'], s['data'])
+                rows = [(s['id'], s['cliente'], s['produto'], s['total'], s['data'],
+                         SaleStatus.from_value(s.get('status') or 'CONCLUIDA').label)
                         for s in self.sales.list_all()]
             return rows
 
@@ -220,8 +222,15 @@ class ReportsPage(QWidget):
             if stock:
                 values = (len(self.rows), sum(int(row[3]) for row in self.rows), sum(row[5] == 'Sim' for row in self.rows))
             else:
-                total = sum((Decimal(str(row[3])) for row in self.rows), Decimal(0))
-                values = (len(self.rows), money(total), money(total / len(self.rows) if self.rows else Decimal(0)))
+                # Linha revertida continua LISTADA — o histórico aconteceu —
+                # mas fica fora do dinheiro, senão o relatório soma receita
+                # que foi desfeita (US17).
+                valem = [row for row in self.rows
+                         if row[5] not in (SaleStatus.CANCELADA.label,
+                                           SaleStatus.DEVOLVIDA.label)]
+                total = sum((Decimal(str(row[3])) for row in valem), Decimal(0))
+                values = (len(self.rows), money(total),
+                          money(total / len(valem) if valem else Decimal(0)))
             for (_, label), value in zip(self.metrics, values):
                 label.setText(str(value))
         self.table.setColumnCount(len(self.headers))

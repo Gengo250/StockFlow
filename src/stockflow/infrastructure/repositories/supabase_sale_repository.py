@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from stockflow.infrastructure.repositories.demo_sale_repository import (
@@ -16,6 +17,34 @@ def _receipt_row(receipt):
     row.update(payment_method=receipt.get("payment_method"),
                discount=str(receipt.get("discount", 0)),
                status=receipt.get("status", "CONCLUIDA"), items=itens)
+    return row
+
+
+def _history_row(linha):
+    """Linha do histórico a partir do retorno de `fn_list_sales`.
+
+    Irmã de `_receipt_row`, que monta o mesmo formato a partir do recibo da
+    gravação. As duas existem porque as fontes diferem; o FORMATO não pode
+    diferir, senão a tabela mostra uma coisa ao gravar e outra ao recarregar.
+    """
+    itens = linha.get("items") or []
+    codigo, descricao = resumo_dos_itens(itens)
+    row = sale_row(linha["id"], linha["client_name"], codigo, descricao,
+                   Decimal(str(linha["total"])), linha["created_on"],
+                   item_count=len(itens))
+    row.update(
+        payment_method=linha.get("payment_method"),
+        discount=str(linha.get("discount", 0)),
+        status=linha.get("status", "CONCLUIDA"),
+        items=itens,
+        client_id=linha.get("client_id"),
+        seller_id=linha.get("seller_id"),
+        seller=linha.get("seller_name") or "",
+        reversal_kind=linha.get("reversal_kind"),
+        reversal_reason=linha.get("reversal_reason"),
+        reversal_on=linha.get("reversal_on"),
+        reversal_by=linha.get("reversal_by_name") or "",
+    )
     return row
 
 
@@ -41,6 +70,48 @@ class SupabaseSaleRepository:
             or []
         )
         return [_receipt_row(row) for row in rows]
+
+    def list_page(self, filtro, page, size):
+        """Uma página de `fn_list_sales`, com o total na mesma leitura."""
+        from stockflow.application.dto.sale_filter import SalePage
+
+        # O banco usa limite superior EXCLUSIVO; a tela pensa inclusivo. A
+        # conversão mora aqui, num lugar só, para que este adaptador e o de
+        # demonstração concordem sobre o que "até dia 5" significa.
+        ate = filtro.date_to + timedelta(days=1) if filtro.date_to else None
+        linhas = self._client.rpc("fn_list_sales", {
+            "p_company_id": self._company_id,
+            "p_sale_id": filtro.sale_id or None,
+            "p_from": filtro.date_from.isoformat() if filtro.date_from else None,
+            "p_to": ate.isoformat() if ate else None,
+            "p_client_id": filtro.client_id or None,
+            "p_seller_id": filtro.seller_id or None,
+            "p_status": filtro.status or None,
+            "p_sort": filtro.sort,
+            "p_limit": size,
+            "p_offset": (page - 1) * size,
+        }).execute().data or []
+        # `total_count` vem repetido em toda linha (`count(*) OVER ()`); sem
+        # linha nenhuma o total é zero, e não "desconhecido".
+        total = int(linhas[0]["total_count"]) if linhas else 0
+        return SalePage(rows=tuple(_history_row(l) for l in linhas),
+                        total=total, page=page, size=size)
+
+    def get(self, sale_id):
+        from stockflow.application.dto.sale_filter import SaleFilter
+
+        pagina = self.list_page(SaleFilter(sale_id=str(sale_id)), 1, 1)
+        return pagina.rows[0] if pagina.rows else None
+
+    def cancel(self, sale_id, reason):
+        return self._client.rpc("fn_cancel_sale", {
+            "p_sale_id": str(sale_id), "p_reason": reason,
+        }).execute().data
+
+    def revert(self, sale_id, reason):
+        return self._client.rpc("fn_return_sale", {
+            "p_sale_id": str(sale_id), "p_reason": reason,
+        }).execute().data
 
     def register(self, client, product, total):
         rows = (

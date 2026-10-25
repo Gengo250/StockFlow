@@ -1,10 +1,12 @@
 from decimal import Decimal
 
 import qtawesome as qta
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QDate, Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QDateEdit,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -45,9 +47,36 @@ from stockflow.infrastructure.repositories.demo_movement_repository import (
     DemoMovementRepository,
 )
 from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
+from stockflow.application.dto.sale_filter import (
+    ORDENACOES,
+    TAMANHO_PADRAO,
+    SaleFilter,
+)
+from stockflow.domain.enums.sale_reversal_kind import SaleReversalKind
+from stockflow.domain.enums.sale_status import SaleStatus
 from stockflow.domain.permissions import can_manage_clients
 from stockflow.presentation.workers import executar_agora
 
+
+
+#: Cor do texto e do fundo do chip por situação, no molde de
+#: `movimentacoes.py`. Cancelada e devolvida precisam ser distinguíveis
+#: entre si, e não só de concluída: são operações diferentes.
+CORES_DE_STATUS = {
+    SaleStatus.CONCLUIDA.label: ("#166534", "#DCFCE7"),
+    SaleStatus.CANCELADA.label: ("#8A3B3B", "#FBE9E9"),
+    SaleStatus.DEVOLVIDA.label: ("#92400E", "#FEF3C7"),
+    SaleStatus.PENDENTE.label: ("#334155", "#E2E8F0"),
+}
+
+PAGINACAO_BUTTON_QSS = """
+QPushButton {
+    background: #FFFFFF; color: #334155; border: 1px solid #CBD5F5;
+    border-radius: 8px; padding: 0 14px; font-size: 13px;
+}
+QPushButton:hover:enabled { background: #EEF2FF; }
+QPushButton:disabled { color: #94A3B8; border-color: #E2E8F0; }
+"""
 
 
 def _em_reais(valor):
@@ -60,6 +89,8 @@ class VendasPage(QWidget):
     """Checkout pelo catálogo, com quantidade, pagamento e desconto."""
 
     sale_registered = Signal(object)
+    #: Identificador da venda cujo detalhe o usuário pediu.
+    detalhes_requested = Signal(str)
 
     def __init__(self, products=None, product_selection=None, parent=None, service=None, session=None, *, autoload=True):
         """Monta a tela sobre o catálogo compartilhado `code -> Product`.
@@ -128,6 +159,15 @@ class VendasPage(QWidget):
         self.client_repository = self.service.clients
         self.clientes = []
         self.historico_vendas = []
+        # Estado da consulta do histórico (US17). `_pagina_atual` é base-um,
+        # como o rótulo que o usuário lê; `_pagina` guarda o último
+        # `SalePage` devolvido, de onde saem o total e o número de páginas.
+        self._pagina_atual = 1
+        self._pagina = None
+        # O período só entra no filtro quando o usuário escolhe um: as duas
+        # `QDateEdit` nascem preenchidas com hoje, e tratá-las como ativas
+        # desde o início esconderia todo o histórico anterior a hoje.
+        self.filtro_periodo_ativo = False
         # Carrinho da venda em montagem (US10). Vazio é o estado normal: a
         # venda de um produto só continua sendo feita direto no formulário,
         # sem obrigar a passar pelo carrinho para vender uma coisa.
@@ -311,17 +351,23 @@ class VendasPage(QWidget):
         table_card = _card("saleHistory")
         table_layout = table_card.layout()
         table_layout.addLayout(_card_header("fa5s.history", "Histórico de vendas", "Consulte os clientes e produtos registrados em cada venda."))
-        self.search_input = _line_edit("Buscar venda, cliente ou produto…")
-        self.search_input.setAccessibleName("Buscar vendas")
+        # A busca livre continua, mas agora diz o que faz: ela filtra a
+        # PÁGINA carregada, enquanto os campos abaixo consultam o banco.
+        # Sem a distinção no rótulo, o usuário conclui que a busca não
+        # encontra uma venda que está só na página seguinte.
+        self.search_input = _line_edit("Buscar nesta página…")
+        self.search_input.setAccessibleName("Buscar nesta página de vendas")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.addAction(qta.icon("fa5s.search", color="#94A3B8"), QLineEdit.LeadingPosition)
         self.search_input.textChanged.connect(self._filter_history)
         table_layout.addWidget(self.search_input)
+        table_layout.addLayout(self._criar_filtros_do_historico())
 
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
+        self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(
-            ["ID Venda", "Cliente Associado", "Produto", "Valor Total", "Data"]
+            ["ID Venda", "Cliente Associado", "Produto", "Valor Total", "Data",
+             "Status", "Detalhes"]
         )
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.setStyleSheet(inventory.TABLE_QSS)
@@ -356,11 +402,214 @@ class VendasPage(QWidget):
         self.result_count = QLabel()
         self.result_count.setStyleSheet("color: #64748B; font-size: 12px;")
         table_layout.addWidget(self.result_count)
+        table_layout.addLayout(self._criar_controles_de_pagina())
         layout.addWidget(table_card, 1)
 
+        self._recarregar_filtro_de_clientes()
         self.atualizar_tabela_historico()
+        self._atualizar_paginacao()
         self._mostrar_estado_da_carga()
         self.apply_session(session)
+
+    def _criar_filtros_do_historico(self):
+        """Filtros que consultam o BANCO: ID, período, cliente, vendedor e
+        situação, mais a ordenação (US17/SCRUM-219).
+
+        Toda mudança aqui volta para a página 1 e dispara nova consulta.
+        Ficar na página 5 de um filtro novo mostraria uma tela vazia que
+        parece "não há vendas", quando o que houve foi deslocamento sem
+        resultado.
+        """
+        linha = QHBoxLayout()
+        linha.setSpacing(8)
+
+        self.filtro_id = _line_edit("ID da venda")
+        self.filtro_id.setAccessibleName("Filtrar por identificador da venda")
+        self.filtro_id.setClearButtonEnabled(True)
+        self.filtro_id.textChanged.connect(self._filtro_mudou)
+        linha.addWidget(self.filtro_id, 2)
+
+        hoje = QDate.currentDate()
+        self.filtro_inicio = QDateEdit(hoje)
+        self.filtro_inicio.setAccessibleName("Início do período")
+        self.filtro_fim = QDateEdit(hoje)
+        self.filtro_fim.setAccessibleName("Fim do período")
+        for campo in (self.filtro_inicio, self.filtro_fim):
+            campo.setCalendarPopup(True)
+            campo.setDisplayFormat("dd/MM/yyyy")
+            campo.setFixedHeight(38)
+            # Mexer numa data LIGA o período: é a única leitura possível de
+            # alguém escolhendo uma data, e exigir um botão "aplicar" só para
+            # isso faria o campo parecer quebrado.
+            campo.dateChanged.connect(self._periodo_mudou)
+            linha.addWidget(campo, 1)
+
+        self.filtro_cliente = QComboBox()
+        self.filtro_cliente.setAccessibleName("Filtrar por cliente")
+        self.filtro_cliente.setFixedHeight(38)
+        self.filtro_cliente.currentIndexChanged.connect(self._filtro_mudou)
+        linha.addWidget(self.filtro_cliente, 2)
+
+        self.filtro_vendedor = QComboBox()
+        self.filtro_vendedor.setAccessibleName("Filtrar por vendedor")
+        self.filtro_vendedor.setFixedHeight(38)
+        self.filtro_vendedor.currentIndexChanged.connect(self._filtro_mudou)
+        linha.addWidget(self.filtro_vendedor, 2)
+
+        self.filtro_status = QComboBox()
+        self.filtro_status.setAccessibleName("Filtrar por situação")
+        self.filtro_status.setFixedHeight(38)
+        self.filtro_status.addItem("Todos os status", None)
+        for situacao in SaleStatus:
+            self.filtro_status.addItem(situacao.label, situacao.value)
+        self.filtro_status.currentIndexChanged.connect(self._filtro_mudou)
+        linha.addWidget(self.filtro_status, 2)
+
+        self.ordenacao_combo = QComboBox()
+        self.ordenacao_combo.setAccessibleName("Ordenar vendas")
+        self.ordenacao_combo.setFixedHeight(38)
+        for codigo, rotulo in ORDENACOES:
+            self.ordenacao_combo.addItem(rotulo, codigo)
+        self.ordenacao_combo.currentIndexChanged.connect(self._filtro_mudou)
+        linha.addWidget(self.ordenacao_combo, 2)
+
+        self.limpar_filtros_button = QPushButton("Limpar filtros")
+        self.limpar_filtros_button.setFixedHeight(38)
+        self.limpar_filtros_button.setStyleSheet(inventory.FILTER_QSS)
+        self.limpar_filtros_button.setCursor(Qt.PointingHandCursor)
+        self.limpar_filtros_button.clicked.connect(self.limpar_filtros)
+        linha.addWidget(self.limpar_filtros_button, 1)
+
+        self._recarregar_filtro_de_clientes()
+        return linha
+
+    def _criar_controles_de_pagina(self):
+        """Navegação de página: ‹ Anterior · página X de Y · Próximo ›."""
+        linha = QHBoxLayout()
+        linha.setSpacing(8)
+
+        self.anterior_button = QPushButton("‹ Anterior")
+        self.anterior_button.setAccessibleName("Página anterior de vendas")
+        self.anterior_button.clicked.connect(
+            lambda: self.ir_para_pagina(self._pagina_atual - 1)
+        )
+        self.paginacao_label = QLabel()
+        self.paginacao_label.setAlignment(Qt.AlignCenter)
+        self.paginacao_label.setStyleSheet("color: #64748B; font-size: 13px;")
+        self.paginacao_label.setAccessibleName("Informação de paginação de vendas")
+        self.proximo_button = QPushButton("Próximo ›")
+        self.proximo_button.setAccessibleName("Próxima página de vendas")
+        self.proximo_button.clicked.connect(
+            lambda: self.ir_para_pagina(self._pagina_atual + 1)
+        )
+        for botao in (self.anterior_button, self.proximo_button):
+            botao.setFixedHeight(32)
+            botao.setStyleSheet(PAGINACAO_BUTTON_QSS)
+        linha.addWidget(self.anterior_button)
+        linha.addWidget(self.paginacao_label)
+        linha.addWidget(self.proximo_button)
+        linha.addStretch()
+        return linha
+
+    def _recarregar_filtro_de_clientes(self):
+        """Clientes e vendedores presentes, com a escolha atual preservada.
+
+        O filtro de cliente oferece TODOS os clientes conhecidos, inclusive
+        inativos: o histórico de um cliente desativado continua existindo, e
+        escondê-lo do filtro tiraria da tela a resposta para "o que esse
+        cliente comprou". É o oposto do combo de venda nova, que só oferece
+        ativos.
+        """
+        for combo, chave, rotulo, vazio in (
+            (self.filtro_cliente, "client_id", "cliente", "Todos os clientes"),
+            (self.filtro_vendedor, "seller_id", "seller", "Todos os vendedores"),
+        ):
+            escolhido = combo.currentData()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem(vazio, None)
+            vistos = {}
+            if chave == "client_id":
+                for cliente in self.clientes:
+                    vistos.setdefault(cliente["id"], cliente["nome"])
+            for venda in self.historico_vendas:
+                identificador = venda.get(chave)
+                if identificador:
+                    vistos.setdefault(identificador, venda.get(rotulo) or identificador)
+            for identificador, nome in sorted(vistos.items(), key=lambda par: str(par[1]).casefold()):
+                combo.addItem(str(nome), identificador)
+            indice = combo.findData(escolhido) if escolhido else 0
+            combo.setCurrentIndex(indice if indice >= 0 else 0)
+            combo.blockSignals(False)
+
+    def filtro_atual(self) -> SaleFilter:
+        """Lê os widgets e monta o filtro. Fonte única do que está filtrado.
+
+        A tela NÃO guarda uma cópia do filtro: guardar os dois leva a eles
+        divergirem, e o sintoma é uma lista que não corresponde aos campos
+        preenchidos.
+        """
+        return SaleFilter(
+            sale_id=self.filtro_id.text().strip() or None,
+            date_from=(self.filtro_inicio.date().toPython()
+                       if self.filtro_periodo_ativo else None),
+            date_to=(self.filtro_fim.date().toPython()
+                     if self.filtro_periodo_ativo else None),
+            client_id=self.filtro_cliente.currentData(),
+            seller_id=self.filtro_vendedor.currentData(),
+            status=self.filtro_status.currentData(),
+            sort=self.ordenacao_combo.currentData() or "DATA_DESC",
+        )
+
+    def _periodo_mudou(self, *_):
+        self.filtro_periodo_ativo = True
+        self._filtro_mudou()
+
+    def _filtro_mudou(self, *_):
+        self.ir_para_pagina(1)
+
+    def ir_para_pagina(self, numero):
+        if self._loading or numero < 1:
+            return
+        self._pagina_atual = numero
+        self.reload_sales()
+
+    def limpar_filtros(self):
+        """Zera TODOS os recortes de uma vez, numa consulta só.
+
+        Os sinais ficam bloqueados durante a limpeza porque cada widget
+        dispararia a sua própria consulta, e o usuário veria a lista piscar
+        cinco vezes antes de assentar.
+        """
+        widgets = (self.filtro_id, self.filtro_cliente, self.filtro_vendedor,
+                   self.filtro_status, self.ordenacao_combo,
+                   self.filtro_inicio, self.filtro_fim)
+        for widget in widgets:
+            widget.blockSignals(True)
+        self.filtro_id.clear()
+        for combo in (self.filtro_cliente, self.filtro_vendedor,
+                      self.filtro_status, self.ordenacao_combo):
+            combo.setCurrentIndex(0)
+        hoje = QDate.currentDate()
+        self.filtro_inicio.setDate(hoje)
+        self.filtro_fim.setDate(hoje)
+        for widget in widgets:
+            widget.blockSignals(False)
+        self.filtro_periodo_ativo = False
+        self.search_input.clear()
+        self.ir_para_pagina(1)
+
+    def _atualizar_paginacao(self):
+        pagina = self._pagina
+        total_paginas = pagina.pages if pagina else 1
+        atual = pagina.page if pagina else 1
+        self.paginacao_label.setText(f"Página {atual} de {total_paginas}")
+        self.anterior_button.setEnabled(
+            bool(pagina) and pagina.has_previous and not self._loading
+        )
+        self.proximo_button.setEnabled(
+            bool(pagina) and pagina.has_next and not self._loading
+        )
 
     def apply_session(self, session):
         self.session = session
@@ -375,19 +624,36 @@ class VendasPage(QWidget):
         sucesso: falha transitória não pode deixar a tela marcada como
         quebrada para sempre.
         """
+        # As duas leituras falham SEPARADAMENTE. Juntá-las num try só fazia
+        # uma consulta de histórico quebrada esvaziar também o combo de
+        # clientes — justamente o que a tela precisa para registrar a venda
+        # que o usuário veio fazer.
         try:
             self.clientes = [
                 {"id": c.client_id, "nome": c.name, "status": c.status}
                 for c in self.service.clients.list_all()
             ]
-            self.historico_vendas = self.service.list_sales()
+        except Exception as erro:
+            self.clientes = []
+            self.last_error = erro
+
+        try:
+            # Filtro PADRÃO, e não `filtro_atual()`: este método roda no
+            # construtor, antes de os widgets de filtro existirem.
+            pagina = self.service.list_sales(
+                self.session, SaleFilter(), 1, TAMANHO_PADRAO
+            )
         except Exception as erro:
             self.last_error = erro
-            # Listas vazias mantêm a tela utilizável; o aviso é que diz ao
+            # Lista vazia mantém a tela utilizável; o aviso é que diz ao
             # usuário que o vazio não é "não há vendas".
-            self.clientes = []
             self.historico_vendas = []
+            self._pagina = None
             return False
+
+        self._pagina = pagina
+        self._pagina_atual = pagina.page
+        self.historico_vendas = list(pagina.rows)
         self.last_error = None
         return True
 
@@ -418,16 +684,23 @@ class VendasPage(QWidget):
         self.apply_session(self.session)
 
         def loaded(result):
-            clientes, historico = result
+            clientes, pagina = result
             self.clientes = [{"id": c.client_id, "nome": c.name, "status": c.status} for c in clientes]
-            self.historico_vendas = historico
+            self._pagina = pagina
+            self._pagina_atual = pagina.page
+            self.historico_vendas = list(pagina.rows)
             self.last_error = None
             self.recarregar_clientes_disponiveis()
+            self._recarregar_filtro_de_clientes()
             self.atualizar_tabela_historico()
             finish()
 
         def failed(error):
             self.last_error = error
+            # A página velha não pode sobreviver a uma consulta que falhou:
+            # ela mostraria resultado de um filtro que não é mais o da tela.
+            self._pagina = None
+            self.historico_vendas = []
             finish()
 
         def finish():
@@ -435,9 +708,18 @@ class VendasPage(QWidget):
             self.retry_button.setEnabled(True)
             self.retry_button.setText("Atualizar histórico e clientes")
             self.apply_session(self.session)
+            self._atualizar_paginacao()
             self._mostrar_estado_da_carga()
 
-        self.execute(lambda: (self.service.clients.list_all(), self.service.list_sales()), loaded, failed)
+        session, filtro, numero = self.session, self.filtro_atual(), self._pagina_atual
+        self.execute(
+            lambda: (
+                self.service.clients.list_all(),
+                self.service.list_sales(session, filtro, numero, TAMANHO_PADRAO),
+            ),
+            loaded,
+            failed,
+        )
 
     def recarregar_clientes_disponiveis(self):
         """Preenche o combo apenas com clientes ativos para novas associações.
@@ -781,11 +1063,48 @@ class VendasPage(QWidget):
             self.table.setItem(row, 2, QTableWidgetItem(venda["produto"]))
             self.table.setItem(row, 3, QTableWidgetItem(venda["valor"]))
             self.table.setItem(row, 4, QTableWidgetItem(venda["data"]))
+
+            # Situação com chip colorido (US17/SCRUM-222). Sem esta coluna,
+            # uma venda cancelada era desenhada idêntica a uma concluída, e o
+            # histórico não respondia "esta venda ainda vale?".
+            situacao = SaleStatus.from_value(venda.get("status") or "CONCLUIDA")
+            celula = QTableWidgetItem(situacao.label)
+            celula.setTextAlignment(Qt.AlignCenter)
+            cor, fundo = CORES_DE_STATUS[situacao.label]
+            celula.setForeground(QColor(cor))
+            celula.setBackground(QColor(fundo))
+            if situacao.revertida and venda.get("reversal_reason"):
+                celula.setToolTip(
+                    f"{SaleReversalKind.from_value(venda['reversal_kind']).label}: "
+                    f"{venda['reversal_reason']}"
+                )
+            self.table.setItem(row, 5, celula)
+
             detail = "\n".join(
                 f"{item['quantity']}x {item['product_name']}" for item in venda.get("items", [])
             )
             self.table.item(row, 2).setToolTip(detail or venda["produto"])
+            self.table.setCellWidget(row, 6, self._botao_de_detalhes(venda["id"]))
         self._filter_history()
+
+    def _botao_de_detalhes(self, sale_id):
+        """Abre a venda. A listagem NÃO oferece cancelar nem devolver.
+
+        Ação destrutiva mora no detalhe (US17/SCRUM-223): obrigar o
+        administrador a abrir a venda antes de revertê-la é a distinção
+        entre consultar e operar, e tira a ação de uma tabela densa onde ela
+        estaria a um clique de distância.
+        """
+        botao = QPushButton()
+        botao.setIcon(qta.icon("fa5s.eye", color="#1D4ED8"))
+        botao.setToolTip("Ver detalhes da venda")
+        botao.setAccessibleName(f"Ver detalhes da venda {sale_id}")
+        botao.setCursor(Qt.PointingHandCursor)
+        botao.setFlat(True)
+        botao.clicked.connect(
+            lambda _=False, i=sale_id: self.detalhes_requested.emit(str(i))
+        )
+        return botao
 
     def _filter_history(self):
         search = self.search_input.text().strip().casefold()
@@ -798,9 +1117,16 @@ class VendasPage(QWidget):
             )
             self.table.setRowHidden(row, not matches)
             visible += matches
-        self.result_count.setText(f"{visible} de {self.table.rowCount()} vendas exibidas")
-        self.empty_label.setText(
-            "Nenhuma venda encontrada para a busca."
-            if self.historico_vendas else "Nenhuma venda registrada nesta empresa."
+        total = self._pagina.total if self._pagina else self.table.rowCount()
+        # Diz as DUAS grandezas: o que esta página mostra e quantas vendas o
+        # filtro encontrou. Só a primeira faria o usuário concluir que o
+        # histórico inteiro tem o tamanho da página.
+        self.result_count.setText(
+            f"{visible} nesta página · {total} venda(s) no filtro"
         )
+        if self.filtro_atual().ativo or self.search_input.text().strip():
+            vazio = "Nenhuma venda encontrada para estes filtros."
+        else:
+            vazio = "Nenhuma venda registrada nesta empresa."
+        self.empty_label.setText(vazio)
         self.empty_label.setVisible(self.last_error is None and visible == 0)

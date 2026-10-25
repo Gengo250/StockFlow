@@ -38,6 +38,25 @@ class FonteIndisponivel:
         self.consultas += 1
         raise RuntimeError(self._erro)
 
+    def list_page(self, filtro, page, size):
+        """A consulta do histórico desde a US17. Falha como `list_all`.
+
+        O duplo acompanha `SaleRepository`: se ele implementar só o método
+        antigo, a tela estoura com `AttributeError` em vez do erro da fonte,
+        e o teste passaria a provar outra coisa.
+        """
+        self.consultas += 1
+        raise RuntimeError(self._erro)
+
+    def get(self, sale_id):
+        raise RuntimeError(self._erro)
+
+    def cancel(self, sale_id, reason):
+        raise RuntimeError(self._erro)
+
+    def revert(self, sale_id, reason):
+        raise RuntimeError(self._erro)
+
     def register(self, *args, **kwargs):
         raise RuntimeError(self._erro)
 
@@ -122,7 +141,12 @@ def test_vendas_volta_ao_normal_quando_a_fonte_se_recupera(janela, monkeypatch):
     assert window.vendas_page.last_error is not None
 
     # A fonte se recupera: a próxima leitura devolve histórico de verdade.
+    from stockflow.application.dto.sale_filter import SalePage
+
     fonte.list_all = lambda: []
+    fonte.list_page = lambda filtro, page, size: SalePage(
+        rows=(), total=0, page=page, size=size
+    )
     window.vendas_page.reload_sales()
 
     assert window.vendas_page.last_error is None

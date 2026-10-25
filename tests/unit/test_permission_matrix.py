@@ -113,6 +113,7 @@ POLICY_DE_LEITURA = {
     "fornecedores": "suppliers_select",
     "clientes": "clients_select",
     "vendas": "sales_select",
+    "vendas_reversao": "sale_reversals_select",
 }
 
 AREAS = sorted(PERMISSION_MATRIX)
@@ -257,3 +258,16 @@ def test_a_funcao_de_ajuste_exige_a_mesma_alcada_das_movimentacoes():
         f"fn_register_adjustment exige {sorted(do_sql)}, mas a área "
         f"movimentacoes grava {sorted(PERMISSION_MATRIX['movimentacoes'].gravar)}"
     )
+
+
+def test_us17_reverter_venda_e_so_do_admin():
+    """Registrar venda é ADMIN+SELLER; desfazer é só do ADMIN.
+
+    Quem vende não apaga o efeito da própria venda sem supervisão.
+    """
+    assert PERMISSION_MATRIX["vendas_reversao"].gravar == frozenset({ADMIN})
+    assert PERMISSION_MATRIX["vendas"].gravar == frozenset({ADMIN, SELLER})
+
+
+def test_us17_consultar_continua_sendo_de_todos_os_papeis():
+    assert PERMISSION_MATRIX["vendas_reversao"].ver == TODOS_OS_PAPEIS

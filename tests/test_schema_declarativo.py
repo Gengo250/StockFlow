@@ -16,6 +16,8 @@ Não há Postgres neste ambiente, então a verificação é estática.
 import re
 from pathlib import Path
 
+import pytest
+
 RAIZ = Path(__file__).resolve().parents[1]
 CODE = RAIZ / "database" / "code"
 SCHEMAS = RAIZ / "database" / "supabase" / "schemas"
@@ -661,3 +663,225 @@ def test_h09_consulta_do_historico_esta_na_allowlist_de_execute():
     assert "'fn_list_price_edits'" in allowlist, (
         "função fora da allowlist aplica no banco e quebra o app em runtime"
     )
+
+
+# --------------------------------------------------------------------- US17
+# A reversão de venda é uma RELAÇÃO, não um atributo do cabeçalho. Estes
+# testes cobram que a tabela de vínculo e os dois enums estejam na FONTE
+# declarativa: `code/` é o que o declarative sync diffa contra o banco, e o
+# que ficar de fora dele o diff seguinte propõe derrubar.
+
+
+def corpo_da_tabela(nome: str) -> str:
+    """Texto entre os parênteses de um CREATE TABLE em database/code."""
+    achado = re.search(
+        rf"CREATE TABLE\s+{SE_NAO_EXISTIR}public\.{nome}\s*\((.*?)\n\);",
+        CODE_SQL,
+        re.S,
+    )
+    return achado.group(1) if achado else ""
+
+
+def test_us17_status_de_venda_inclui_devolvida():
+    """A fonte declarativa descreve o ESTADO FINAL do tipo.
+
+    `code/` é aplicado em banco limpo (`verify_postgres.py --schema`), onde
+    o tipo nasce com os quatro rótulos. Quem precisa de `ALTER TYPE` é a
+    migration, que roda sobre um remoto que já tem o tipo com três.
+    """
+    achado = re.search(
+        r"CREATE TYPE public\.sale_status AS ENUM\s*\((.*?)\)", CODE_SQL, re.S
+    )
+    assert achado, "tipo public.sale_status não declarado em database/code"
+    assert set(re.findall(r"'(\w+)'", achado.group(1))) == {
+        "PENDENTE",
+        "CONCLUIDA",
+        "CANCELADA",
+        "DEVOLVIDA",
+    }
+
+
+def test_us17_migration_acrescenta_devolvida_ao_tipo_existente():
+    """`CREATE TYPE` no remoto falharia: o tipo já existe com três rótulos."""
+    migration = (
+        MIGRATIONS / "20261024120000_us17_sales_history.sql"
+    ).read_text(encoding="utf-8")
+    assert (
+        "ALTER TYPE public.sale_status ADD VALUE IF NOT EXISTS 'DEVOLVIDA'"
+        in migration
+    )
+
+
+def test_us17_especie_de_reversao_tem_os_dois_valores():
+    achado = re.search(
+        r"CREATE TYPE public\.sale_reversal_kind AS ENUM\s*\((.*?)\)",
+        CODE_SQL,
+        re.S,
+    )
+    assert achado, "tipo public.sale_reversal_kind não declarado em database/code"
+    assert set(re.findall(r"'(\w+)'", achado.group(1))) == {
+        "CANCELAMENTO",
+        "DEVOLUCAO",
+    }
+
+
+def test_us17_reversao_e_terminal_por_indice_unico():
+    """Venda revertida não vira outra coisa depois.
+
+    A função confere também, mas o UNIQUE é o que torna a regra verdadeira
+    para quem chegue por outro caminho.
+    """
+    corpo = corpo_da_tabela("sale_reversals")
+    assert corpo, "tabela sale_reversals não encontrada em database/code"
+    assert "UNIQUE (sale_id)" in corpo
+
+
+def test_us17_reversao_escopa_por_coluna_propria():
+    corpo = corpo_da_tabela("sale_reversals")
+    assert "company_id  uuid NOT NULL" in corpo
+    assert "REFERENCES public.sales (company_id, id) ON DELETE CASCADE" in corpo
+
+
+def test_us17_reversao_exige_motivo_nao_vazio():
+    corpo = corpo_da_tabela("sale_reversals")
+    assert "CHECK (btrim(reason) <> '')" in corpo
+
+
+def test_us17_aplicacao_nao_escreve_na_tabela_de_reversao():
+    """Mesma proteção de `sales`: só SELECT. A escrita é das funções."""
+    politicas = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    concedido = politicas.split("GRANT SELECT ON", 1)[1].split(";", 1)[0]
+    assert "public.sale_reversals" in concedido
+    assert "CREATE POLICY sale_reversals_select ON public.sale_reversals" in politicas
+    # Tolerante ao alinhamento: este arquivo alinha a coluna do ENABLE.
+    assert re.search(
+        r"ALTER TABLE public\.sale_reversals\s+ENABLE ROW LEVEL SECURITY", politicas
+    )
+
+
+def corpo_da_funcao(nome: str) -> str:
+    """Texto de uma função em database/code, do seu CREATE até o próximo."""
+    achado = re.search(
+        rf"CREATE OR REPLACE FUNCTION public\.{nome}\b(.*?)"
+        r"(?=CREATE OR REPLACE FUNCTION|\Z)",
+        CODE_SQL,
+        re.S,
+    )
+    return achado.group(1) if achado else ""
+
+
+def test_us17_consulta_repete_a_checagem_da_policy():
+    """SECURITY DEFINER passa por cima da RLS.
+
+    Sem `fn_is_member` na entrada, esta função vira a porta dos fundos do
+    histórico — a mesma lição já registrada em fn_list_price_edits.
+    """
+    corpo = corpo_da_funcao("fn_list_sales")
+    assert corpo, "fn_list_sales não declarada em database/code"
+    assert "SECURITY DEFINER" in corpo
+    assert "SET search_path = public" in corpo
+    assert "fn_is_member(p_company_id)" in corpo
+
+
+def test_us17_consulta_devolve_o_total_na_mesma_leitura():
+    """Uma segunda contagem poderia divergir da página sob concorrência."""
+    assert "count(*) OVER ()" in corpo_da_funcao("fn_list_sales")
+
+
+def test_us17_consulta_desempata_a_ordem_pelo_id():
+    """Sem desempate, a página seguinte repete ou pula linha."""
+    assert re.search(r"ORDER BY.*?f\.id DESC", corpo_da_funcao("fn_list_sales"), re.S)
+
+
+def test_us17_ordenacao_nunca_e_sql_dinamico():
+    """Texto do chamador virando ORDER BY é injeção."""
+    corpo = corpo_da_funcao("fn_list_sales")
+    assert "EXECUTE " not in corpo
+    for criterio in ("DATA_DESC", "DATA_ASC", "VALOR_DESC", "VALOR_ASC", "CLIENTE_ASC"):
+        assert criterio in corpo, criterio
+
+
+def test_us17_todos_os_filtros_sao_opcionais_e_combinaveis():
+    corpo = corpo_da_funcao("fn_list_sales")
+    for parametro, coluna in (
+        ("p_from", "s.created_on >="),
+        ("p_to", "s.created_on <"),
+        ("p_client_id", "s.client_id ="),
+        ("p_seller_id", "s.created_by ="),
+        ("p_status", "s.status ="),
+    ):
+        # Tolerante ao alinhamento em coluna usado no WHERE da função.
+        assert re.search(
+            rf"{parametro}\s+IS NULL OR {re.escape(coluna)}", corpo
+        ), parametro
+
+
+def test_us17_consulta_limita_o_tamanho_da_pagina():
+    """Página sem teto é `list_all` com outro nome."""
+    corpo = corpo_da_funcao("fn_list_sales")
+    assert "p_limit <= 0 OR p_limit > 200" in corpo
+
+
+def test_us17_consulta_esta_na_allowlist_de_execute():
+    allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    assert "'fn_list_sales'" in allowlist, (
+        "função fora da allowlist aplica no banco e quebra o app em runtime"
+    )
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_resolve_a_empresa_pelo_dado_persistido(nome):
+    """Padrão do projeto: tenant vem da linha, nunca do chamador."""
+    corpo = corpo_da_funcao(nome)
+    assert corpo, f"{nome} não declarada em database/code"
+    assert "SECURITY DEFINER" in corpo
+    assert "SET search_path = public" in corpo
+    assert re.search(r"FROM public\.sales s\s+WHERE s\.id = p_sale_id FOR UPDATE", corpo)
+    assert "p_company_id" not in corpo
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_e_so_do_admin(nome):
+    """Uma lista de papéis só: o teste de espelhamento da matriz exige isso."""
+    corpo = corpo_da_funcao(nome)
+    assert "fn_has_role(v_company, ARRAY['ADMIN']::public.user_role[])" in corpo
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_so_aceita_venda_concluida(nome):
+    assert "v_status <> 'CONCLUIDA'" in corpo_da_funcao(nome)
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_exige_motivo(nome):
+    assert "v_reason = ''" in corpo_da_funcao(nome)
+
+
+def test_us17_cancelamento_anula_a_saida_da_venda():
+    """Cancelar devolve o saldo pelo recálculo, que é o padrão do projeto."""
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    assert "UPDATE public.stock_movements" in corpo
+    assert "SET status = 'CANCELADA'" in corpo
+    assert "INSERT INTO public.stock_movements" not in corpo
+
+
+def test_us17_devolucao_grava_entrada_compensatoria():
+    """Devolver preserva que a venda aconteceu: a saída original fica."""
+    corpo = corpo_da_funcao("fn_return_sale")
+    assert "INSERT INTO public.stock_movements" in corpo
+    assert "'ENTRADA'" in corpo
+    assert "'DEVOLUCAO_VENDA - venda '" in corpo
+    assert "UPDATE public.stock_movements" not in corpo
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_nunca_escreve_o_saldo_direto(nome):
+    """Saldo é a soma das movimentações confirmadas; escrevê-lo direto seria
+    sobrescrito pelo recálculo do trigger na movimentação seguinte."""
+    assert "UPDATE public.products" not in corpo_da_funcao(nome)
+
+
+@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
+def test_us17_reversao_esta_na_allowlist_de_execute(nome):
+    allowlist = (CODE / "policies" / "01_security.sql").read_text(encoding="utf-8")
+    assert f"'{nome}'" in allowlist

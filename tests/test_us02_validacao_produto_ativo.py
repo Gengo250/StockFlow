@@ -203,8 +203,10 @@ def test_formulario_limpa_o_produto_apos_a_venda(vendas):
 # ------------------------------------------- histórico: o passado não muda
 
 def test_historico_inicial_exibe_os_produtos_associados(vendas):
+    # Da mais recente para a mais antiga (SCRUM-218): Mouse é de 28/09 e
+    # Cabo HDMI é de 10/08.
     assert coluna(vendas, PRODUTO_COLUMN) == [
-        "Cabo HDMI 2m", "Mouse ergonômico",
+        "Mouse ergonômico", "Cabo HDMI 2m",
     ]
 
 
@@ -219,7 +221,10 @@ def test_desativar_produto_nao_apaga_a_venda_antiga(vendas, catalogo):
     vendas.reload_products()
 
     assert "Mouse ergonômico" in coluna(vendas, PRODUTO_COLUMN)
-    assert coluna(vendas, CLIENTE_COLUMN) == ["Patrícia Lima", "Ana Ferreira"]
+    # Ordem cronológica decrescente (SCRUM-218): a venda de Ana é de 28/09 e
+    # a de Patrícia é de 10/08. Até a US17 a listagem saía na ordem de
+    # inserção, e este teste fixava essa ordem sem que ninguém a decidisse.
+    assert coluna(vendas, CLIENTE_COLUMN) == ["Ana Ferreira", "Patrícia Lima"]
 
 
 def test_desativar_produto_depois_da_venda_nao_reescreve_o_historico(vendas, catalogo):
