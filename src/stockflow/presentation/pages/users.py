@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QLineEdit,
@@ -31,8 +33,8 @@ class UsersPage(QWidget):
         self.setObjectName("usersPage")
         self.setStyleSheet(USERS_QSS)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 20)
-        layout.setSpacing(16)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
         header = QHBoxLayout()
         headings = QVBoxLayout()
         headings.setSpacing(5)
@@ -151,6 +153,6 @@ class UsersPage(QWidget):
         if not self._pode_gerenciar:
             return None
         dialog = UserForm(user, self, pode_gerenciar=True, on_save=self.on_save)
-        dialog.setStyleSheet(USERS_QSS + " QDialog { background-color: #F0F5FF; }")
+        dialog.setStyleSheet(USERS_QSS)
         dialog.exec()
         return dialog

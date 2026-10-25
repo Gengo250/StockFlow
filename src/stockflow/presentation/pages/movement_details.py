@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -22,11 +24,12 @@ class MovementDetailsPage(QWidget):
         self.setStyleSheet(PRODUCTS_QSS)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
 
         # Botão Voltar
         self.back_button = QPushButton("Voltar para movimentações")
+        self.back_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.back_button.setIcon(qta.icon("fa5s.arrow-left", color="#2563EB"))
         self.back_button.setCursor(Qt.PointingHandCursor)
         self.back_button.clicked.connect(self.back_requested.emit)
@@ -143,8 +146,7 @@ class MovementDetailsPage(QWidget):
             foreground, background = ("#8A3B3B", "#FBE9E9")
 
         status_label.setStyleSheet(
-            f"color: {foreground}; background: {background}; border-radius: 8px;"
-            "padding: 6px 12px; font-weight: 600;"
+            ds.status_badge_qss(foreground, background)
         )
         status_label.setAlignment(Qt.AlignCenter)
         self.scroll.verticalScrollBar().setValue(0)

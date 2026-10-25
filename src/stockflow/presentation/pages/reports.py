@@ -1,5 +1,7 @@
 """Consulta e exportação dos relatórios da empresa atual."""
 
+from stockflow.presentation.styles import design_system as ds
+
 import csv
 from datetime import datetime
 from decimal import Decimal
@@ -31,14 +33,10 @@ class ReportsPage(QWidget):
         self.rows, self.headers, self._all_rows = [], [], []
         self._loaded = False
         self.setObjectName('reportsPage')
-        self.setStyleSheet('''
-            QWidget#reportsPage { background: #F0F5FF; }
-            QLabel { color: #334155; background: transparent; }
-            QPushButton:disabled { background: #E2E8F0; color: #64748B; }
-        ''')
+        self.setStyleSheet(ds.page_qss("reportsPage"))
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
         layout.addLayout(self._header())
         layout.addLayout(self._summary())
         layout.addWidget(self._filters())
@@ -69,11 +67,11 @@ class ReportsPage(QWidget):
         self.refresh_button.clicked.connect(self.refresh)
         self.export_button = QPushButton('Exportar CSV')
         self.export_button.setIcon(qta.icon('fa5s.download', color='white'))
-        self.export_button.setStyleSheet(inventory.NEW_BUTTON_QSS + 'QPushButton:disabled { background: #CBD5E1; color: #475569; }')
+        self.export_button.setStyleSheet(inventory.NEW_BUTTON_QSS)
         self.export_button.setEnabled(False)
         self.export_button.clicked.connect(self._choose_export)
         for button in (self.refresh_button, self.export_button):
-            button.setFixedHeight(42)
+            button.setFixedHeight(ds.CONTROL_HEIGHT)
             button.setCursor(Qt.PointingHandCursor)
             row.addWidget(button)
         return row
@@ -94,7 +92,7 @@ class ReportsPage(QWidget):
             badge.setPixmap(qta.icon(icon, color='#2563EB').pixmap(18, 18))
             heading.addWidget(badge)
             value = QLabel('—')
-            value.setStyleSheet('color: #0F172A; font-size: 25px; font-weight: 700;')
+            value.setStyleSheet(ds.METRIC_QSS)
             card.layout().addLayout(heading)
             card.layout().addWidget(value)
             self.metrics.append((caption, value))
@@ -134,7 +132,7 @@ class ReportsPage(QWidget):
         card.layout().setContentsMargins(18, 16, 18, 14)
         heading = QHBoxLayout()
         self.result_title = QLabel('Posição de estoque')
-        self.result_title.setStyleSheet('color: #0F172A; font-size: 16px; font-weight: 600;')
+        self.result_title.setStyleSheet(ds.SECTION_TITLE_QSS)
         self.updated_at = QLabel('Aguardando atualização')
         self.updated_at.setStyleSheet('color: #64748B; font-size: 12px;')
         heading.addWidget(self.result_title, 1)

@@ -1,5 +1,7 @@
 """Indicadores da empresa e planejamento de reposição (H31)."""
 
+from stockflow.presentation.styles import design_system as ds
+
 from datetime import datetime
 from decimal import Decimal
 
@@ -30,7 +32,7 @@ class DashboardPage(QWidget):
         self.suggestions = []
         self._loaded = False
         self.setObjectName('dashboardPage')
-        self.setStyleSheet('QWidget#dashboardPage { background: #F0F5FF; } QLabel { color: #334155; background: transparent; }')
+        self.setStyleSheet(ds.page_qss("dashboardPage"))
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
@@ -38,12 +40,12 @@ class DashboardPage(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         content.setObjectName('dashboardContent')
-        content.setStyleSheet('QWidget#dashboardContent { background: #F0F5FF; }')
+        content.setStyleSheet(ds.page_qss("dashboardContent"))
         scroll.setWidget(content)
         outer.addWidget(scroll)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
         heading = QHBoxLayout()
         titles = QVBoxLayout()
         titles.setSpacing(4)
@@ -58,7 +60,7 @@ class DashboardPage(QWidget):
         self.refresh_button = QPushButton('Atualizar resumo')
         self.refresh_button.setIcon(qta.icon('fa5s.sync-alt', color='#475569'))
         self.refresh_button.setStyleSheet(inventory.FILTER_QSS)
-        self.refresh_button.setFixedHeight(42)
+        self.refresh_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.refresh_button.setCursor(Qt.PointingHandCursor)
         self.refresh_button.clicked.connect(self.refresh)
         heading.addWidget(self.refresh_button)
@@ -83,7 +85,7 @@ class DashboardPage(QWidget):
             badge.setPixmap(qta.icon(icon, color='#2563EB').pixmap(18, 18))
             top.addWidget(badge)
             value = QLabel('—')
-            value.setStyleSheet('color: #0F172A; font-size: 25px; font-weight: 700;')
+            value.setStyleSheet(ds.METRIC_QSS)
             detail = QLabel('Aguardando dados')
             detail.setWordWrap(True)
             detail.setStyleSheet('color: #64748B; font-size: 12px;')
@@ -115,7 +117,7 @@ class DashboardPage(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.verticalHeader().hide()
-        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
