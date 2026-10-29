@@ -11,12 +11,19 @@ from stockflow.application.dto.sale_filter import (
 )
 from stockflow.application.dto.sale_item import SaleItemInput, SaleItemValidator
 from stockflow.domain.enums.operation_kind import OperationKind
+from stockflow.domain.enums.user_role import UserRole
 from stockflow.domain.permissions import (
     ensure_can_register_sales,
+    ensure_can_manage_companies,
     ensure_can_reverse_sales,
     exigir_ver,
 )
 from stockflow.domain.product_status import ensure_product_selectable
+from stockflow.domain.sale_discount import (
+    DiscountKind,
+    calculate_discount,
+    calculate_discount_breakdown,
+)
 
 _MONEY_PATTERN = re.compile(
     r"(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d{1,2})?|\d+\.\d{1,2}"
@@ -32,6 +39,10 @@ FORMAS_DE_PAGAMENTO = ("DINHEIRO", "DEBITO", "CREDITO", "PIX", "VALE", "OUTRO")
 # suíte ficou vermelha porque duas delas se contradiziam. Carrinho vazio não é
 # produto inválido: a tela que importar esta constante aponta o campo certo.
 SEM_ITENS = "Adicione pelo menos um item à venda."
+
+
+class DiscountApprovalRequired(ValueError):
+    """O desconto exige autenticação de ADMIN antes da gravação."""
 
 
 def parse_total(value) -> Decimal:
@@ -111,7 +122,8 @@ class SaleService:
         return self.repository.register(client, product, total)
 
     def register_sale(self, session, client_id, itens,
-                      payment_method="DINHEIRO", discount="0"):
+                      payment_method="DINHEIRO", discount="0",
+                      discount_type="FIXED", approval_credentials=None):
         """Venda com vários itens, forma de pagamento e desconto (US10).
 
         `itens` são pares código/quantidade. O preço NÃO vem daqui: o total
@@ -132,11 +144,17 @@ class SaleService:
             SaleItemInput(
                 product_code=item["codigo"],
                 quantity=parse_quantity(item["quantidade"]),
+                discount_type=item.get("discount_type", "FIXED"),
+                discount_value=self._parse_discount_value(
+                    item.get("discount_value", "0"),
+                    item.get("discount_type", "FIXED"),
+                ),
             )
             for item in itens
         )
         return self.register_multiple(
-            session, client_id, normalized_items, payment_method, discount
+            session, client_id, normalized_items, payment_method, discount,
+            discount_type, approval_credentials,
         )
 
     def list_sales(self, session, filtro=None, page=1, size=TAMANHO_PADRAO):
@@ -197,6 +215,8 @@ class SaleService:
         items: tuple[SaleItemInput, ...],
         payment_method="DINHEIRO",
         discount="0",
+        discount_type="FIXED",
+        approval_credentials=None,
     ) -> dict:
         ensure_can_register_sales(session)
 
@@ -206,7 +226,15 @@ class SaleService:
             raise ValueError("Selecione uma forma de pagamento válida.")
         client = self._cliente_ativo(client_id)
 
-        normalized_items = tuple(items)
+        normalized_items = tuple(
+            SaleItemInput(
+                item.product_code,
+                item.quantity,
+                DiscountKind(item.discount_type).value,
+                self._parse_discount_value(item.discount_value, item.discount_type),
+            )
+            for item in items
+        )
         item_validator = SaleItemValidator(self.products)
         item_validator.validate(normalized_items)
 
@@ -226,14 +254,69 @@ class SaleService:
         bruto = calculate_total_from_items(normalized_items, prices_by_code)
         if bruto >= Decimal("100000000"):
             raise ValueError("Total da venda acima do limite de R$ 99.999.999,99.")
-        desconto = parse_total(discount or "0")
-        if desconto > bruto:
-            raise ValueError(
-                "O desconto não pode ser maior que o total dos itens."
+        descontos_itens = tuple(
+            calculate_discount(
+                prices_by_code[item.product_code] * item.quantity,
+                item.discount_type,
+                item.discount_value,
             )
-        total = bruto - desconto
+            for item in normalized_items
+        )
+        base_desconto_venda = bruto - sum(
+            descontos_itens, start=Decimal("0.00")
+        )
+        valor_desconto_venda = self._parse_discount_value(
+            discount or "0", discount_type
+        )
+        desconto_venda = calculate_discount(
+            base_desconto_venda, discount_type, valor_desconto_venda
+        )
+        resumo = calculate_discount_breakdown(
+            bruto, descontos_itens, desconto_venda
+        )
+        role = UserRole.from_value(session.role)
+        limites = self.repository.get_discount_limits()
+        limite = limites.get(role.value)
+        if limite is not None and resumo.effective_percent > Decimal(str(limite)):
+            if not approval_credentials:
+                raise DiscountApprovalRequired(
+                    "Este desconto excede o limite do vendedor e exige "
+                    "autorização de um administrador."
+                )
+
         # The repository owns the transaction boundary. In particular, stock
         # changes are never performed as a second write after this returns.
         return self.repository.register_multiple(
-            client, normalized_items, total, payment_method, desconto
+            client,
+            normalized_items,
+            resumo.net,
+            payment_method,
+            resumo.total_discount,
+            original_total=resumo.gross,
+            sale_discount_type=DiscountKind(discount_type).value,
+            sale_discount_value=valor_desconto_venda,
+            approval_credentials=approval_credentials,
+            seller_id=getattr(session, "user_id", None),
         )
+
+    @staticmethod
+    def _parse_discount_value(value, discount_type) -> Decimal:
+        try:
+            kind = DiscountKind(discount_type)
+        except ValueError as error:
+            raise ValueError("Selecione um tipo de desconto válido.") from error
+        amount = parse_total(value or "0")
+        if kind is DiscountKind.PERCENTAGE and amount > Decimal("100"):
+            raise ValueError("O desconto percentual deve estar entre 0% e 100%.")
+        return amount
+
+    def get_discount_limits(self, session):
+        ensure_can_manage_companies(session, action="consultar limites de desconto")
+        return self.repository.get_discount_limits()
+
+    def set_discount_limits(self, session, seller_limit):
+        ensure_can_manage_companies(session, action="alterar limites de desconto")
+        limit = parse_total(seller_limit)
+        if limit > Decimal("100"):
+            raise ValueError("O limite de desconto deve estar entre 0% e 100%.")
+        return self.repository.set_discount_limits({"SELLER": limit})

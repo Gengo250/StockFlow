@@ -292,10 +292,11 @@ _demo_users = {}
 
 
 def independent_auth_client():
-    from stockflow.infrastructure.database.supabase_client import _credenciais
-    from supabase import create_client, ClientOptions
-    url, key = _credenciais()
-    return create_client(url, key, options=ClientOptions(persist_session=False, auto_refresh_token=False))
+    from stockflow.infrastructure.database.supabase_client import (
+        create_independent_auth_client,
+    )
+
+    return create_independent_auth_client()
 
 
 def save_user(session, *, user_id=None, name, email, role, department="", password=""):

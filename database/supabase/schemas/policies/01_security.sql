@@ -29,6 +29,7 @@ ALTER TABLE public.sales           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_items      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales_log       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_reversals  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sale_discount_limits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.role_change_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.price_edit_log  ENABLE ROW LEVEL SECURITY;
@@ -217,6 +218,8 @@ DECLARE
     -- `sales_select`, repetida dentro da função porque SECURITY DEFINER
     -- passa por cima da RLS.
     'fn_list_sales',
+    'fn_get_sale_discount_limits', 'fn_set_sale_discount_limit',
+    'fn_register_sale_with_discounts',
     -- Cancelamento e devolução de venda (US17). Só o ADMIN; a função
     -- repete essa alçada, e o teste de espelhamento da matriz compara.
     'fn_cancel_sale', 'fn_return_sale',

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 
 @dataclass(frozen=True)
@@ -11,6 +12,8 @@ class SaleItemInput:
 
     product_code: str
     quantity: int
+    discount_type: str = "FIXED"
+    discount_value: Decimal = Decimal("0.00")
 
 
 def validate_sale_items(items: tuple[SaleItemInput, ...]) -> None:

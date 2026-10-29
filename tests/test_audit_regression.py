@@ -57,11 +57,12 @@ def window(qapp):
 def remote_window(qapp, monkeypatch):
     client = ClienteFalso(catalogo_falso(), rpc_resultados={
         "fn_list_company_clients": [{"client_id": "client-a", "name": "Cliente teste", "active": True}],
-        "fn_register_sale": {
+        "fn_register_sale_with_discounts": {
             "id": "sale-a", "cliente": "Cliente teste", "total": "2499.90",
             "created_on": "2026-10-13T12:00:00+00:00",
             "items": [{"product_name": "Monitor", "product_code": "PRD-009", "quantity": 1}],
         },
+        "fn_get_sale_discount_limits": {"SELLER": 10, "ADMIN": None},
     })
     monkeypatch.setenv('STOCKFLOW_BACKEND', 'supabase')
     monkeypatch.setattr(backend, '_client', lambda: client)
@@ -91,7 +92,10 @@ def test_remote_sale_reaches_rpc(remote_window):
     choose_sale(w.vendas_page)
     client.chamadas_rpc.clear()
     w.vendas_page._registrar_venda()
-    assert any(name == 'fn_register_sale' for name, _ in client.chamadas_rpc), 'Venda só altera historico_vendas em memória'
+    assert any(
+        name == "fn_register_sale_with_discounts"
+        for name, _ in client.chamadas_rpc
+    ), "Venda só altera historico_vendas em memória"
     assert w.vendas_page.warning_label.text() == ''
 
 

@@ -39,7 +39,10 @@ CORES_DE_STATUS = {
     SaleStatus.PENDENTE.label: ("#334155", "#E2E8F0"),
 }
 
-ITEM_COLUNAS = ["Código", "Produto", "Qtd.", "Preço unitário", "Subtotal"]
+ITEM_COLUNAS = [
+    "Código", "Produto", "Qtd.", "Preço unitário", "Subtotal",
+    "Desconto", "Subtotal final",
+]
 
 
 def _moeda(valor) -> str:
@@ -235,12 +238,16 @@ class SaleDetailsPage(QWidget):
         # Responsável vazio vira travessão, e não string vazia: campo em
         # branco parece defeito de carga; travessão diz "não há".
         vendedor = venda.get("seller") or "—"
+        desconto_aplicado_por = venda.get("discount_applied_by_name") or vendedor
+        autorizador = venda.get("discount_authorized_by_name") or "—"
         self.resumo_label.setText(
             f"<b>Venda:</b> {venda.get('id', '—')}<br>"
             f"<b>Cliente:</b> {venda.get('cliente', '—')}<br>"
             f"<b>Responsável:</b> {vendedor}<br>"
             f"<b>Data:</b> {venda.get('data', '—')}<br>"
-            f"<b>Forma de pagamento:</b> {venda.get('payment_method') or '—'}"
+            f"<b>Forma de pagamento:</b> {venda.get('payment_method') or '—'}<br>"
+            f"<b>Desconto aplicado por:</b> {desconto_aplicado_por}<br>"
+            f"<b>Desconto autorizado por:</b> {autorizador}"
         )
 
     def _desenhar_itens(self, venda):
@@ -260,6 +267,8 @@ class SaleDetailsPage(QWidget):
                 str(quantidade),
                 _moeda(unitario) if unitario is not None else "—",
                 _moeda(subtotal) if subtotal is not None else "—",
+                _moeda(item.get("discount_amount") or "0"),
+                _moeda(item.get("final_subtotal", subtotal or "0")),
             ]
             for coluna, texto in enumerate(valores):
                 celula = QTableWidgetItem(texto)

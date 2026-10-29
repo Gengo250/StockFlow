@@ -141,6 +141,15 @@ CREATE TABLE public.sales (
     -- total; sem a coluna não há como auditar a diferença.
     discount         numeric(10,2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
     total            numeric(10,2) NOT NULL CHECK (total >= 0),
+    original_total   numeric(10,2) GENERATED ALWAYS AS (total + discount) STORED,
+    sale_discount_type text NOT NULL DEFAULT 'FIXED'
+                       CHECK (sale_discount_type IN ('FIXED', 'PERCENTAGE')),
+    sale_discount_value numeric(10,2) NOT NULL DEFAULT 0
+                       CHECK (sale_discount_value >= 0 AND
+                              (sale_discount_type <> 'PERCENTAGE'
+                               OR sale_discount_value <= 100)),
+    discount_applied_by uuid,
+    discount_authorized_by uuid,
     -- Nasce PENDENTE: montar o carrinho não é fechar a venda. A baixa de
     -- estoque acontece na transição para CONCLUIDA (triggers/06).
     status           public.sale_status NOT NULL DEFAULT 'PENDENTE',
@@ -156,6 +165,18 @@ CREATE TABLE public.sales (
 );
 CREATE INDEX idx_sales_company_created
     ON public.sales (company_id, created_on DESC);
+
+CREATE TABLE public.sale_discount_limits (
+    company_id uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
+    role       public.user_role NOT NULL,
+    limit_percent numeric(5,2)
+                 CHECK (limit_percent IS NULL OR
+                        limit_percent BETWEEN 0 AND 100),
+    updated_by uuid,
+    updated_on timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (company_id, role),
+    CHECK (role = 'SELLER')
+);
 
 CREATE TABLE public.sale_items (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -174,6 +195,17 @@ CREATE TABLE public.sale_items (
     unit_price    numeric(10,2) NOT NULL CHECK (unit_price >= 0),
     subtotal      numeric(10,2) NOT NULL
                   GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    discount_type text NOT NULL DEFAULT 'FIXED'
+                  CHECK (discount_type IN ('FIXED', 'PERCENTAGE')),
+    discount_value numeric(10,2) NOT NULL DEFAULT 0
+                   CHECK (discount_value >= 0 AND
+                          (discount_type <> 'PERCENTAGE'
+                           OR discount_value <= 100)),
+    discount_amount numeric(10,2) NOT NULL DEFAULT 0
+                    CHECK (discount_amount >= 0 AND
+                           discount_amount <= quantity * unit_price),
+    final_subtotal numeric(10,2) NOT NULL
+                   GENERATED ALWAYS AS (subtotal - discount_amount) STORED,
     created_on    timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (company_id, sale_id)
         REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
