@@ -115,6 +115,22 @@ def test_filtro_por_status_encontra_a_cancelada(pagina):
     assert pagina.table.item(0, 0).text() == "VND-0003"
 
 
+def test_pendente_nao_entra_no_padrao_mas_pode_ser_consultada(pagina):
+    pendente = _venda(120)
+    pendente.update(id="VND-PENDENTE", status="PENDENTE")
+    pagina.service.repository.rows.append(pendente)
+    pagina.reload_sales()
+
+    assert pagina._pagina.total == 120
+    assert all(venda["status"] != "PENDENTE" for venda in pagina.historico_vendas)
+
+    pagina.filtro_status.setCurrentIndex(
+        pagina.filtro_status.findData("PENDENTE")
+    )
+    assert pagina.table.rowCount() == 1
+    assert pagina.table.item(0, 0).text() == "VND-PENDENTE"
+
+
 def test_filtro_por_vendedor(pagina):
     pagina.filtro_vendedor.setCurrentIndex(pagina.filtro_vendedor.findData("s1"))
     assert pagina.table.rowCount() == 50
@@ -215,6 +231,11 @@ def test_coluna_de_status_distingue_cancelada(pagina):
     pagina.filtro_status.setCurrentIndex(pagina.filtro_status.findData("CANCELADA"))
     coluna = cabecalhos.index("Status")
     assert pagina.table.item(0, coluna).text() == "Cancelada"
+
+
+def test_filtro_padrao_identifica_a_listagem_de_vendas_finalizadas(pagina):
+    assert pagina.filtro_status.itemText(0) == "Todas as vendas finalizadas"
+    assert pagina.filtro_status.findData("PENDENTE") >= 0
 
 
 def test_venda_cancelada_mostra_o_motivo_no_status(pagina):

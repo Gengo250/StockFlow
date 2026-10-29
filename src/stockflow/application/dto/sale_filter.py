@@ -27,12 +27,13 @@ MOTIVO_MAXIMO = 300
 
 @dataclass(frozen=True)
 class SaleFilter:
-    """Todos os campos opcionais: filtro vazio lista tudo.
+    """Todos os campos opcionais: sem status, lista vendas finalizadas.
 
     `date_to` é INCLUSIVO para quem usa a tela — o adaptador soma um dia
     antes de mandar ao banco, onde o limite é exclusivo. Sem essa conversão
     num lugar só, filtrar "até hoje" perderia as vendas de hoje, e cada
-    adaptador erraria à sua maneira.
+    adaptador erraria à sua maneira. `PENDENTE` fica fora da lista padrão,
+    mas pode ser consultado escolhendo esse status explicitamente.
     """
 
     sale_id: str | None = None

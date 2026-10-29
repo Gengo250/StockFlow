@@ -130,6 +130,56 @@ def test_detalhe_abre_pela_listagem_e_volta(janela):
     assert janela.pages.currentWidget() is janela.vendas_page
 
 
+def test_voltar_do_detalhe_preserva_filtros_ordenacao_e_pagina(janela):
+    from stockflow.infrastructure.repositories.demo_sale_repository import sale_row
+
+    linhas = []
+    for i in range(120):
+        linha = sale_row(
+            f"VND-{i:04d}",
+            "Cliente de teste",
+            ["PRD-001"],
+            ["Produto de teste"],
+            i + 1,
+            "29/10/2026 10:00",
+        )
+        linha.update(
+            status="CONCLUIDA",
+            client_id="cliente-1",
+            seller_id="vendedor-1",
+            seller="Vendedor de teste",
+            payment_method="PIX",
+            discount="0",
+            items=[],
+        )
+        linhas.append(linha)
+    janela.sale_repository.rows = linhas
+    janela.vendas_page.reload_sales()
+
+    pagina = janela.vendas_page
+    pagina.filtro_vendedor.setCurrentIndex(
+        pagina.filtro_vendedor.findData("vendedor-1")
+    )
+    pagina.ordenacao_combo.setCurrentIndex(
+        pagina.ordenacao_combo.findData("VALOR_DESC")
+    )
+    pagina.proximo_button.click()
+    ids_da_pagina = [
+        pagina.table.item(row, 0).text() for row in range(pagina.table.rowCount())
+    ]
+
+    janela._show_sale_details(ids_da_pagina[0])
+    pagina_name = pagina.filtro_vendedor.currentData()
+    janela.sale_details_page.back_button.click()
+
+    assert pagina.filtro_vendedor.currentData() == pagina_name == "vendedor-1"
+    assert pagina.ordenacao_combo.currentData() == "VALOR_DESC"
+    assert pagina.paginacao_label.text() == "Página 2 de 3"
+    assert [
+        pagina.table.item(row, 0).text() for row in range(pagina.table.rowCount())
+    ] == ids_da_pagina
+
+
 def test_detalhe_reflete_a_reversao_feita_nele(janela, monkeypatch):
     venda = _vender(janela)
     janela._show_sale_details(venda)

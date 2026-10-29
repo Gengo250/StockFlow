@@ -83,6 +83,22 @@ def test_filtros_combinam(repositorio):
     assert pagina.rows[0]["id"] == "VND-0005"
 
 
+def test_pendente_fica_fora_do_padrao_mas_pode_ser_filtrada(repositorio):
+    pendente = linha(120)
+    pendente.update(id="VND-PENDENTE", status="PENDENTE")
+    repositorio.rows.append(pendente)
+
+    padrao = repositorio.list_page(SaleFilter(), 1, 200)
+    explicita = repositorio.list_page(
+        SaleFilter(status="PENDENTE"), 1, 200
+    )
+
+    assert padrao.total == 120
+    assert all(venda["status"] != "PENDENTE" for venda in padrao.rows)
+    assert explicita.total == 1
+    assert explicita.rows[0]["id"] == "VND-PENDENTE"
+
+
 def test_filtro_por_id_casa_por_prefixo(repositorio):
     pagina = repositorio.list_page(SaleFilter(sale_id="VND-0007"), 1, 50)
     assert [l["id"] for l in pagina.rows] == ["VND-0007"]
@@ -220,6 +236,24 @@ def test_supabase_monta_a_chamada_com_todos_os_filtros():
     assert api.args["p_sort"] == "VALOR_DESC"
     assert api.args["p_limit"] == 25
     assert api.args["p_offset"] == 50
+
+
+def test_supabase_preserva_filtro_explicito_pendente():
+    from stockflow.infrastructure.repositories.supabase_sale_repository import (
+        SupabaseSaleRepository,
+    )
+
+    class API:
+        def rpc(self, _nome, args):
+            self.args = args
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=[]))
+
+    api = API()
+    SupabaseSaleRepository(api, "empresa-1").list_page(
+        SaleFilter(status="PENDENTE"), page=1, size=50
+    )
+
+    assert api.args["p_status"] == "PENDENTE"
 
 
 def test_supabase_le_o_total_da_propria_consulta():

@@ -788,6 +788,17 @@ def test_us17_consulta_devolve_o_total_na_mesma_leitura():
     assert "count(*) OVER ()" in corpo_da_funcao("fn_list_sales")
 
 
+def test_us17_oculta_pendentes_por_padrao_e_mantem_filtro_explicito():
+    corpo = corpo_da_funcao("fn_list_sales")
+    assert re.search(
+        r"p_status\s+IS NOT NULL OR s\.status\s*<>\s*'PENDENTE'", corpo
+    )
+    migration = (
+        MIGRATIONS / "20261029120000_us17_pending_sales_filter.sql"
+    ).read_text(encoding="utf-8")
+    assert "p_status IS NOT NULL OR s.status <> 'PENDENTE'" in migration
+
+
 def test_us17_consulta_desempata_a_ordem_pelo_id():
     """Sem desempate, a página seguinte repete ou pula linha."""
     assert re.search(r"ORDER BY.*?f\.id DESC", corpo_da_funcao("fn_list_sales"), re.S)

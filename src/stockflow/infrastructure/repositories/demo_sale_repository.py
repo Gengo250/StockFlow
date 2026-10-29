@@ -136,7 +136,14 @@ class DemoSaleRepository:
             return False
         if filtro.seller_id and linha.get("seller_id") != filtro.seller_id:
             return False
-        if filtro.status and linha.get("status", "CONCLUIDA") != filtro.status:
+        situacao = linha.get("status", "CONCLUIDA")
+        if filtro.status:
+            if situacao != filtro.status:
+                return False
+        elif situacao == "PENDENTE":
+            # Sem filtro de status, o histórico mostra vendas finalizadas.
+            # Pendentes continuam consultáveis quando selecionadas
+            # explicitamente (por exemplo, em registros legados).
             return False
         quando = data_da_linha(linha)
         if filtro.date_from and (quando is None or quando < filtro.date_from):
