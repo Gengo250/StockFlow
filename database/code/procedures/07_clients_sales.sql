@@ -638,7 +638,10 @@ BEGIN
            AND (p_to        IS NULL OR s.created_on < p_to)
            AND (p_client_id IS NULL OR s.client_id = p_client_id)
            AND (p_seller_id IS NULL OR s.created_by = p_seller_id)
-           AND (p_status    IS NULL OR s.status = p_status)
+           -- Sem um status explícito, o histórico contém apenas vendas
+           -- finalizadas. PENDENTE continua consultável quando selecionada.
+           AND (p_status IS NOT NULL OR s.status <> 'PENDENTE')
+           AND (p_status     IS NULL OR s.status = p_status)
     )
     SELECT f.id,
            f.client_id,

@@ -463,7 +463,7 @@ class VendasPage(QWidget):
         self.filtro_status = QComboBox()
         self.filtro_status.setAccessibleName("Filtrar por situação")
         self.filtro_status.setFixedHeight(38)
-        self.filtro_status.addItem("Todos os status", None)
+        self.filtro_status.addItem("Todas as vendas finalizadas", None)
         for situacao in SaleStatus:
             self.filtro_status.addItem(situacao.label, situacao.value)
         self.filtro_status.currentIndexChanged.connect(self._filtro_mudou)
