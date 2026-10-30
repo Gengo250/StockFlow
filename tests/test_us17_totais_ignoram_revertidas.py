@@ -7,6 +7,8 @@ Dashboard e nos Relatórios.
 
 import pytest
 
+from stockflow.domain.entities.session import Session
+from stockflow.domain.enums.user_role import UserRole
 from stockflow.presentation.pages.dashboard import DashboardPage
 from stockflow.presentation.pages.reports import ReportsPage
 
@@ -59,7 +61,7 @@ def test_dashboard_continua_contando_todas_as_operacoes(qapp):
 
 
 def test_relatorio_de_vendas_marca_as_revertidas(qapp):
-    page = ReportsPage(CatalogoVazio(), VendasFalsas())
+    page = ReportsPage(CatalogoVazio(), VendasFalsas(), _admin())
     try:
         page.kind.setCurrentIndex(1)
         page.refresh()
@@ -75,7 +77,7 @@ def test_relatorio_de_vendas_marca_as_revertidas(qapp):
 
 
 def test_relatorio_soma_so_o_que_continua_vendido(qapp):
-    page = ReportsPage(CatalogoVazio(), VendasFalsas())
+    page = ReportsPage(CatalogoVazio(), VendasFalsas(), _admin())
     try:
         page.kind.setCurrentIndex(1)
         page.refresh()
@@ -85,3 +87,7 @@ def test_relatorio_soma_so_o_que_continua_vendido(qapp):
         assert "100,00" in page.metrics[2][1].text()
     finally:
         page.close()
+
+
+def _admin():
+    return Session("admin", "Admin", "admin@example.com", UserRole.ADMIN)

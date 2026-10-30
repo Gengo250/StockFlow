@@ -238,7 +238,14 @@ class MainWindow(QMainWindow):
 
         self.dashboard_page = DashboardPage(self.product_repository, self.sale_repository, self.client_repository)
         self.dashboard_page.navigate_requested.connect(self.show_page)
-        self.reports_page = ReportsPage(self.product_repository, self.sale_repository)
+        self.reports_page = ReportsPage(
+            self.product_repository,
+            self.sale_repository,
+            self.session,
+            sale_service=self.sale_service,
+            movement_service=self.movement_service,
+            price_history_service=self.price_history_service,
+        )
         self.settings_page = SettingsPage(self.session)
         self.settings_page.discount_limits_save_requested.connect(
             self._save_sale_discount_limit
