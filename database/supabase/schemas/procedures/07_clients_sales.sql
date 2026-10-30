@@ -560,6 +560,10 @@ $$;
 -- montada no cliente, por dois motivos: `max_rows` do PostgREST corta a
 -- listagem em 1000 linhas sem avisar, e dois adaptadores (Supabase e
 -- demonstração) montando filtro cada um do seu jeito divergem em silêncio.
+DROP FUNCTION IF EXISTS public.fn_list_sales(
+    uuid, text, timestamptz, timestamptz, uuid, uuid,
+    public.sale_status, text, integer, integer
+);
 CREATE OR REPLACE FUNCTION public.fn_list_sales(
     p_company_id uuid,
     p_sale_id    text               DEFAULT NULL,
@@ -580,6 +584,11 @@ RETURNS TABLE (
     seller_name      text,
     payment_method   public.payment_method,
     discount         numeric,
+    original_total   numeric,
+    discount_applied_by uuid,
+    discount_applied_by_name text,
+    discount_authorized_by uuid,
+    discount_authorized_by_name text,
     total            numeric,
     status           public.sale_status,
     created_on       timestamptz,
@@ -650,6 +659,11 @@ BEGIN
            COALESCE(ua.name, ''),
            f.payment_method,
            f.discount,
+           f.original_total,
+           f.discount_applied_by,
+           COALESCE(da.name, ''),
+           f.discount_authorized_by,
+           COALESCE(au.name, ''),
            f.total,
            f.status,
            f.created_on,
@@ -670,6 +684,8 @@ BEGIN
       -- não pode apagar a linha do histórico.
       LEFT JOIN public.sale_reversals r   ON r.sale_id = f.id
       LEFT JOIN public.user_accounts  ua  ON ua.id = f.created_by
+      LEFT JOIN public.user_accounts  da  ON da.id = f.discount_applied_by
+      LEFT JOIN public.user_accounts  au  ON au.id = f.discount_authorized_by
       LEFT JOIN public.user_accounts  rua ON rua.id = r.created_by
      ORDER BY
         CASE WHEN p_sort = 'DATA_DESC'   THEN f.created_on END DESC,

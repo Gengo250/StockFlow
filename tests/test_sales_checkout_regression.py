@@ -37,6 +37,42 @@ def test_discount_updates_preview_without_calling_a_private_refresh(vendas_page)
     assert vendas_page.total_label.text() == "Total: R$ 2.000,00"
 
 
+def test_item_percentage_discount_recalculates_net_subtotal(vendas_page):
+    select_sale(vendas_page, "1")
+    vendas_page.add_button.click()
+    kind = vendas_page.itens_table.cellWidget(0, 4)
+    amount = vendas_page.itens_table.cellWidget(0, 5)
+    kind.setCurrentIndex(kind.findData("PERCENTAGE"))
+    amount.setText("10")
+    assert vendas_page.itens_table.item(0, 6).text() == "R$ 2.249,91"
+    assert vendas_page.total_label.text() == "Total: R$ 2.249,91"
+
+
+def test_over_limit_discount_retries_checkout_after_admin_reauthentication(
+    vendas_page, monkeypatch
+):
+    from PySide6.QtWidgets import QInputDialog
+
+    select_sale(vendas_page, "1")
+    vendas_page.add_button.click()
+    vendas_page.desconto_tipo_combo.setCurrentIndex(
+        vendas_page.desconto_tipo_combo.findData("PERCENTAGE")
+    )
+    vendas_page.desconto_input.setText("15")
+    answers = iter([
+        ("ana.ferreira@example.com", True),
+        ("StockFlow123", True),
+    ])
+    monkeypatch.setattr(QInputDialog, "getText", lambda *args: next(answers))
+
+    vendas_page.save_button.click()
+
+    sale = vendas_page.historico_vendas[0]
+    assert sale["discount_authorized_by"] == "USR-001"
+    assert sale["discount_applied_by"] == vendas_page.session.user_id
+    assert sale["total"] == "2124.91"
+
+
 def test_checkout_does_not_silently_drop_the_selected_product(vendas_page):
     select_sale(vendas_page, "1")
     vendas_page.add_button.click()
@@ -164,8 +200,13 @@ def test_supabase_checkout_uses_saved_receipt_without_second_read(vendas_page):
     assert row["payment_method"] == "PIX"
     assert row["discount"] == "2.50"
     assert row["items"] == api.receipt["items"]
-    assert api.calls[-1][0:2] == ("rpc", "fn_register_sale")
-    assert api.calls[-1][2]["p_items"] == [{"product_code": "PRD-009", "quantity": 2}]
+    assert api.calls[-1][0:2] == ("rpc", "fn_register_sale_with_discounts")
+    assert api.calls[-1][2]["p_items"] == [{
+        "product_code": "PRD-009",
+        "quantity": 2,
+        "discount_type": "FIXED",
+        "discount_value": "0.00",
+    }]
 
 
 def test_reloaded_history_keeps_payment_and_item_details():

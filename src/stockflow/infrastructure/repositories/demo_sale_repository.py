@@ -108,6 +108,14 @@ class DemoSaleRepository:
             sale_row("VND-1001", "Patrícia Lima", ["PRD-004"], ["Cabo HDMI 2m"], 450, "10/08/2026"),
             sale_row("VND-1002", "Ana Ferreira", ["PRD-007"], ["Mouse ergonômico"], 1290, "28/09/2026"),
         ]
+        self.discount_limits = {"SELLER": Decimal("10.00"), "ADMIN": None}
+
+    def get_discount_limits(self):
+        return dict(self.discount_limits)
+
+    def set_discount_limits(self, limits):
+        self.discount_limits.update(limits)
+        return self.get_discount_limits()
 
     @property
     def movements(self):
@@ -226,7 +234,21 @@ class DemoSaleRepository:
         total: Decimal,
         payment_method="DINHEIRO",
         discount=Decimal("0"),
+        *,
+        original_total=None,
+        sale_discount_type="FIXED",
+        sale_discount_value=Decimal("0"),
+        approval_credentials=None,
+        seller_id=None,
     ) -> dict:
+        authorized_by = None
+        if approval_credentials:
+            from stockflow.presentation.demo_accounts import autenticar
+
+            approver = autenticar(*approval_credentials)
+            if approver is None or approver.role.value != "ADMIN":
+                raise ValueError("Credenciais de administrador inválidas.")
+            authorized_by = approver.user_id
         inventory = self._products
         movements = self.movements
         sale_id = uuid4()
@@ -253,14 +275,28 @@ class DemoSaleRepository:
                     for item in items
                 ]
                 movements.register_sale(sale_id, movement_items)
-                summary = [
-                    {
+                summary = []
+                original = Decimal("0.00")
+                from stockflow.application.services.sale_service import parse_price
+                from stockflow.domain.sale_discount import calculate_discount
+
+                for item in items:
+                    product = inventory[item.product_code]
+                    unit_price = parse_price(product.sale_price)
+                    subtotal = unit_price * item.quantity
+                    item_discount = calculate_discount(
+                        subtotal, item.discount_type, item.discount_value
+                    )
+                    summary.append({
                         "product_code": item.product_code,
-                        "product_name": inventory[item.product_code].name,
+                        "product_name": product.name,
                         "quantity": item.quantity,
-                    }
-                    for item in items
-                ]
+                        "unit_price": str(unit_price),
+                        "subtotal": str(subtotal),
+                        "discount_amount": str(item_discount),
+                        "final_subtotal": str(subtotal - item_discount),
+                    })
+                    original += subtotal
                 code, description = resumo_dos_itens(summary)
                 row = sale_row(
                     sale_id,
@@ -273,6 +309,7 @@ class DemoSaleRepository:
                 )
                 row["payment_method"] = payment_method
                 row["discount"] = str(discount)
+                row["original_total"] = str(original_total or original)
                 row["status"] = "CONCLUIDA"
                 row["items"] = summary
                 # Mesmos campos que `fn_list_sales` devolve. Sem eles, uma
@@ -280,8 +317,27 @@ class DemoSaleRepository:
                 # cliente ou de vendedor, e o modo demonstração divergiria do
                 # banco justamente no caminho que o usuário acabou de usar.
                 row["client_id"] = getattr(client, "client_id", None)
-                row["seller_id"] = None
-                row["seller"] = ""
+                row["seller_id"] = seller_id
+                from stockflow.presentation.demo_accounts import DEMO_ACCOUNTS
+
+                seller = next(
+                    (account for account in DEMO_ACCOUNTS if account.user_id == seller_id),
+                    None,
+                )
+                approver_account = next(
+                    (
+                        account for account in DEMO_ACCOUNTS
+                        if account.user_id == authorized_by
+                    ),
+                    None,
+                )
+                row["seller"] = seller.name if seller else ""
+                row["discount_applied_by"] = seller_id
+                row["discount_applied_by_name"] = seller.name if seller else ""
+                row["discount_authorized_by"] = authorized_by
+                row["discount_authorized_by_name"] = (
+                    approver_account.name if approver_account else ""
+                )
                 row["reversal_kind"] = None
                 row["reversal_reason"] = None
                 row["reversal_on"] = None

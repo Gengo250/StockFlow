@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -37,6 +38,7 @@ from stockflow.presentation.styles import inventory
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 from stockflow.application.services.sale_service import (
+    DiscountApprovalRequired,
     FORMAS_DE_PAGAMENTO,
     SEM_ITENS,
     SaleService,
@@ -58,6 +60,7 @@ from stockflow.domain.enums.sale_reversal_kind import SaleReversalKind
 from stockflow.domain.enums.sale_status import SaleStatus
 from stockflow.domain.permissions import can_manage_clients
 from stockflow.presentation.workers import executar_agora
+from stockflow.domain.sale_discount import DiscountKind, calculate_discount
 
 
 
@@ -132,6 +135,7 @@ class VendasPage(QWidget):
         self.execute = executar_agora
         self._saving = False
         self._loading = False
+        self._pending_checkout = None
         self.service = service or SaleService(
             DemoSaleRepository(self.products), DemoClientRepository(), DemoProductRepository(self.products)
         )
@@ -292,10 +296,11 @@ class VendasPage(QWidget):
         # Fica escondido enquanto está vazio: uma tabela vazia permanente
         # sugere que a venda exige montar carrinho, e ela não exige.
         self.itens_table = QTableWidget()
-        self.itens_table.setColumnCount(4)
-        self.itens_table.setHorizontalHeaderLabels(
-            ["Produto", "Qtd", "Preço unit.", "Subtotal"]
-        )
+        self.itens_table.setColumnCount(7)
+        self.itens_table.setHorizontalHeaderLabels([
+            "Produto", "Qtd", "Preço unit.", "Subtotal bruto",
+            "Tipo desc.", "Desconto", "Subtotal final",
+        ])
         self.itens_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.itens_table.setStyleSheet(inventory.TABLE_QSS)
         self.itens_table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
@@ -303,7 +308,7 @@ class VendasPage(QWidget):
         self.itens_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.itens_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.itens_table.verticalHeader().hide()
-        self.itens_table.setFixedHeight(115)
+        self.itens_table.setFixedHeight(175)
         self.itens_table.setVisible(False)
         form_layout.addWidget(self.itens_table)
 
@@ -316,8 +321,21 @@ class VendasPage(QWidget):
             self.pagamento_combo.addItem(forma.capitalize(), forma)
 
         self.desconto_input = QLineEdit()
-        self.desconto_input.setPlaceholderText("Desconto (R$)")
+        self.desconto_input.setPlaceholderText("Desconto")
         self.desconto_input.setFixedHeight(ds.CONTROL_HEIGHT)
+        self.desconto_tipo_combo = QComboBox()
+        self.desconto_tipo_combo.addItem("R$", DiscountKind.FIXED.value)
+        self.desconto_tipo_combo.addItem("%", DiscountKind.PERCENTAGE.value)
+        self.desconto_tipo_combo.setFixedHeight(ds.CONTROL_HEIGHT)
+        self.desconto_tipo_combo.setStyleSheet(
+            FIELD_QSS.format(widget="QComboBox")
+        )
+        discount_editor = QWidget()
+        discount_editor_layout = QHBoxLayout(discount_editor)
+        discount_editor_layout.setContentsMargins(0, 0, 0, 0)
+        discount_editor_layout.setSpacing(6)
+        discount_editor_layout.addWidget(self.desconto_tipo_combo)
+        discount_editor_layout.addWidget(self.desconto_input, 1)
 
         self.remove_button = btn_remover = QPushButton(" Remover último item")
         btn_remover.setFixedHeight(ds.CONTROL_HEIGHT)
@@ -330,7 +348,7 @@ class VendasPage(QWidget):
         )
 
         fecho.addWidget(campo("Forma de pagamento", self.pagamento_combo), 1)
-        fecho.addWidget(campo("Desconto (R$)", self.desconto_input), 1)
+        fecho.addWidget(campo("Desconto total", discount_editor), 1)
         self.fecho_widget = QWidget()
         self.fecho_widget.setLayout(fecho)
         form_layout.addWidget(self.fecho_widget)
@@ -340,6 +358,7 @@ class VendasPage(QWidget):
         checkout.addWidget(btn_salvar)
         btn_remover.setVisible(False)
         self.desconto_input.textChanged.connect(self._atualizar_total)
+        self.desconto_tipo_combo.currentIndexChanged.connect(self._atualizar_total)
         self.qtd_input.textChanged.connect(self._atualizar_total)
 
         form_scroll = QScrollArea()
@@ -937,6 +956,8 @@ class VendasPage(QWidget):
                 "nome": produto.name,
                 "preco": produto.sale_price,
                 "quantidade": quantidade,
+                "discount_type": DiscountKind.FIXED.value,
+                "discount_value": "0",
             })
 
         self.qtd_input.clear()
@@ -967,11 +988,58 @@ class VendasPage(QWidget):
             self.itens_table.setItem(linha, 1, QTableWidgetItem(str(item["quantidade"])))
             self.itens_table.setItem(linha, 2, QTableWidgetItem(_em_reais(preco)))
             self.itens_table.setItem(linha, 3, QTableWidgetItem(_em_reais(subtotal)))
+            kind = QComboBox()
+            kind.addItem("R$", DiscountKind.FIXED.value)
+            kind.addItem("%", DiscountKind.PERCENTAGE.value)
+            kind.setCurrentIndex(max(0, kind.findData(item.get("discount_type", "FIXED"))))
+            amount = QLineEdit(str(item.get("discount_value", "0")))
+            amount.setPlaceholderText("0,00")
+            amount.setFixedHeight(ds.CONTROL_HEIGHT)
+            kind.currentIndexChanged.connect(
+                lambda _index, row=item, combo=kind, editor=amount: self._item_discount_changed(
+                    row, combo.currentData(), editor.text()
+                )
+            )
+            amount.textChanged.connect(
+                lambda value, row=item, combo=kind: self._item_discount_changed(
+                    row, combo.currentData(), value
+                )
+            )
+            self.itens_table.setCellWidget(linha, 4, kind)
+            self.itens_table.setCellWidget(linha, 5, amount)
+            self.itens_table.setItem(linha, 6, QTableWidgetItem(_em_reais(subtotal)))
 
+        self._atualizar_total()
+
+    def _item_discount_changed(self, item, discount_type, value):
+        item["discount_type"] = discount_type
+        item["discount_value"] = value
         self._atualizar_total()
 
     def _atualizar_total(self):
         bruto = sum((parse_price(i["preco"]) * i["quantidade"] for i in self.itens), Decimal("0"))
+        desconto_itens = Decimal("0.00")
+        for row, item in enumerate(self.itens):
+            subtotal = parse_price(item["preco"]) * item["quantidade"]
+            try:
+                discount_value = parse_total(
+                    item.get("discount_value", "0") or "0"
+                )
+            except ValueError:
+                discount_value = Decimal("0.00")
+            try:
+                discount = calculate_discount(
+                    subtotal,
+                    item.get("discount_type", DiscountKind.FIXED.value),
+                    discount_value,
+                )
+            except ValueError:
+                self.total_label.setText("Confira os descontos dos itens.")
+                return
+            desconto_itens += discount
+            final_cell = self.itens_table.item(row, 6)
+            if final_cell is not None:
+                final_cell.setText(_em_reais(subtotal - discount))
         escolhido = self.produto_combo.currentData()
         if escolhido:
             produto = self.products.get(escolhido["codigo"])
@@ -986,15 +1054,21 @@ class VendasPage(QWidget):
             return
 
         try:
-            desconto = parse_total(self.desconto_input.text().strip() or "0")
+            valor_desconto = parse_total(self.desconto_input.text().strip() or "0")
         except ValueError:
             # Desconto meio digitado não pode apagar o total: o valor some da
             # tela justo enquanto o operador olha para ele.
-            desconto = Decimal("0")
-        if desconto > bruto:
+            valor_desconto = Decimal("0.00")
+        try:
+            desconto = calculate_discount(
+                bruto - desconto_itens,
+                self.desconto_tipo_combo.currentData(),
+                valor_desconto,
+            )
+        except ValueError:
             self.total_label.setText("Desconto maior que o total.")
             return
-        total = bruto - desconto
+        total = bruto - desconto_itens - desconto
         self.total_label.setText(f"Total: {_em_reais(total)}")
 
     def _limpar_venda(self):
@@ -1002,12 +1076,14 @@ class VendasPage(QWidget):
         self.val_input.clear()
         self.qtd_input.clear()
         self.desconto_input.clear()
+        self.desconto_tipo_combo.setCurrentIndex(0)
         self.cliente_combo.setCurrentIndex(0)
         self.produto_combo.setCurrentIndex(0)
         self.warning_label.setText("")
         self._atualizar_carrinho()
 
     def _venda_gravada(self, nova_venda):
+        self._pending_checkout = None
         self.historico_vendas.insert(0, nova_venda)
         self._set_saving(False)
         self._limpar_venda()
@@ -1018,12 +1094,16 @@ class VendasPage(QWidget):
 
     def _venda_recusada(self, erro):
         self._set_saving(False)
+        if isinstance(erro, DiscountApprovalRequired):
+            self._solicitar_autorizacao()
+            return
         self.warning_label.setText(str(erro))
 
     def _set_saving(self, saving):
         self._saving = saving
         for widget in (self.cliente_combo, self.produto_combo, self.qtd_input,
-                       self.pagamento_combo, self.desconto_input, self.remove_button,
+                       self.pagamento_combo, self.desconto_tipo_combo,
+                       self.desconto_input, self.itens_table, self.remove_button,
                        self.retry_button):
             widget.setEnabled(not saving)
         self.save_button.setText("Gravando…" if saving else " Finalizar Venda")
@@ -1047,14 +1127,62 @@ class VendasPage(QWidget):
         if not self.itens:
             self.warning_label.setText(SEM_ITENS)
             return
-        itens = [{"codigo": i["codigo"], "quantidade": i["quantidade"]} for i in self.itens]
+        itens = [
+            {
+                "codigo": item["codigo"],
+                "quantidade": item["quantidade"],
+                "discount_type": item.get("discount_type", "FIXED"),
+                "discount_value": item.get("discount_value", "0"),
+            }
+            for item in self.itens
+        ]
         session, client_id = self.session, data["id"]
-        payment, discount = self.pagamento_combo.currentData(), self.desconto_input.text().strip() or "0"
+        payment = self.pagamento_combo.currentData()
+        discount = self.desconto_input.text().strip() or "0"
+        discount_type = self.desconto_tipo_combo.currentData()
+        self._pending_checkout = (
+            session, client_id, itens, payment, discount, discount_type
+        )
+        self._submit_checkout()
+
+    def _submit_checkout(self, approval_credentials=None):
+        if self._pending_checkout is None:
+            return
+        session, client_id, items, payment, discount, discount_type = (
+            self._pending_checkout
+        )
         self._set_saving(True)
         self.execute(
-            lambda: self.service.register_sale(session, client_id, itens, payment, discount),
+            lambda: self.service.register_sale(
+                session, client_id, items, payment, discount, discount_type,
+                approval_credentials,
+            ),
             self._venda_gravada, self._venda_recusada,
         )
+
+    def _solicitar_autorizacao(self):
+        email, accepted = QInputDialog.getText(
+            self,
+            "Autorização de desconto",
+            "E-mail do administrador:",
+        )
+        if not accepted:
+            self.warning_label.setText(
+                "Autorização cancelada. A venda não foi registrada."
+            )
+            return
+        password, accepted = QInputDialog.getText(
+            self,
+            "Autorização de desconto",
+            "Senha do administrador:",
+            QLineEdit.Password,
+        )
+        if not accepted:
+            self.warning_label.setText(
+                "Autorização cancelada. A venda não foi registrada."
+            )
+            return
+        self._submit_checkout((email, password))
 
     def atualizar_tabela_historico(self):
         self.table.setRowCount(len(self.historico_vendas))

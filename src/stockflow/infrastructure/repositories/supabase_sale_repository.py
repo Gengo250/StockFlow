@@ -16,6 +16,10 @@ def _receipt_row(receipt):
                    item_count=len(itens))
     row.update(payment_method=receipt.get("payment_method"),
                discount=str(receipt.get("discount", 0)),
+               original_total=str(receipt.get("original_total", receipt.get("total", 0))),
+               discount_applied_by=receipt.get("discount_applied_by"),
+               discount_authorized_by=receipt.get("discount_authorized_by"),
+               discount_authorized_by_name=receipt.get("discount_authorized_by_name", ""),
                status=receipt.get("status", "CONCLUIDA"), items=itens)
     return row
 
@@ -35,6 +39,11 @@ def _history_row(linha):
     row.update(
         payment_method=linha.get("payment_method"),
         discount=str(linha.get("discount", 0)),
+        original_total=str(linha.get("original_total", linha.get("total", 0))),
+        discount_applied_by=linha.get("discount_applied_by"),
+        discount_applied_by_name=linha.get("discount_applied_by_name", ""),
+        discount_authorized_by=linha.get("discount_authorized_by"),
+        discount_authorized_by_name=linha.get("discount_authorized_by_name", ""),
         status=linha.get("status", "CONCLUIDA"),
         items=itens,
         client_id=linha.get("client_id"),
@@ -189,18 +198,84 @@ class SupabaseSaleRepository:
         _total,
         payment_method="DINHEIRO",
         discount=Decimal("0"),
+        *,
+        original_total=None,
+        sale_discount_type="FIXED",
+        sale_discount_value=Decimal("0"),
+        approval_credentials=None,
+        seller_id=None,
     ):
         payload = [
-            {"product_code": item.product_code, "quantity": item.quantity}
+            {
+                "product_code": item.product_code,
+                "quantity": item.quantity,
+                "discount_type": item.discount_type,
+                "discount_value": str(item.discount_value),
+            }
             for item in items
         ]
-        receipt = self._client.rpc("fn_register_sale", {
-            "p_company_id": self._company_id,
-            "p_client_id": client.client_id,
-            "p_items": payload,
-            "p_payment_method": payment_method,
-            "p_discount": str(discount),
-        }).execute().data
+        rpc_client = self._client
+        temporary_client = None
+        if approval_credentials:
+            from stockflow.infrastructure.database.supabase_client import (
+                create_independent_auth_client,
+            )
+
+            temporary_client = create_independent_auth_client()
+            email, password = approval_credentials
+            try:
+                auth_result = temporary_client.auth.sign_in_with_password({
+                    "email": email.strip(),
+                    "password": password,
+                })
+            except Exception as error:
+                raise ValueError("Credenciais de administrador inválidas.") from error
+            if getattr(auth_result, "user", None) is None:
+                raise ValueError("Credenciais de administrador inválidas.")
+
+            approver_id = temporary_client.rpc(
+                "fn_current_user_id", {}
+            ).execute().data
+            companies = temporary_client.rpc("fn_my_companies", {}).execute().data or []
+            approver_company = next(
+                (
+                    row for row in companies
+                    if str(row.get("company_id")) == str(self._company_id)
+                ),
+                None,
+            )
+            if not approver_id or not approver_company or approver_company.get(
+                "user_role"
+            ) != "ADMIN":
+                raise ValueError(
+                    "A aprovação exige um administrador ativo da mesma empresa."
+                )
+            rpc_client = temporary_client
+
+        try:
+            receipt = rpc_client.rpc("fn_register_sale_with_discounts", {
+                "p_company_id": self._company_id,
+                "p_client_id": client.client_id,
+                "p_items": payload,
+                "p_payment_method": payment_method,
+                "p_sale_discount_type": sale_discount_type,
+                "p_sale_discount_value": str(sale_discount_value),
+                "p_seller_id": seller_id,
+            }).execute().data
+        except Exception as error:
+            if (
+                not approval_credentials
+                and "aprovação de admin necessária" in str(error).casefold()
+            ):
+                from stockflow.application.services.sale_service import (
+                    DiscountApprovalRequired,
+                )
+
+                raise DiscountApprovalRequired(
+                    "Este desconto excede o limite do vendedor e exige "
+                    "autorização de um administrador."
+                ) from error
+            raise
         if not isinstance(receipt, dict) or not isinstance(receipt.get("items"), list):
             raise RuntimeError("O banco retornou um registro de venda inválido.")
         items = receipt["items"]
@@ -216,11 +291,45 @@ class SupabaseSaleRepository:
         )
         row.update(
             payment_method=payment_method,
-            discount=str(discount),
+            discount=str(receipt.get("discount", discount)),
+            original_total=str(receipt.get("original_total", original_total or "0")),
             status="CONCLUIDA",
             items=items,
+            seller_id=receipt.get("seller_id", seller_id),
+            discount_applied_by=receipt.get("discount_applied_by", seller_id),
+            discount_authorized_by=receipt.get("discount_authorized_by"),
+            discount_authorized_by_name=receipt.get(
+                "discount_authorized_by_name", ""
+            ),
         )
         return row
+
+    def get_discount_limits(self):
+        response = self._client.rpc(
+            "fn_get_sale_discount_limits", {
+                "p_company_id": self._company_id,
+            }
+        ).execute().data
+        if not isinstance(response, dict) or "SELLER" not in response:
+            raise RuntimeError("O banco retornou limites de desconto inválidos.")
+        return {
+            "SELLER": (
+                None if response["SELLER"] is None
+                else Decimal(str(response["SELLER"]))
+            ),
+            "ADMIN": None,
+        }
+
+    def set_discount_limits(self, limits):
+        value = limits.get("SELLER")
+        response = self._client.rpc("fn_set_sale_discount_limit", {
+            "p_company_id": self._company_id,
+            "p_role": "SELLER",
+            "p_limit_percent": str(value),
+        }).execute().data
+        if response is None:
+            raise RuntimeError("O banco não confirmou a atualização do limite.")
+        return self.get_discount_limits()
 
     def register_items(self, client, itens, payment_method, discount, total):
         from stockflow.application.dto.sale_item import SaleItemInput

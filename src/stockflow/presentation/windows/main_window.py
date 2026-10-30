@@ -13,6 +13,7 @@ from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoErro
 from stockflow.domain.permissions import (
     PERMISSION_MATRIX,
     TODOS_OS_PAPEIS,
+    can_manage_companies,
     can_manage_suppliers,
     exigir_ver,
     pode_gravar,
@@ -239,6 +240,9 @@ class MainWindow(QMainWindow):
         self.dashboard_page.navigate_requested.connect(self.show_page)
         self.reports_page = ReportsPage(self.product_repository, self.sale_repository)
         self.settings_page = SettingsPage(self.session)
+        self.settings_page.discount_limits_save_requested.connect(
+            self._save_sale_discount_limit
+        )
         if remote:
             if hasattr(type(self.product_repository), "list_snapshot"):
                 self.dashboard_page.read_products = self.product_repository.list_snapshot
@@ -410,6 +414,13 @@ class MainWindow(QMainWindow):
             self._reconsultar_estoque()
         if key == "historico_precos":
             self._carregar_historico_precos()
+        if key == "configuracoes" and can_manage_companies(self.session):
+            self._load(
+                "sale_discount_limits",
+                lambda: self.sale_service.get_discount_limits(self.session),
+                self.settings_page.set_discount_limits,
+                self.settings_page.show_discount_limits_error,
+            )
         if key == "movimentacoes":
             self._recarregar_movimentacoes()
             if using_supabase():
@@ -433,6 +444,27 @@ class MainWindow(QMainWindow):
         execute = self.executar_em_segundo_plano if using_supabase() else executar_agora
         return execute(fetch, lambda value: deliver(loaded, value),
                        lambda error: deliver(failed, error))
+
+    def _save_sale_discount_limit(self, value):
+        button = self.settings_page.save_discount_limits_button
+        button.setEnabled(False)
+
+        def saved(limits):
+            self.settings_page.set_discount_limits(limits)
+            self.settings_page.discount_limits_feedback.setText(
+                "Limite do vendedor salvo."
+            )
+            button.setEnabled(True)
+
+        def failed(error):
+            self.settings_page.show_discount_limits_error(error)
+            button.setEnabled(True)
+
+        self._execute(
+            lambda: self.sale_service.set_discount_limits(self.session, value),
+            saved,
+            failed,
+        )
 
     def _load(self, key, fetch, loaded, failed):
         if key not in self._loaders:
@@ -960,6 +992,7 @@ class MainWindow(QMainWindow):
         # em que a janela sem login apareça com os controles liberados.
         self.clientes_page.apply_session(self.session, reload=not using_supabase())
         self.vendas_page.apply_session(self.session)
+        self.settings_page.apply_session(self.session)
         # Escrita: cada área habilita os widgets que ela controla. As alçadas
         # continuam SEPARADAS de propósito — administrar usuário é só do
         # ADMIN, como `fn_is_admin`, e reaproveitar a permissão de produto

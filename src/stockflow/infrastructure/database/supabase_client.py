@@ -63,6 +63,26 @@ def get_client():
     return _client
 
 
+def create_independent_auth_client():
+    """Cria cliente de autenticação isolado sem substituir a sessão principal."""
+    url, key = _credenciais()
+    if not (url and key):
+        raise RuntimeError(
+            f"Defina {URL_VAR} e {KEY_VAR} no .env (modelo em .env.example) "
+            "para usar o backend de banco."
+        )
+    from supabase import ClientOptions, create_client
+
+    return create_client(
+        url,
+        key,
+        options=ClientOptions(
+            persist_session=False,
+            auto_refresh_token=False,
+        ),
+    )
+
+
 def reset_client() -> None:
     """Descarta o cliente em cache.
 
