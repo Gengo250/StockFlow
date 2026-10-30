@@ -553,3 +553,210 @@ BEGIN
     RETURN v_receipt;
 END;
 $$;
+
+-- Histórico final US17/US22. O retorno mudou na US22: substituir assinatura
+-- exata, sem CASCADE; policies/01_security.sql restaura os grants ao final.
+DROP FUNCTION IF EXISTS public.fn_list_sales(
+    uuid, text, timestamptz, timestamptz, uuid, uuid,
+    public.sale_status, text, integer, integer
+);
+CREATE OR REPLACE FUNCTION public.fn_list_sales(
+    p_company_id uuid,
+    p_sale_id    text               DEFAULT NULL,
+    p_from       timestamptz        DEFAULT NULL,
+    p_to         timestamptz        DEFAULT NULL,
+    p_client_id  uuid               DEFAULT NULL,
+    p_seller_id  uuid               DEFAULT NULL,
+    p_status     public.sale_status DEFAULT NULL,
+    p_sort       text               DEFAULT 'DATA_DESC',
+    p_limit      integer            DEFAULT 50,
+    p_offset     integer            DEFAULT 0
+)
+RETURNS TABLE (
+    id               uuid,
+    client_id        uuid,
+    client_name      text,
+    seller_id        uuid,
+    seller_name      text,
+    payment_method   public.payment_method,
+    discount         numeric,
+    original_total   numeric,
+    discount_applied_by uuid,
+    discount_applied_by_name text,
+    discount_authorized_by uuid,
+    discount_authorized_by_name text,
+    total            numeric,
+    status           public.sale_status,
+    created_on       timestamptz,
+    items            jsonb,
+    reversal_kind    public.sale_reversal_kind,
+    reversal_reason  text,
+    reversal_on      timestamptz,
+    reversal_by_name text,
+    total_count      bigint
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public AS $$
+BEGIN
+    IF NOT public.fn_is_member(p_company_id) THEN
+        RAISE EXCEPTION 'Sem permissão para consultar o histórico desta empresa'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF p_limit IS NULL OR p_limit <= 0 OR p_limit > 200 THEN
+        RAISE EXCEPTION 'Tamanho de página inválido: %', p_limit
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION 'Deslocamento de página inválido: %', p_offset
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF p_sort IS NULL OR p_sort NOT IN
+       ('DATA_DESC', 'DATA_ASC', 'VALOR_DESC', 'VALOR_ASC', 'CLIENTE_ASC') THEN
+        RAISE EXCEPTION 'Ordenação desconhecida: %', p_sort
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN QUERY
+    WITH filtradas AS (
+        SELECT s.*
+          FROM public.sales s
+         WHERE s.company_id = p_company_id
+           AND (p_sale_id   IS NULL OR s.id::text LIKE lower(btrim(p_sale_id)) || '%')
+           AND (p_from      IS NULL OR s.created_on >= p_from)
+           AND (p_to        IS NULL OR s.created_on < p_to)
+           AND (p_client_id IS NULL OR s.client_id = p_client_id)
+           AND (p_seller_id IS NULL OR s.created_by = p_seller_id)
+           AND (p_status IS NOT NULL OR s.status <> 'PENDENTE')
+           AND (p_status     IS NULL OR s.status = p_status)
+    )
+    SELECT f.id,
+           f.client_id,
+           f.client_name,
+           f.created_by,
+           COALESCE(ua.name, ''),
+           f.payment_method,
+           f.discount,
+           f.original_total,
+           f.discount_applied_by,
+           COALESCE(da.name, ''),
+           f.discount_authorized_by,
+           COALESCE(au.name, ''),
+           f.total,
+           f.status,
+           f.created_on,
+           COALESCE((SELECT jsonb_agg(to_jsonb(i) ORDER BY i.created_on, i.id)
+                       FROM public.sale_items i
+                      WHERE i.sale_id = f.id), '[]'::jsonb),
+           r.kind,
+           r.reason,
+           r.created_on,
+           COALESCE(rua.name, ''),
+           count(*) OVER ()
+      FROM filtradas f
+      LEFT JOIN public.sale_reversals r   ON r.sale_id = f.id
+      LEFT JOIN public.user_accounts  ua  ON ua.id = f.created_by
+      LEFT JOIN public.user_accounts  da  ON da.id = f.discount_applied_by
+      LEFT JOIN public.user_accounts  au  ON au.id = f.discount_authorized_by
+      LEFT JOIN public.user_accounts  rua ON rua.id = r.created_by
+     ORDER BY
+        CASE WHEN p_sort = 'DATA_DESC'   THEN f.created_on END DESC,
+        CASE WHEN p_sort = 'DATA_ASC'    THEN f.created_on END ASC,
+        CASE WHEN p_sort = 'VALOR_DESC'  THEN f.total      END DESC,
+        CASE WHEN p_sort = 'VALOR_ASC'   THEN f.total      END ASC,
+        CASE WHEN p_sort = 'CLIENTE_ASC' THEN lower(f.client_name) END ASC,
+        f.id DESC
+     LIMIT p_limit OFFSET p_offset;
+END;
+$$;
+
+-- Reversão legada US17. A guarda US20 em triggers/09 bloqueia uma segunda
+-- restituição quando existir devolução por itens COMPLETED.
+CREATE OR REPLACE FUNCTION public.fn_cancel_sale(
+    p_sale_id uuid,
+    p_reason  text
+) RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_company uuid;
+    v_status  public.sale_status;
+    v_actor   uuid := public.fn_current_user_id();
+    v_reason  text := btrim(COALESCE(p_reason, ''));
+BEGIN
+    SELECT s.company_id, s.status INTO v_company, v_status
+      FROM public.sales s WHERE s.id = p_sale_id FOR UPDATE;
+    IF v_company IS NULL
+       OR NOT public.fn_has_role(v_company, ARRAY['ADMIN']::public.user_role[]) THEN
+        RAISE EXCEPTION 'Venda não encontrada ou sem permissão para cancelar'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF v_reason = '' THEN
+        RAISE EXCEPTION 'Informe o motivo do cancelamento'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_status <> 'CONCLUIDA' THEN
+        RAISE EXCEPTION
+            'Somente venda concluída pode ser cancelada (situação atual: %)',
+            v_status USING ERRCODE = 'check_violation';
+    END IF;
+    INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
+    VALUES (v_company, p_sale_id, 'CANCELAMENTO', v_reason, v_actor);
+    UPDATE public.stock_movements
+       SET status = 'CANCELADA'
+     WHERE sale_id = p_sale_id AND status = 'CONFIRMADA';
+    UPDATE public.sales SET status = 'CANCELADA' WHERE id = p_sale_id;
+    RETURN jsonb_build_object('sale_id', p_sale_id, 'kind', 'CANCELAMENTO',
+                              'reason', v_reason, 'status', 'CANCELADA');
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.fn_return_sale(
+    p_sale_id uuid,
+    p_reason  text
+) RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_company uuid;
+    v_status  public.sale_status;
+    v_actor   uuid := public.fn_current_user_id();
+    v_reason  text := btrim(COALESCE(p_reason, ''));
+    v_item    RECORD;
+BEGIN
+    SELECT s.company_id, s.status INTO v_company, v_status
+      FROM public.sales s WHERE s.id = p_sale_id FOR UPDATE;
+    IF v_company IS NULL
+       OR NOT public.fn_has_role(v_company, ARRAY['ADMIN']::public.user_role[]) THEN
+        RAISE EXCEPTION 'Venda não encontrada ou sem permissão para devolver'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF v_reason = '' THEN
+        RAISE EXCEPTION 'Informe o motivo da devolução'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_status <> 'CONCLUIDA' THEN
+        RAISE EXCEPTION
+            'Somente venda concluída pode ser devolvida (situação atual: %)',
+            v_status USING ERRCODE = 'check_violation';
+    END IF;
+    INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
+    VALUES (v_company, p_sale_id, 'DEVOLUCAO', v_reason, v_actor);
+    FOR v_item IN
+        SELECT i.product_id, i.quantity
+          FROM public.sale_items i
+         WHERE i.sale_id = p_sale_id AND i.product_id IS NOT NULL
+         ORDER BY i.product_id, i.id
+    LOOP
+        INSERT INTO public.stock_movements (
+            company_id, product_id, sale_id, kind, quantity, status,
+            note, created_by, confirmed_on
+        ) VALUES (
+            v_company, v_item.product_id, p_sale_id, 'ENTRADA',
+            v_item.quantity, 'CONFIRMADA',
+            'DEVOLUCAO_VENDA - venda ' || p_sale_id::text, v_actor, now()
+        );
+    END LOOP;
+    UPDATE public.sales SET status = 'DEVOLVIDA' WHERE id = p_sale_id;
+    RETURN jsonb_build_object('sale_id', p_sale_id, 'kind', 'DEVOLUCAO',
+                              'reason', v_reason, 'status', 'DEVOLVIDA');
+END;
+$$;

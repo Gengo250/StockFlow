@@ -34,6 +34,9 @@ from stockflow.domain.enums.movement_status import MovementStatus
 from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.stock_adjustment import calcular_ajuste, saldo_contado
 from stockflow.domain.stock_level import derive_stock_status, to_int
+from stockflow.domain.sale_return import (
+    return_identifier, return_quantity, validate_return_stock,
+)
 from stockflow.infrastructure.repositories.movement_mapper import row_to_movement
 
 # "MOV-" + três dígitos, no espírito de `next_product_code`: sequencial e
@@ -64,7 +67,8 @@ def _sob_o_lock(metodo):
 
 
 class DemoMovementRepository:
-    def __init__(self, products: dict, movements=None, agora=None, suppliers=None):
+    def __init__(self, products: dict, movements=None, agora=None, suppliers=None,
+                 *, company_max_stock_limit=None):
         self._products = products
         self._suppliers = suppliers
         self.lock = RLock()
@@ -75,6 +79,8 @@ class DemoMovementRepository:
         # `agora` de `formatar_ultimo_acesso`: sem ele o teste de "Hoje"
         # dependeria do relógio e do fuso da máquina.
         self._agora = agora
+        # Configuração explícita: não importar um limite de empresa fictício.
+        self.company_max_stock_limit = company_max_stock_limit
 
     @property
     def products(self) -> dict:
@@ -310,6 +316,68 @@ class DemoMovementRepository:
                 self._products.update(stock_before)
                 self._movements[:] = movements_before
                 raise
+
+    @_sob_o_lock
+    def register_return(self, return_id, sale_id, items, *, created_by, company_id,
+                        publish=None) -> tuple[str, ...]:
+        """Restitui itens inclusive inativos, sem usar o fluxo de ajuste manual.
+
+        `publish` publica o cabeçalho no repositório Demo de vendas sob o MESMO
+        lock. Se qualquer passo falhar, catálogo e movimentos são restaurados.
+        """
+        return_id, sale_id = return_identifier(return_id), return_identifier(sale_id)
+        if (not isinstance(created_by, str) or not created_by.strip()
+                or not isinstance(company_id, str) or not company_id.strip()
+                or not isinstance(items, (list, tuple)) or not items):
+            raise ValueError("Devolução exige responsável, empresa e itens.")
+        quantities = {}
+        seen = set()
+        for item in items:
+            key = return_identifier(item.sale_item_id)
+            if key in seen or any(
+                m.get("return_id") == return_id and m.get("sale_item_id") == key
+                for m in self._movements
+            ):
+                raise ValueError("Movimentação de devolução repetida.")
+            seen.add(key)
+            return_quantity(item.quantity)
+            quantities[item.product_code] = quantities.get(item.product_code, 0) + item.quantity
+        for code, quantity in quantities.items():
+            product = self._products.get(code)
+            if product is None:
+                raise LookupError("Produto da devolução não encontrado.")
+            validate_return_stock(
+                int(product.stock), quantity, getattr(product, "maximum_stock", None),
+                self.company_max_stock_limit,
+            )
+        stock_before = {code: self._products[code] for code in quantities}
+        movements_before = list(self._movements)
+        committed = False
+        try:
+            ids = []
+            for item in items:
+                now = self._agora or datetime.now()
+                row = {
+                    "id": self._proximo_id(), "product_code": item.product_code,
+                    "kind": MovementKind.ENTRADA.value, "quantity": item.quantity,
+                    "status": MovementStatus.CONFIRMADA.value,
+                    "note": f"DEVOLUCAO - devolução {return_id}",
+                    "company_id": company_id, "created_by": created_by,
+                    "sale_id": sale_id, "sale_item_id": return_identifier(item.sale_item_id),
+                    "return_id": return_id, "supplier_id": None,
+                    "created_on": now, "confirmed_on": now,
+                }
+                self._aplicar_no_saldo(row, sentido=1)
+                self._movements.append(row)
+                ids.append(row["id"])
+            if publish is not None:
+                publish()
+            committed = True
+            return tuple(ids)
+        finally:
+            if not committed:
+                self._products.update(stock_before)
+                self._movements[:] = movements_before
 
     # ======================================================
     # SALDO

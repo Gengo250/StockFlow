@@ -28,6 +28,8 @@ ALTER TABLE public.clients        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_items      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales_log       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sale_reversals  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sale_discount_limits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.role_change_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.price_edit_log  ENABLE ROW LEVEL SECURITY;
@@ -67,6 +69,7 @@ GRANT SELECT ON public.company,
                 public.sales,
                 public.sale_items,
                 public.sales_log,
+                public.sale_reversals,
                 public.role_change_log,
                 public.price_edit_log,
                 public.vw_stock_situation,
@@ -89,6 +92,7 @@ DROP POLICY IF EXISTS clients_select          ON public.clients;
 DROP POLICY IF EXISTS sales_select            ON public.sales;
 DROP POLICY IF EXISTS sale_items_select        ON public.sale_items;
 DROP POLICY IF EXISTS sales_log_select         ON public.sales_log;
+DROP POLICY IF EXISTS sale_reversals_select    ON public.sale_reversals;
 DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
 DROP POLICY IF EXISTS role_change_log_select  ON public.role_change_log;
 DROP POLICY IF EXISTS price_edit_log_select   ON public.price_edit_log;
@@ -129,6 +133,11 @@ CREATE POLICY sale_items_select ON public.sale_items
   USING (public.fn_is_member(company_id));
 
 CREATE POLICY sales_log_select ON public.sales_log
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_is_member(company_id));
+
+-- US17: somente leitura por empresa; a escrita pertence às RPCs de reversão.
+CREATE POLICY sale_reversals_select ON public.sale_reversals
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
 
@@ -197,6 +206,12 @@ DECLARE
     -- Venda com vários itens, desconto e forma de pagamento (US10) e edição
     -- de estoque por código de barras (US09).
     'fn_create_complete_sale', 'fn_checkout_sale', 'fn_edit_product_stock',
+    -- US20: ambas validam identidade, empresa e papel ADMIN internamente.
+    'fn_get_returnable_items', 'fn_return_partial_sale',
+    -- US17/US22: restaurar a superfície da main sem retirar as RPCs US20.
+    'fn_list_sales', 'fn_cancel_sale', 'fn_return_sale',
+    'fn_get_sale_discount_limits', 'fn_set_sale_discount_limit',
+    'fn_register_sale_with_discounts',
     'fn_list_company_suppliers', 'fn_create_supplier', 'fn_update_supplier',
     'fn_set_supplier_active', 'fn_set_product_supplier',
     'fn_register_supplier_movement', 'fn_save_product', 'fn_save_company_member',

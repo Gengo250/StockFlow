@@ -102,6 +102,19 @@ PERMISSION_MATRIX: dict[str, Area] = {
         fonte_ver="sales_select",
         fonte_gravar="fn_register_sale",
     ),
+    "vendas_reversao": Area(
+        ver=TODOS_OS_PAPEIS,
+        gravar=_ADMIN,
+        fonte_ver="sales_select",
+        fonte_gravar="fn_cancel_sale",
+    ),
+    # US20: as RPCs são mais estritas que o SELECT do histórico comercial.
+    "devolucoes": Area(
+        ver=_ADMIN,
+        gravar=_ADMIN,
+        fonte_ver="fn_get_returnable_items",
+        fonte_gravar="fn_return_partial_sale",
+    ),
     # A tela inteira é do ADMIN, não só os seus botões: `fn_list_company_users`
     # recusa o não-admin, então nem a listagem existe para os outros papéis.
     "usuarios": Area(
@@ -321,3 +334,23 @@ def ensure_can_manage_clients(session, action="gerenciar clientes") -> None:
 
 def ensure_can_register_sales(session) -> None:
     ensure_can_manage_clients(session, action="registrar vendas")
+
+
+def can_return_sales(role_or_session) -> bool:
+    return pode_gravar(role_or_session, "devolucoes")
+
+
+def can_reverse_sales(role_or_session) -> bool:
+    return pode_gravar(role_or_session, "vendas_reversao")
+
+
+def ensure_can_reverse_sales(session, action="cancelar ou devolver vendas") -> None:
+    exigir_gravar(session, "vendas_reversao", action)
+
+
+def ensure_can_return_sales(session, action: str = "registrar devoluções") -> None:
+    exigir_gravar(session, "devolucoes", action)
+    # Papel isolado não identifica autor/empresa. Demo também exige contexto.
+    if any(not isinstance(getattr(session, field, None), str)
+           or not getattr(session, field).strip() for field in ("user_id", "company_id")):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
