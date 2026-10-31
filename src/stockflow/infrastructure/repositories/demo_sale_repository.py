@@ -104,11 +104,35 @@ class DemoSaleRepository:
         else:
             self._products = dict(DEMO_PRODUCTS)
         self.movements = repositorio or DemoMovementRepository(self._products)
+        # As sementes carregam itens, status e totais porque o comprovante
+        # (US19) lê o SNAPSHOT da venda: linha sem item não tem o que
+        # comprovar, e a demonstração ficaria sem histórico emitível.
         self.rows = [
-            sale_row("VND-1001", "Patrícia Lima", ["PRD-004"], ["Cabo HDMI 2m"], 450, "10/08/2026"),
-            sale_row("VND-1002", "Ana Ferreira", ["PRD-007"], ["Mouse ergonômico"], 1290, "28/09/2026"),
+            self._semente("VND-1001", "Patrícia Lima", "PRD-004",
+                          "Cabo HDMI 2m", 450, "10/08/2026"),
+            self._semente("VND-1002", "Ana Ferreira", "PRD-007",
+                          "Mouse ergonômico", 1290, "28/09/2026"),
         ]
         self.discount_limits = {"SELLER": Decimal("10.00"), "ADMIN": None}
+
+    @staticmethod
+    def _semente(sale_id, cliente, codigo, nome, total, data):
+        valor = Decimal(str(total)).quantize(Decimal("0.01"))
+        linha = sale_row(sale_id, cliente, [codigo], [nome], valor, data,
+                         item_count=1)
+        linha.update(
+            status="CONCLUIDA",
+            payment_method="DINHEIRO",
+            discount="0.00",
+            original_total=str(valor),
+            seller="ana.ferreira",
+            items=[{
+                "product_code": codigo, "product_name": nome, "quantity": 1,
+                "unit_price": str(valor), "subtotal": str(valor),
+                "discount_amount": "0.00", "final_subtotal": str(valor),
+            }],
+        )
+        return linha
 
     def get_discount_limits(self):
         return dict(self.discount_limits)

@@ -161,3 +161,60 @@ def test_detalhe_oferece_o_comprovante_a_quem_nao_pode_reverter(detalhe):
 def test_detalhe_sem_venda_nao_oferece_emissao(detalhe):
     detalhe.load_sale(None, _vendedor())
     assert not detalhe.receipt_button.isEnabled()
+
+
+# -------------------------------------- entrada logo após fechar a venda
+
+
+def _venda_fechada(numero):
+    return {
+        "id": numero, "cliente": "Ana Ferreira", "produto": "Teclado",
+        "valor": "R$ 79,00", "data": "31/10/2026 14:22",
+        "status": "CONCLUIDA", "items": [],
+    }
+
+
+def test_vendas_esconde_o_botao_antes_de_qualquer_venda(vendas_page):
+    assert not vendas_page.receipt_button.isVisible()
+
+
+def test_vendas_oferece_comprovante_depois_de_gravar(vendas_page):
+    vendas_page._venda_gravada(_venda_fechada("VND-9001"))
+    pedidos = []
+    vendas_page.receipt_requested.connect(pedidos.append)
+
+    vendas_page.receipt_button.click()
+
+    assert pedidos == ["VND-9001"]
+
+
+def test_vendas_esconde_o_botao_ao_comecar_uma_venda_nova(vendas_page):
+    vendas_page._venda_gravada(_venda_fechada("VND-9002"))
+    vendas_page._limpar_venda()
+    assert not vendas_page.receipt_button.isVisible()
+
+
+def test_vendas_semente_da_demonstracao_tem_itens_para_comprovar():
+    """Sem itens gravados não há comprovante, e a demonstração precisa de um
+    histórico sobre o qual a US19 possa ser exercida."""
+    from stockflow.infrastructure.repositories.demo_sale_repository import (
+        DemoSaleRepository,
+    )
+
+    for linha in DemoSaleRepository().list_all():
+        assert linha["items"]
+        assert linha["status"] == "CONCLUIDA"
+        assert linha["original_total"]
+
+
+def test_semente_da_demonstracao_emite_comprovante_de_ponta_a_ponta():
+    """A emissão sobre a semente é o caminho que o teste manual percorre."""
+    from stockflow.infrastructure.repositories.demo_sale_repository import (
+        DemoSaleRepository,
+    )
+
+    linha = DemoSaleRepository().list_all()[0]
+    comprovante = build_sale_receipt(linha, EMPRESA)
+
+    assert comprovante.items
+    assert comprovante.net > 0
