@@ -468,7 +468,7 @@ BEGIN
     PERFORM p.id FROM public.products p
      WHERE p.company_id = p_company_id
        AND p.id IN (SELECT (i->>'product_id')::uuid FROM jsonb_array_elements(p_items) i)
-     ORDER BY p.id FOR UPDATE;
+     ORDER BY p.barcode, p.id FOR UPDATE;
 
     INSERT INTO public.sales (
         company_id, client_id, client_name, payment_method, discount,
@@ -746,6 +746,17 @@ BEGIN
             v_status USING ERRCODE = 'check_violation';
     END IF;
 
+    -- Mesma ordem do checkout e da US20: código, com UUID para desempate.
+    PERFORM p.id
+      FROM public.products p
+     WHERE p.company_id = v_company
+       AND p.id IN (
+           SELECT sm.product_id FROM public.stock_movements sm
+            WHERE sm.sale_id = p_sale_id AND sm.status = 'CONFIRMADA'
+              AND sm.product_id IS NOT NULL
+       )
+     ORDER BY p.barcode, p.id FOR UPDATE;
+
     -- O UNIQUE (sale_id) desta tabela é o que torna a reversão terminal; a
     -- conferência de status acima é a mensagem amigável para o caso comum.
     INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
@@ -804,17 +815,26 @@ BEGIN
             v_status USING ERRCODE = 'check_violation';
     END IF;
 
+    PERFORM p.id
+      FROM public.products p
+     WHERE p.company_id = v_company
+       AND p.id IN (
+           SELECT i.product_id FROM public.sale_items i
+            WHERE i.sale_id = p_sale_id AND i.company_id = v_company
+              AND i.product_id IS NOT NULL
+       )
+     ORDER BY p.barcode, p.id FOR UPDATE;
+
     INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
     VALUES (v_company, p_sale_id, 'DEVOLUCAO', v_reason, v_actor);
 
     FOR v_item IN
         SELECT i.product_id, i.quantity
           FROM public.sale_items i
+          JOIN public.products p ON p.id = i.product_id AND p.company_id = i.company_id
          WHERE i.sale_id = p_sale_id AND i.product_id IS NOT NULL
-         -- Mesma ordem de bloqueio da conclusão da venda (triggers/06), para
-         -- que duas operações concorrentes sobre os mesmos produtos não se
-         -- cruzem em sentidos opostos.
-         ORDER BY i.product_id, i.id
+           AND i.company_id = v_company
+         ORDER BY p.barcode, p.id, i.id
     LOOP
         INSERT INTO public.stock_movements (
             company_id, product_id, sale_id, kind, quantity, status,

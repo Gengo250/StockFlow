@@ -25,6 +25,8 @@ from stockflow.domain.sale_discount import (
     calculate_discount_breakdown,
 )
 
+_LEGACY_LIST = object()
+
 _MONEY_PATTERN = re.compile(
     r"(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d{1,2})?|\d+\.\d{1,2}"
 )
@@ -157,7 +159,7 @@ class SaleService:
             discount_type, approval_credentials,
         )
 
-    def list_sales(self, session, filtro=None, page=1, size=TAMANHO_PADRAO):
+    def list_sales(self, session=_LEGACY_LIST, filtro=None, page=1, size=TAMANHO_PADRAO):
         """Página do histórico, com a alçada conferida antes da consulta.
 
         Antes da US17 este método não recebia sessão: a RLS escopava por
@@ -165,6 +167,10 @@ class SaleService:
         decisão. A guarda explícita alinha vendas às demais áreas, e é ela
         que fica vermelha se a matriz mudar.
         """
+        if session is _LEGACY_LIST:
+            if filtro is not None or page != 1 or size != TAMANHO_PADRAO:
+                raise ValueError("Informe a sessão para consultar o histórico paginado.")
+            return self.repository.list_all()
         exigir_ver(session, "vendas", "consultar o histórico de vendas")
         if not isinstance(page, int) or isinstance(page, bool) or page < 1:
             raise ValueError("Página inválida.")
@@ -274,15 +280,35 @@ class SaleService:
         resumo = calculate_discount_breakdown(
             bruto, descontos_itens, desconto_venda
         )
-        role = UserRole.from_value(session.role)
-        limites = self.repository.get_discount_limits()
-        limite = limites.get(role.value)
-        if limite is not None and resumo.effective_percent > Decimal(str(limite)):
-            if not approval_credentials:
-                raise DiscountApprovalRequired(
-                    "Este desconto excede o limite do vendedor e exige "
-                    "autorização de um administrador."
-                )
+        get_limits = getattr(self.repository, "get_discount_limits", None)
+        if callable(get_limits):
+            role = UserRole.from_value(session.role)
+            limites = get_limits()
+            limite = limites.get(role.value)
+            if limite is not None and resumo.effective_percent > Decimal(str(limite)):
+                if not approval_credentials:
+                    raise DiscountApprovalRequired(
+                        "Este desconto excede o limite do vendedor e exige "
+                        "autorização de um administrador."
+                    )
+
+            return self.repository.register_multiple(
+                client,
+                normalized_items,
+                resumo.net,
+                payment_method,
+                resumo.total_discount,
+                original_total=resumo.gross,
+                sale_discount_type=DiscountKind(discount_type).value,
+                sale_discount_value=valor_desconto_venda,
+                approval_credentials=approval_credentials,
+                seller_id=getattr(session, "user_id", None),
+            )
+
+        if (any(item.discount_value != 0 for item in normalized_items)
+                or DiscountKind(discount_type) is not DiscountKind.FIXED
+                or approval_credentials is not None):
+            raise ValueError("Este repositório não suporta o fluxo de descontos US22.")
 
         # The repository owns the transaction boundary. In particular, stock
         # changes are never performed as a second write after this returns.
@@ -292,11 +318,6 @@ class SaleService:
             resumo.net,
             payment_method,
             resumo.total_discount,
-            original_total=resumo.gross,
-            sale_discount_type=DiscountKind(discount_type).value,
-            sale_discount_value=valor_desconto_venda,
-            approval_credentials=approval_credentials,
-            seller_id=getattr(session, "user_id", None),
         )
 
     @staticmethod

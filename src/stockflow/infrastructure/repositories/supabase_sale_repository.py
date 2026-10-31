@@ -1,6 +1,17 @@
 from datetime import timedelta
 from decimal import Decimal
 
+from postgrest.exceptions import APIError
+
+from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+from stockflow.domain.sale_return import return_identifier
+from stockflow.application.dto.sale_filter import SaleFilter, SalePage
+from stockflow.infrastructure.repositories.return_mapper import (
+    partial_return_args,
+    return_items_from_response,
+    return_result_from_response,
+)
+
 from stockflow.infrastructure.repositories.demo_sale_repository import (
     resumo_dos_itens,
     sale_row,
@@ -58,8 +69,39 @@ def _history_row(linha):
 
 
 class SupabaseSaleRepository:
-    def __init__(self, client, company_id):
+    def __init__(self, client, company_id, *, role=None):
         self._client, self._company_id = client, company_id
+        self._role = role  # Somente diagnóstico; autorização real usa JWT/RPC.
+
+    def get_returnable_items(self, sale_id: str) -> list[dict]:
+        data = self._return_rpc(
+            "fn_get_returnable_items", {"p_sale_id": return_identifier(sale_id)},
+            "consultar itens devolvíveis",
+        )
+        return return_items_from_response(data)
+
+    def partial_return(self, sale_id, items, reason, idempotency_key):
+        args = partial_return_args(sale_id, items, reason, idempotency_key)
+        data = self._return_rpc("fn_return_partial_sale", args, "registrar devoluções")
+        return return_result_from_response(data)
+
+    def _return_rpc(
+        self, name: str, args: dict, action: str, *, map_check_violation=False
+    ):
+        # Não repetir operações: timeout/contrato inválido não prova rollback.
+        try:
+            response = self._client.rpc(name, args).execute()
+        except APIError as error:
+            if str(error.code) == "42501":
+                raise PermissionDeniedError(action, self._role) from error
+            if map_check_violation and str(error.code) == "23514":
+                raise ValueError(error.message) from error
+            if str(error.code) == "PT409":
+                raise ValueError(
+                    "Chave de idempotência reutilizada com conteúdo diferente."
+                ) from error
+            raise
+        return getattr(response, "data", None)
 
     @staticmethod
     def _rows(response):
@@ -113,14 +155,20 @@ class SupabaseSaleRepository:
         return pagina.rows[0] if pagina.rows else None
 
     def cancel(self, sale_id, reason):
-        return self._client.rpc("fn_cancel_sale", {
-            "p_sale_id": str(sale_id), "p_reason": reason,
-        }).execute().data
+        return self._return_rpc(
+            "fn_cancel_sale",
+            {"p_sale_id": str(sale_id), "p_reason": reason},
+            "cancelar vendas",
+            map_check_violation=True,
+        )
 
     def revert(self, sale_id, reason):
-        return self._client.rpc("fn_return_sale", {
-            "p_sale_id": str(sale_id), "p_reason": reason,
-        }).execute().data
+        return self._return_rpc(
+            "fn_return_sale",
+            {"p_sale_id": str(sale_id), "p_reason": reason},
+            "devolver vendas",
+            map_check_violation=True,
+        )
 
     def register(self, client, product, total):
         rows = (
@@ -201,7 +249,7 @@ class SupabaseSaleRepository:
         *,
         original_total=None,
         sale_discount_type="FIXED",
-        sale_discount_value=Decimal("0"),
+        sale_discount_value=None,
         approval_credentials=None,
         seller_id=None,
     ):
@@ -214,6 +262,11 @@ class SupabaseSaleRepository:
             }
             for item in items
         ]
+        if sale_discount_value is None:
+            if (sale_discount_type != "FIXED"
+                    or any(item.discount_value != 0 for item in items)):
+                raise ValueError("Informe separadamente o desconto adicional da venda.")
+            sale_discount_value = discount if discount is not None else Decimal("0")
         rpc_client = self._client
         temporary_client = None
         if approval_credentials:

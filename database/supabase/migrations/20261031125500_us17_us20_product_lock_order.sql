@@ -1,20 +1,19 @@
 -- US17/US20/US22: ordena locks de produto por barcode ascendente nos fluxos
--- legados de cancelamento/devolução, igual ao checkout US22 e retorno US20.
--- Migration US17 20261024125000 já aplicada: corrigir com CREATE OR REPLACE
--- incremental, sem editar ou reparar histórico já registrado.
+-- legados e na US20, alinhados ao checkout US22; UUID desempata códigos.
+-- Correção incremental: não altera migration US17 já aplicada.
 BEGIN;
 
 CREATE OR REPLACE FUNCTION public.fn_cancel_sale(
     p_sale_id uuid,
-    p_reason  text
+    p_reason text
 ) RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
     v_company uuid;
-    v_status  public.sale_status;
-    v_actor   uuid := public.fn_current_user_id();
-    v_reason  text := btrim(COALESCE(p_reason, ''));
+    v_status public.sale_status;
+    v_actor uuid := public.fn_current_user_id();
+    v_reason text := btrim(COALESCE(p_reason, ''));
 BEGIN
     SELECT s.company_id, s.status INTO v_company, v_status
       FROM public.sales s WHERE s.id = p_sale_id FOR UPDATE;
@@ -33,8 +32,6 @@ BEGIN
             v_status USING ERRCODE = 'check_violation';
     END IF;
 
-    -- Alinhar a ordem de locks de produto à US20/US22 antes de alterar
-    -- movimentações, cujos triggers atualizam o saldo dos produtos.
     PERFORM p.id
       FROM public.products p
      WHERE p.company_id = v_company
@@ -45,7 +42,7 @@ BEGIN
               AND sm.status = 'CONFIRMADA'
               AND sm.product_id IS NOT NULL
        )
-     ORDER BY p.barcode
+      ORDER BY p.barcode, p.id
      FOR UPDATE;
 
     INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
@@ -54,6 +51,7 @@ BEGIN
        SET status = 'CANCELADA'
      WHERE sale_id = p_sale_id AND status = 'CONFIRMADA';
     UPDATE public.sales SET status = 'CANCELADA' WHERE id = p_sale_id;
+
     RETURN jsonb_build_object('sale_id', p_sale_id, 'kind', 'CANCELAMENTO',
                               'reason', v_reason, 'status', 'CANCELADA');
 END;
@@ -61,16 +59,16 @@ $$;
 
 CREATE OR REPLACE FUNCTION public.fn_return_sale(
     p_sale_id uuid,
-    p_reason  text
+    p_reason text
 ) RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
     v_company uuid;
-    v_status  public.sale_status;
-    v_actor   uuid := public.fn_current_user_id();
-    v_reason  text := btrim(COALESCE(p_reason, ''));
-    v_item    RECORD;
+    v_status public.sale_status;
+    v_actor uuid := public.fn_current_user_id();
+    v_reason text := btrim(COALESCE(p_reason, ''));
+    v_item RECORD;
 BEGIN
     SELECT s.company_id, s.status INTO v_company, v_status
       FROM public.sales s WHERE s.id = p_sale_id FOR UPDATE;
@@ -89,15 +87,15 @@ BEGIN
             v_status USING ERRCODE = 'check_violation';
     END IF;
 
-    -- Pré-bloqueia todos os produtos na mesma ordem de US20/US22. Os INSERTs
-    -- de movimentos abaixo podem atualizar saldos e precisam manter essa ordem.
     PERFORM p.id
       FROM public.products p
-      JOIN public.sale_items i
-        ON i.product_id = p.id AND i.company_id = p.company_id
-     WHERE i.sale_id = p_sale_id
-       AND p.company_id = v_company
-     ORDER BY p.barcode
+     WHERE p.company_id = v_company
+       AND p.id IN (
+           SELECT i.product_id FROM public.sale_items i
+            WHERE i.sale_id = p_sale_id AND i.company_id = v_company
+              AND i.product_id IS NOT NULL
+       )
+      ORDER BY p.barcode, p.id
      FOR UPDATE;
 
     INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
@@ -111,7 +109,7 @@ BEGIN
          WHERE i.sale_id = p_sale_id
            AND i.product_id IS NOT NULL
            AND i.company_id = v_company
-         ORDER BY p.barcode, i.id
+          ORDER BY p.barcode, p.id, i.id
     LOOP
         INSERT INTO public.stock_movements (
             company_id, product_id, sale_id, kind, quantity, status,
@@ -122,17 +120,428 @@ BEGIN
             'DEVOLUCAO_VENDA - venda ' || p_sale_id::text, v_actor, now()
         );
     END LOOP;
+
     UPDATE public.sales SET status = 'DEVOLVIDA' WHERE id = p_sale_id;
     RETURN jsonb_build_object('sale_id', p_sale_id, 'kind', 'DEVOLUCAO',
                               'reason', v_reason, 'status', 'DEVOLVIDA');
 END;
 $$;
 
+-- fn_checkout_sale usa esta função legada: também deve adquirir por código.
+CREATE OR REPLACE FUNCTION public.fn_create_complete_sale(
+    p_company_id     uuid,
+    p_client_id      uuid,
+    p_items          jsonb,
+    p_payment_method public.payment_method DEFAULT 'DINHEIRO',
+    p_discount       numeric DEFAULT 0
+) RETURNS uuid
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_id          uuid;
+    v_client_name text;
+    v_item        jsonb;
+    v_product_id  uuid;
+    v_quantity    integer;
+    v_name        text;
+    v_code        text;
+    v_price       numeric(10,2);
+    v_bruto       numeric := 0;
+    v_total       numeric(10,2);
+BEGIN
+    IF NOT public.fn_has_role(p_company_id, ARRAY['ADMIN','SELLER']::public.user_role[]) THEN
+        RAISE EXCEPTION 'Sem permissão para registrar vendas nesta empresa'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array'
+       OR jsonb_array_length(p_items) = 0 THEN
+        RAISE EXCEPTION 'Venda sem itens' USING ERRCODE = 'check_violation';
+    END IF;
+
+    IF p_discount IS NULL OR p_discount < 0
+       OR p_discount >= 100000000 OR p_discount <> round(p_discount, 2)
+       OR p_discount::text IN ('NaN', 'Infinity', '-Infinity') THEN
+        RAISE EXCEPTION 'Desconto inválido' USING ERRCODE = 'check_violation';
+    END IF;
+
+    SELECT name INTO v_client_name
+      FROM public.clients
+     WHERE id = p_client_id AND company_id = p_company_id AND active
+     FOR SHARE;
+    IF v_client_name IS NULL THEN
+        RAISE EXCEPTION 'Cliente não encontrado, inativo ou sem permissão'
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+
+    IF p_payment_method IS NULL THEN
+        RAISE EXCEPTION 'Selecione uma forma de pagamento válida'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Trava TODOS os produtos em ordem estável antes de gravar. FOR SHARE
+    -- deixava duas vendas travarem na conversão para UPDATE do saldo.
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        IF jsonb_typeof(v_item) <> 'object'
+           OR COALESCE(v_item->>'quantity', '') !~ '^[0-9]+$'
+           OR (v_item->>'quantity')::numeric NOT BETWEEN 1 AND 1000000 THEN
+            RAISE EXCEPTION 'Quantidade deve ser inteira entre 1 e 1000000'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END LOOP;
+    PERFORM p.id FROM public.products p
+     WHERE p.company_id = p_company_id
+       AND p.id IN (SELECT (i->>'product_id')::uuid FROM jsonb_array_elements(p_items) i)
+     ORDER BY p.barcode, p.id FOR UPDATE;
+
+    INSERT INTO public.sales (
+        company_id, client_id, client_name, payment_method, discount,
+        total, created_by
+    ) VALUES (
+        p_company_id, p_client_id, v_client_name, p_payment_method, p_discount,
+        0, public.fn_current_user_id()
+    )
+    RETURNING id INTO v_id;
+
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        v_product_id := NULLIF(v_item->>'product_id', '')::uuid;
+        v_quantity   := COALESCE((v_item->>'quantity')::integer, 0);
+
+        IF v_quantity <= 0 THEN
+            RAISE EXCEPTION 'Quantidade deve ser maior que zero (recebida: %)', v_quantity
+                USING ERRCODE = 'check_violation';
+        END IF;
+
+        -- Preço, nome e código vêm do catálogo DESTA empresa. Produto de
+        -- outra empresa não é encontrado aqui, e é esse filtro que impede
+        -- vender item alheio informando o id.
+        SELECT name, barcode, sell_price INTO v_name, v_code, v_price
+          FROM public.products
+         WHERE id = v_product_id AND company_id = p_company_id AND active;
+        IF v_name IS NULL THEN
+            RAISE EXCEPTION 'Produto não encontrado, inativo ou sem permissão: %', v_product_id
+                USING ERRCODE = 'foreign_key_violation';
+        END IF;
+
+        INSERT INTO public.sale_items (
+            company_id, sale_id, product_id, product_name, product_code,
+            quantity, unit_price
+        ) VALUES (
+            p_company_id, v_id, v_product_id, v_name, COALESCE(v_code, ''),
+            v_quantity, v_price
+        );
+
+        v_bruto := v_bruto + (v_quantity * v_price);
+        IF v_bruto >= 100000000 THEN
+            RAISE EXCEPTION 'Total da venda acima do limite de R$ 99.999.999,99'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    END LOOP;
+
+    v_total := v_bruto - p_discount;
+    IF v_total < 0 THEN
+        RAISE EXCEPTION 'Desconto (%) maior que o total dos itens (%)', p_discount, v_bruto
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    UPDATE public.sales
+       SET total = v_total, status = 'CONCLUIDA'
+     WHERE id = v_id;
+
+    RETURN v_id;
+END;
+$$;
+
+-- US20: preservar validações, cálculo e idempotência; muda somente a ordem
+-- de aquisição dos produtos, sem regravar nenhuma devolução histórica.
+CREATE OR REPLACE FUNCTION public.fn_return_partial_sale(
+    p_sale_id uuid,
+    p_items   jsonb, -- [{"sale_item_id": uuid, "quantity": int}, ...]
+    p_reason  text,
+    p_idempotency_key uuid
+) RETURNS jsonb
+LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $$
+DECLARE
+    v_actor uuid := public.fn_current_user_id();
+    v_company uuid;
+    v_status public.sale_status;
+    v_reason text := btrim(COALESCE(p_reason, ''));
+    v_discount numeric;
+    v_sale_total numeric;
+    v_original_subtotal numeric;
+    v_item_discount_total numeric;
+    v_sale_discount numeric;
+    v_net_subtotal numeric;
+    v_invalid_item_discount boolean;
+    v_return_id uuid;
+    v_item record;
+    v_returned_qty bigint;
+    v_returned_amount numeric;
+    v_line_net numeric;
+    v_amount numeric;
+    v_item_discount numeric;
+    v_total_amount numeric := 0;
+    v_is_total boolean;
+    v_request jsonb;
+    v_existing_request jsonb;
+    v_result jsonb;
+BEGIN
+    IF v_actor IS NULL THEN
+        RAISE EXCEPTION 'Usuário responsável não identificado'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF p_idempotency_key IS NULL THEN
+        RAISE EXCEPTION 'Informe a chave de idempotência UUID'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF v_reason !~ '[^[:space:]]' THEN
+        RAISE EXCEPTION 'Informe o motivo da devolução'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    -- Separar formato e casts: SQL não garante avaliação da esquerda para a direita.
+    IF p_items IS NULL OR jsonb_typeof(p_items) <> 'array' THEN
+        RAISE EXCEPTION 'Os itens da devolução devem ser um array JSON'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF jsonb_array_length(p_items) = 0 THEN
+        RAISE EXCEPTION 'Informe ao menos um item para devolução'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM jsonb_array_elements(p_items) AS e(item)
+         WHERE jsonb_typeof(e.item) <> 'object'
+            OR COALESCE(jsonb_typeof(e.item->'sale_item_id'), 'null') <> 'string'
+            OR COALESCE(e.item->>'sale_item_id', '') !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            OR COALESCE(jsonb_typeof(e.item->'quantity'), 'null') <> 'number'
+            OR COALESCE(e.item->>'quantity', '') !~ '^[1-9][0-9]*$'
+    ) THEN
+        RAISE EXCEPTION 'Item de venda UUID e quantidade inteira positiva são obrigatórios'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM jsonb_array_elements(p_items) AS e(item)
+         WHERE (e.item->>'quantity')::numeric > 2147483647
+    ) THEN
+        RAISE EXCEPTION 'Quantidade acima do limite inteiro permitido'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM jsonb_array_elements(p_items) AS e(item)
+         GROUP BY (e.item->>'sale_item_id')::uuid HAVING count(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'Item de venda repetido na mesma devolução'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Canonicaliza UUIDs e ordem; ignora campos extras, como o contrato anterior.
+    SELECT jsonb_build_object('sale_id', p_sale_id, 'reason', v_reason, 'items',
+        jsonb_agg(jsonb_build_object(
+            'sale_item_id', (e.item->>'sale_item_id')::uuid,
+            'quantity', (e.item->>'quantity')::integer
+        ) ORDER BY (e.item->>'sale_item_id')::uuid))
+      INTO v_request FROM jsonb_array_elements(p_items) AS e(item);
+
+    -- Autorizar ANTES de consultar uma resposta anterior, inclusive em retries.
+    SELECT s.company_id INTO v_company FROM public.sales s
+     WHERE s.id = p_sale_id
+       AND public.fn_has_role(s.company_id, ARRAY['ADMIN']::public.user_role[]);
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Venda não encontrada ou sem permissão para devolver'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
+    -- A unicidade arbitra só empresa/chave. A reserva é revertida junto ao estoque.
+    -- Em READ COMMITTED o SELECT seguinte vê o commit vencedor após a espera.
+    -- Em snapshots antigos PostgreSQL pode emitir 40001: repetir a transação
+    -- inteira com a MESMA chave, nunca gerar outra chave após resultado incerto.
+    INSERT INTO public.returns (
+        company_id, sale_id, user_id, reason, idempotency_key, request_payload
+    ) VALUES (v_company, p_sale_id, v_actor, v_reason, p_idempotency_key, v_request)
+    ON CONFLICT ON CONSTRAINT uq_returns_company_idempotency DO NOTHING
+    RETURNING id INTO v_return_id;
+    IF NOT FOUND THEN
+        SELECT r.request_payload, r.result_payload
+          INTO v_existing_request, v_result FROM public.returns r
+         WHERE r.company_id = v_company AND r.idempotency_key = p_idempotency_key;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Repita a transação com a mesma chave de idempotência'
+                USING ERRCODE = 'serialization_failure';
+        END IF;
+        IF v_existing_request IS DISTINCT FROM v_request THEN
+            RAISE EXCEPTION 'Chave de idempotência reutilizada com conteúdo diferente'
+                USING ERRCODE = 'PT409';
+        END IF;
+        IF v_result IS NULL THEN
+            RAISE EXCEPTION 'Registro idempotente sem resultado concluído'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        RETURN v_result;
+    END IF;
+
+    -- Serializa a venda ANTES de consultar devoluções anteriores. A nova versão
+    -- MVCC, sem alterar status/valores, também causa serialization_failure se
+    -- outra devolução vencer usando snapshot antigo em REPEATABLE READ/SERIALIZABLE.
+    -- O trigger de conclusão exige mudança de status e não dispara outra saída.
+    UPDATE public.sales AS s SET status = s.status
+     WHERE s.id = p_sale_id
+       AND public.fn_has_role(s.company_id, ARRAY['ADMIN']::public.user_role[])
+     RETURNING s.company_id, s.status, COALESCE(s.discount, 0), s.total
+          INTO v_company, v_status, v_discount, v_sale_total;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Venda não encontrada ou sem permissão para devolver'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    IF v_status <> 'CONCLUIDA' THEN
+        RAISE EXCEPTION 'Somente venda concluída pode ser devolvida'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    PERFORM si.id FROM public.sale_items si
+     WHERE si.sale_id = p_sale_id AND si.company_id = v_company
+     ORDER BY si.id FOR UPDATE;
+    IF EXISTS (
+        SELECT 1 FROM jsonb_array_elements(p_items) AS e(item)
+        LEFT JOIN public.sale_items si ON si.id = (e.item->>'sale_item_id')::uuid
+             AND si.sale_id = p_sale_id AND si.company_id = v_company
+        LEFT JOIN public.products p ON p.id = si.product_id AND p.company_id = v_company
+         WHERE si.id IS NULL OR p.id IS NULL
+    ) THEN
+        RAISE EXCEPTION 'Item ou produto não encontrado na venda e empresa informadas'
+            USING ERRCODE = 'foreign_key_violation';
+    END IF;
+    -- Produto excluído não pode receber estoque. Produto inativo ainda existente
+    -- pode ser restituído; não mudar o estado cadastral dele nesta operação.
+    PERFORM p.id FROM public.products p
+     WHERE p.company_id = v_company AND p.id IN (
+         SELECT si.product_id FROM public.sale_items si
+         JOIN jsonb_array_elements(p_items) AS e(item)
+           ON si.id = (e.item->>'sale_item_id')::uuid
+         WHERE si.sale_id = p_sale_id AND si.company_id = v_company
+     ) ORDER BY p.barcode, p.id FOR UPDATE;
+
+    -- US22: sales.discount inclui descontos dos itens E desconto da venda.
+    -- Campo ausente no schema anterior à US22, ou não definido, significa zero.
+    -- Ler o snapshot por JSON permite instalar a função antes da US22, sem DDL
+    -- retroativo e sem consultar preços/descontos atuais do catálogo.
+    WITH original AS (
+        SELECT si.quantity::numeric * si.unit_price AS gross,
+               COALESCE((to_jsonb(si)->>'discount_amount')::numeric, 0) AS item_discount
+          FROM public.sale_items si
+         WHERE si.sale_id = p_sale_id AND si.company_id = v_company
+    )
+    SELECT COALESCE(sum(gross), 0), COALESCE(sum(item_discount), 0),
+           COALESCE(bool_or(item_discount::text IN ('NaN', 'Infinity', '-Infinity')
+                           OR item_discount < 0 OR item_discount > gross), false)
+      INTO v_original_subtotal, v_item_discount_total, v_invalid_item_discount
+      FROM original;
+    IF v_original_subtotal::text IN ('NaN', 'Infinity', '-Infinity')
+       OR v_discount::text IN ('NaN', 'Infinity', '-Infinity')
+       OR v_sale_total::text IN ('NaN', 'Infinity', '-Infinity')
+       OR v_invalid_item_discount
+       OR v_discount < v_item_discount_total
+       OR v_discount > v_original_subtotal
+       OR v_sale_total <> v_original_subtotal - v_discount THEN
+        RAISE EXCEPTION 'Valores originais da venda não conciliam; devolução rejeitada'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    v_sale_discount := v_discount - v_item_discount_total;
+    v_net_subtotal := v_original_subtotal - v_item_discount_total;
+
+    FOR v_item IN
+        -- Diferenças de acumulados rateiam centavos sem ultrapassar o desconto.
+        -- A janela deve incluir TODOS os itens, não apenas os desta requisição.
+        WITH original AS (
+            SELECT si.*, si.quantity::numeric * si.unit_price
+                   - COALESCE((to_jsonb(si)->>'discount_amount')::numeric, 0) AS base_net
+              FROM public.sale_items si
+             WHERE si.sale_id = p_sale_id AND si.company_id = v_company
+        ), priced AS (
+            SELECT si.*,
+                   sum(base_net) OVER (
+                       ORDER BY si.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+                   ) AS cumulative_net
+              FROM original AS si
+        )
+        SELECT priced.*, (e.item->>'quantity')::integer AS requested
+          FROM priced JOIN jsonb_array_elements(p_items) AS e(item)
+            ON priced.id = (e.item->>'sale_item_id')::uuid
+         ORDER BY priced.id
+    LOOP
+        SELECT COALESCE(sum(ri.quantity), 0), COALESCE(sum(ri.subtotal), 0)
+          INTO v_returned_qty, v_returned_amount
+          FROM public.return_items ri JOIN public.returns r ON r.id = ri.return_id
+         WHERE ri.company_id = v_company AND ri.sale_id = p_sale_id
+           AND ri.sale_item_id = v_item.id AND r.status = 'COMPLETED';
+        IF v_returned_qty + v_item.requested > v_item.quantity THEN
+            RAISE EXCEPTION 'Quantidade excede o disponível para devolução do item % (%)',
+                v_item.id, v_item.quantity - v_returned_qty
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF v_net_subtotal = 0 THEN
+            v_line_net := 0;
+        ELSE
+            -- Desconto do item fica nele; somente o desconto adicional da venda
+            -- é rateado sobre os subtotais já líquidos dos descontos por item.
+            v_line_net := v_item.base_net - (
+                round(v_sale_discount * v_item.cumulative_net / v_net_subtotal, 2)
+                - round(v_sale_discount * (v_item.cumulative_net - v_item.base_net) / v_net_subtotal, 2)
+            );
+        END IF;
+        IF v_returned_amount <> round(v_line_net * v_returned_qty / v_item.quantity, 2) THEN
+            RAISE EXCEPTION 'Histórico de valores devolvidos não concilia para o item %', v_item.id
+                USING ERRCODE = 'check_violation';
+        END IF;
+        -- Acumulado por quantidade: devolver 1+1 ou 2 unidades fecha o mesmo valor.
+        v_amount := round(v_line_net * (v_returned_qty + v_item.requested) / v_item.quantity, 2)
+                    - v_returned_amount;
+        v_item_discount := v_item.unit_price * v_item.requested - v_amount;
+        INSERT INTO public.return_items (
+            company_id, sale_id, return_id, sale_item_id, quantity, unit_price, discount, subtotal
+        ) VALUES (
+            v_company, p_sale_id, v_return_id, v_item.id, v_item.requested,
+            v_item.unit_price, v_item_discount, v_amount
+        );
+        INSERT INTO public.stock_movements (
+            company_id, product_id, sale_id, sale_item_id, return_id, kind,
+            quantity, status, note, created_by, confirmed_on
+        ) VALUES (
+            v_company, v_item.product_id, p_sale_id, v_item.id, v_return_id, 'ENTRADA',
+            v_item.requested, 'CONFIRMADA', 'DEVOLUCAO - devolução ' || v_return_id::text,
+            v_actor, now()
+        );
+        v_total_amount := v_total_amount + v_amount;
+    END LOOP;
+
+    UPDATE public.returns SET total_amount = v_total_amount, status = 'COMPLETED'
+     WHERE id = v_return_id;
+    SELECT NOT EXISTS (
+        SELECT 1 FROM public.sale_items si
+         WHERE si.sale_id = p_sale_id AND si.company_id = v_company
+           AND si.quantity > (
+               SELECT COALESCE(sum(ri.quantity), 0)
+                 FROM public.return_items ri JOIN public.returns r ON r.id = ri.return_id
+                WHERE ri.sale_item_id = si.id AND ri.company_id = v_company
+                  AND ri.sale_id = p_sale_id AND r.status = 'COMPLETED'
+           )
+    ) INTO v_is_total;
+    -- COMPLETED é a devolução de estoque registrada, NÃO pagamento/NF-e concluídos.
+    v_result := jsonb_build_object('return_id', v_return_id, 'status', 'COMPLETED',
+                               'total_amount', v_total_amount, 'is_total_return', v_is_total);
+    UPDATE public.returns SET result_payload = v_result WHERE id = v_return_id;
+    RETURN v_result;
+END;
+$$;
+
 REVOKE ALL ON FUNCTION public.fn_cancel_sale(uuid, text),
-                          public.fn_return_sale(uuid, text)
+                          public.fn_return_sale(uuid, text),
+                          public.fn_create_complete_sale(uuid, uuid, jsonb, public.payment_method, numeric),
+                          public.fn_return_partial_sale(uuid, jsonb, text, uuid)
     FROM PUBLIC, anon, authenticated, app_backend;
 GRANT EXECUTE ON FUNCTION public.fn_cancel_sale(uuid, text),
-                          public.fn_return_sale(uuid, text)
+                          public.fn_return_sale(uuid, text),
+                          public.fn_create_complete_sale(uuid, uuid, jsonb, public.payment_method, numeric),
+                          public.fn_return_partial_sale(uuid, jsonb, text, uuid)
     TO app_backend, authenticated;
 
 COMMIT;

@@ -8,15 +8,27 @@ DECLARE
     v_limit numeric;
     v_original_total numeric;
     v_percent numeric := 0;
+    v_item_discount_total numeric;
+    v_additional_discount numeric;
 BEGIN
     v_original_total := NEW.total + NEW.discount;
+    SELECT COALESCE(sum(si.discount_amount), 0) INTO v_item_discount_total
+      FROM public.sale_items si
+     WHERE si.sale_id = NEW.id AND si.company_id = NEW.company_id;
+    v_additional_discount := NEW.discount - v_item_discount_total;
+    IF v_additional_discount < 0 THEN
+        RAISE EXCEPTION 'Desconto total menor que os descontos dos itens da venda'
+            USING ERRCODE = 'check_violation';
+    END IF;
     IF NEW.discount > 0 THEN
         NEW.discount_applied_by := COALESCE(
             NEW.discount_applied_by, NEW.created_by
         );
-        IF NEW.sale_discount_value = 0 THEN
-            NEW.sale_discount_value := NEW.discount;
-            NEW.sale_discount_type := 'FIXED';
+        -- Completar somente metadado FIXED legado. Desconto exclusivo dos
+        -- itens e PERCENTAGE zero explícito devem continuar com parcela zero.
+        IF NEW.sale_discount_type = 'FIXED' AND NEW.sale_discount_value = 0
+           AND v_additional_discount > 0 THEN
+            NEW.sale_discount_value := v_additional_discount;
         END IF;
     END IF;
 

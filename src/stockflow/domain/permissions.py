@@ -102,6 +102,13 @@ PERMISSION_MATRIX: dict[str, Area] = {
         fonte_ver="sales_select",
         fonte_gravar="fn_register_sale",
     ),
+    # Devoluções alteram estoque e registros comerciais; as RPCs US20 exigem ADMIN.
+    "devolucoes": Area(
+        ver=_ADMIN,
+        gravar=_ADMIN,
+        fonte_ver="fn_get_returnable_items",
+        fonte_gravar="fn_return_partial_sale",
+    ),
     # Desfazer não é vender (US17). Registrar venda segue ADMIN+SELLER;
     # reverter é só do ADMIN, para que quem vende não apague o efeito da
     # própria venda sem supervisão. `fonte_gravar` aponta a função que o
@@ -341,3 +348,14 @@ def can_reverse_sales(role_or_session) -> bool:
 def ensure_can_reverse_sales(session, action="cancelar ou devolver vendas") -> None:
     """Negação fechada: sessão ausente e papel sem alçada caem aqui."""
     exigir_gravar(session, "vendas_reversao", action)
+
+
+def can_return_sales(role_or_session) -> bool:
+    return pode_gravar(role_or_session, "devolucoes")
+
+
+def ensure_can_return_sales(session, action: str = "registrar devoluções") -> None:
+    exigir_gravar(session, "devolucoes", action)
+    if any(not isinstance(getattr(session, field, None), str)
+           or not getattr(session, field).strip() for field in ("user_id", "company_id")):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
