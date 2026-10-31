@@ -103,3 +103,61 @@ def test_dialogo_de_venda_cancelada_mostra_a_marcacao(qapp):
         assert "Registro em duplicidade" in texto
     finally:
         janela.close()
+
+
+# ------------------------------------------- entrada pelo detalhe da venda
+
+from stockflow.domain.enums.user_role import UserRole
+from stockflow.presentation.demo_accounts import conta_por_papel
+from stockflow.presentation.pages.sale_details import SaleDetailsPage
+
+
+@pytest.fixture
+def detalhe(qapp):
+    page = SaleDetailsPage()
+    yield page
+    page.close()
+
+
+def _vendedor():
+    return conta_por_papel(UserRole.SELLER).session()
+
+
+def test_detalhe_oferece_emitir_comprovante_para_venda_concluida(detalhe):
+    detalhe.load_sale(VENDA, _vendedor())
+    assert detalhe.receipt_button.isEnabled()
+
+
+def test_detalhe_emite_o_identificador_da_venda_ao_clicar(detalhe):
+    detalhe.load_sale(VENDA, _vendedor())
+    pedidos = []
+    detalhe.receipt_requested.connect(pedidos.append)
+
+    detalhe.receipt_button.click()
+
+    assert pedidos == [VENDA["id"]]
+
+
+def test_detalhe_desabilita_o_botao_para_venda_pendente(detalhe):
+    """Cortesia visual; a recusa de verdade é do serviço (SCRUM-227)."""
+    detalhe.load_sale(VENDA | {"status": "PENDENTE"}, _vendedor())
+    assert not detalhe.receipt_button.isEnabled()
+    assert "não foi confirmada" in detalhe.receipt_button.toolTip()
+
+
+def test_detalhe_mantem_o_botao_para_venda_cancelada(detalhe):
+    """SCRUM-229: a venda cancelada tem comprovante — marcado."""
+    detalhe.load_sale(CANCELADA, _vendedor())
+    assert detalhe.receipt_button.isEnabled()
+
+
+def test_detalhe_oferece_o_comprovante_a_quem_nao_pode_reverter(detalhe):
+    """Emitir é leitura: o vendedor emite, mas não cancela nem devolve."""
+    detalhe.load_sale(VENDA, _vendedor())
+    assert detalhe.receipt_button.isEnabled()
+    assert not detalhe.cancel_button.isVisible()
+
+
+def test_detalhe_sem_venda_nao_oferece_emissao(detalhe):
+    detalhe.load_sale(None, _vendedor())
+    assert not detalhe.receipt_button.isEnabled()
