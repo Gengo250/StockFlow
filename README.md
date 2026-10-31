@@ -133,6 +133,32 @@ telas existirem: a situação do produto tem um dono só,
 `domain/product_status.py`, consultado pelos módulos através de
 `application/services/product_selection_service.py`.
 
+O **comprovante de venda** (US19) sai por dois caminhos: o botão **Emitir
+comprovante** aparece logo abaixo do total assim que uma venda é fechada, e o
+mesmo botão fica no rodapé do **detalhe da venda**, que é por onde se reemite
+uma venda antiga. O documento abre numa janela com **Salvar PDF** e
+**Imprimir**; os dois saem do próprio PySide6, sem dependência extra.
+
+O comprovante é LEITURA: emitir e reemitir não gravam nada, não registram
+venda nova e não encostam em estoque ou pagamento. Os números vêm do que foi
+gravado na operação — `sales.client_name` e `sale_items.product_name`,
+`unit_price` e `discount_amount` são congelados na venda, então editar o
+cliente ou o produto depois não reescreve um comprovante antigo. Só os dados
+da EMPRESA vêm do cadastro atual, porque ela é a emitente do documento e não
+uma grandeza comercial da venda.
+
+| Situação da venda | Comprovante |
+|---|---|
+| `Pendente` | recusado — o carrinho nunca foi confirmado |
+| `Concluída` | comprovante válido |
+| `Cancelada` | emitido com a faixa `VENDA CANCELADA · COMPROVANTE SEM VALIDADE` e o motivo |
+| `Devolvida` | emitido com a faixa equivalente de devolução |
+
+Venda cancelada **tem** comprovante de propósito: ela foi confirmada um dia, e
+o documento da operação precisa dizer o que aconteceu com ela. O que ele nunca
+faz é passar por comprovante válido. O rodapé avisa que o documento não tem
+valor fiscal — comprovante não é nota fiscal.
+
 ## Testes
 
 Para validar navegação, detalhes, formulários, filtros e grade responsiva sem

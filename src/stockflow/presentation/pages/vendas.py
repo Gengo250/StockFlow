@@ -96,6 +96,11 @@ class VendasPage(QWidget):
     sale_registered = Signal(object)
     #: Identificador da venda cujo detalhe o usuário pediu.
     detalhes_requested = Signal(str)
+    #: Identificador da venda recém-gravada cujo comprovante foi pedido
+    #: (US19). "Emitir após a confirmação da venda" é a história literal, e
+    #: a alternativa — mandar o operador caçar a venda no histórico — é
+    #: exatamente o atrito que ela existe para remover.
+    receipt_requested = Signal(str)
 
     def __init__(self, products=None, product_selection=None, parent=None, service=None, session=None, *, autoload=True):
         """Monta a tela sobre o catálogo compartilhado `code -> Product`.
@@ -228,6 +233,18 @@ class VendasPage(QWidget):
         self.warning_label = QLabel("")
         self.warning_label.setWordWrap(True)
         self.warning_label.setStyleSheet("color: #EF4444; font-size: 12px; font-weight: 500;")
+
+        # Comprovante da venda que acabou de fechar (US19). Nasce escondido:
+        # antes da primeira venda não há o que comprovar.
+        self.receipt_button = QPushButton(" Emitir comprovante")
+        self.receipt_button.setIcon(qta.icon("fa5s.file-invoice", color="#2563EB"))
+        self.receipt_button.setAccessibleName("Emitir o comprovante da última venda")
+        self.receipt_button.setCursor(Qt.PointingHandCursor)
+        self.receipt_button.setFixedHeight(36)
+        self.receipt_button.setStyleSheet(inventory.FILTER_QSS)
+        self.receipt_button.setVisible(False)
+        self.receipt_button.clicked.connect(self._pedir_comprovante)
+        self._ultima_venda = None
 
         # Combo de produto: só entra aqui o que a política deixa vender.
         self.produto_combo = QComboBox()
@@ -370,6 +387,7 @@ class VendasPage(QWidget):
         # Total e ação principal permanecem visíveis mesmo em telas menores.
         layout.addLayout(checkout)
         layout.addWidget(self.warning_label)
+        layout.addWidget(self.receipt_button, 0, Qt.AlignLeft)
 
         table_card = _card("saleHistory")
         table_layout = table_card.layout()
@@ -1080,6 +1098,11 @@ class VendasPage(QWidget):
         self.cliente_combo.setCurrentIndex(0)
         self.produto_combo.setCurrentIndex(0)
         self.warning_label.setText("")
+        # A oferta é da venda que acabou de fechar; começar outra retira o
+        # botão, para ninguém emitir o comprovante da venda anterior achando
+        # que é o da que está montando.
+        self._ultima_venda = None
+        self.receipt_button.setVisible(False)
         self._atualizar_carrinho()
 
     def _venda_gravada(self, nova_venda):
@@ -1090,7 +1113,13 @@ class VendasPage(QWidget):
         self.atualizar_tabela_historico()
         self.last_error = None
         self._mostrar_estado_da_carga()
+        self._ultima_venda = str(nova_venda.get("id") or "")
+        self.receipt_button.setVisible(bool(self._ultima_venda))
         self.sale_registered.emit(nova_venda)
+
+    def _pedir_comprovante(self):
+        if self._ultima_venda:
+            self.receipt_requested.emit(self._ultima_venda)
 
     def _venda_recusada(self, erro):
         self._set_saving(False)

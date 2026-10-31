@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from stockflow.application.services.movement_service import MovementService
 from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+from stockflow.domain.sale_receipt import ReceiptNotAvailable
 from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.permissions import (
     PERMISSION_MATRIX,
@@ -22,6 +23,7 @@ from stockflow.domain.permissions import (
 from stockflow.presentation.backend import (
     build_catalog,
     build_client_repository,
+    build_company_repository,
     build_sale_repository,
     build_demo_user_directory,
     build_movement_repository,
@@ -42,6 +44,7 @@ from stockflow.presentation.widgets.sidebar import (
 )
 from stockflow.presentation.widgets.top_bar import TopBar
 from stockflow.presentation.widgets.page_stack import PageStack
+from stockflow.presentation.widgets.sale_receipt_dialog import SaleReceiptDialog
 from stockflow.presentation.pages.clientes import ClientesPage
 from stockflow.presentation.pages.overview import DashboardPage, ReportsPage, SettingsPage, preference_prefix
 from stockflow.presentation.pages.estoque import EstoquePage
@@ -197,6 +200,12 @@ class MainWindow(QMainWindow):
         if not using_supabase():
             self.sale_repository.movements = self.movement_repository
         self.sale_service = SaleService(self.sale_repository, self.client_repository, self.product_repository)
+        from stockflow.application.services.receipt_service import ReceiptService
+
+        self.company_repository = build_company_repository(self.session)
+        self.receipt_service = ReceiptService(
+            self.sale_service, self.company_repository
+        )
         self.vendas_page = VendasPage(self.products, service=self.sale_service, session=self.session, autoload=not remote)
         self.clientes_page = ClientesPage(sales_page=self.vendas_page, repository=self.client_repository, session=self.session, autoload=not remote)
         self.users_page = UsersPage(users=() if using_supabase() else None, on_save=self._save_user)
@@ -340,6 +349,9 @@ class MainWindow(QMainWindow):
         )
         self.sale_details_page.cancel_requested.connect(self._cancelar_venda)
         self.sale_details_page.return_requested.connect(self._devolver_venda)
+        # Duas portas, um manipulador: emitir e reemitir são a mesma operação.
+        self.sale_details_page.receipt_requested.connect(self._emitir_comprovante)
+        self.vendas_page.receipt_requested.connect(self._emitir_comprovante)
 
         self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
         self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
@@ -515,6 +527,30 @@ class MainWindow(QMainWindow):
             return
         self.sale_details_page.load_sale(venda, self.session)
         self.pages.setCurrentWidget(self.sale_details_page)
+
+    def _emitir_comprovante(self, sale_id):
+        """Emite ou reemite o comprovante (US19/SCRUM-213).
+
+        Relê pelo SERVIÇO, como `_show_sale_details`: a linha da tabela é
+        foto do momento da consulta, e um comprovante reemitido depois de um
+        cancelamento feito noutra máquina sairia sem a marcação.
+        """
+        try:
+            comprovante = self.receipt_service.issue(self.session, sale_id)
+        except PermissionDeniedError as erro:
+            QMessageBox.critical(self, "Acesso restrito", str(erro))
+            return
+        # Antes de `Exception`, e também antes de qualquer `ValueError`:
+        # `ReceiptNotAvailable` é recusa de regra, não defeito.
+        except ReceiptNotAvailable as erro:
+            QMessageBox.information(self, "Comprovante indisponível", str(erro))
+            return
+        except Exception as erro:
+            QMessageBox.warning(
+                self, "Não foi possível emitir o comprovante", str(erro)
+            )
+            return
+        SaleReceiptDialog(comprovante, self).exec()
 
     def _cancelar_venda(self, sale_id, reason):
         self._reverter_venda(
