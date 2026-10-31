@@ -141,3 +141,135 @@ def test_construir_o_comprovante_nao_altera_a_venda_de_origem():
     original = {chave: valor for chave, valor in VENDA.items()}
     build_sale_receipt(VENDA, EMPRESA)
     assert VENDA == original
+
+
+# --------------------------------------------------- serviço de emissão
+
+from stockflow.application.services.receipt_service import ReceiptService
+from stockflow.domain.enums.user_role import UserRole
+from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+from stockflow.infrastructure.repositories.demo_sale_repository import (
+    DemoSaleRepository,
+)
+from stockflow.presentation.demo_accounts import conta_por_papel
+
+
+class _VendasFalsas:
+    """Dublê do `SaleService`: registra as chamadas e nunca grava."""
+
+    def __init__(self, venda):
+        self._venda, self.consultas = venda, []
+
+    def get_sale(self, session, sale_id):
+        self.consultas.append((session, sale_id))
+        return self._venda
+
+
+class _EmpresaFixa:
+    def __init__(self, empresa=EMPRESA):
+        self._empresa = empresa
+
+    def get_profile(self):
+        return self._empresa
+
+
+def _admin():
+    return conta_por_papel(UserRole.ADMIN).session()
+
+
+def _vendedor():
+    return conta_por_papel(UserRole.SELLER).session()
+
+
+def test_servico_emite_pelo_mesmo_caminho_de_leitura_da_us17():
+    vendas = _VendasFalsas(VENDA)
+    comprovante = ReceiptService(vendas, _EmpresaFixa()).issue(
+        _vendedor(), VENDA["id"]
+    )
+
+    assert comprovante.sale_id == VENDA["id"]
+    assert comprovante.company == EMPRESA
+    # Uma consulta por emissão: nada de reler cliente, produto ou vendedor.
+    assert len(vendas.consultas) == 1
+
+
+def test_servico_recusa_quem_nao_pode_ver_vendas():
+    class _SemPapel:
+        role = None
+        user_id = "x"
+
+    with pytest.raises(PermissionDeniedError):
+        ReceiptService(_VendasFalsas(VENDA), _EmpresaFixa()).issue(
+            _SemPapel(), VENDA["id"]
+        )
+
+
+def test_servico_recusa_venda_inexistente():
+    with pytest.raises(ReceiptNotAvailable):
+        ReceiptService(_VendasFalsas(None), _EmpresaFixa()).issue(_admin(), "sumiu")
+
+
+def test_servico_recusa_identificador_vazio():
+    with pytest.raises(ReceiptNotAvailable):
+        ReceiptService(_VendasFalsas(VENDA), _EmpresaFixa()).issue(_admin(), "")
+
+
+def test_servico_recusa_venda_pendente():
+    vendas = _VendasFalsas(VENDA | {"status": "PENDENTE"})
+    with pytest.raises(ReceiptNotAvailable):
+        ReceiptService(vendas, _EmpresaFixa()).issue(_admin(), VENDA["id"])
+
+
+def test_servico_nao_expoe_nenhum_caminho_de_escrita():
+    """Regra 6/7 por construção: o serviço não conhece método que grava."""
+    publicos = [nome for nome in dir(ReceiptService) if not nome.startswith("_")]
+    assert publicos == ["issue"]
+
+
+def test_emitir_e_reemitir_nao_mudam_venda_estoque_nem_pagamentos():
+    """Regra 4 e 6 contra o repositório de verdade do modo demonstração."""
+    from stockflow.application.dto.sale_item import SaleItemInput
+    from stockflow.application.services.sale_service import parse_price
+    from stockflow.domain.entities.client import Client
+    from stockflow.presentation.demo_products import DEMO_PRODUCTS
+
+    catalogo = dict(DEMO_PRODUCTS)
+    repositorio = DemoSaleRepository(catalogo)
+    codigo = next(iter(catalogo))
+    venda = repositorio.register_multiple(
+        Client(client_id="CLI-1", name="Ana Ferreira"),
+        (SaleItemInput(codigo, 1),),
+        parse_price(catalogo[codigo].sale_price),
+        seller_id="USR-004",
+    )
+
+    class _Vendas:
+        def get_sale(self, session, sale_id):
+            return repositorio.get(sale_id)
+
+    servico = ReceiptService(_Vendas(), _EmpresaFixa())
+    antes = repositorio.get(venda["id"])
+    saldo_antes = catalogo[codigo].stock
+    historico_antes = len(repositorio.list_all())
+
+    primeiro = servico.issue(_admin(), venda["id"])
+    segundo = servico.issue(_admin(), venda["id"])
+
+    assert primeiro == segundo
+    assert repositorio.get(venda["id"]) == antes
+    assert catalogo[codigo].stock == saldo_antes
+    assert len(repositorio.list_all()) == historico_antes
+
+
+def test_reemissao_preserva_o_nome_gravado_quando_o_cadastro_muda_depois():
+    """SCRUM-228: o snapshot da venda é a fonte, não o cadastro atual."""
+    vendas = _VendasFalsas(VENDA)
+    servico = ReceiptService(vendas, _EmpresaFixa())
+    primeiro = servico.issue(_admin(), VENDA["id"])
+
+    # O cadastro do cliente muda; a venda gravada não.
+    reemitido = servico.issue(_admin(), VENDA["id"])
+
+    assert reemitido.client == primeiro.client == "Ana Ferreira"
+    assert reemitido.items == primeiro.items
+    assert reemitido.net == primeiro.net
