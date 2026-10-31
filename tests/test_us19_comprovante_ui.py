@@ -218,3 +218,86 @@ def test_semente_da_demonstracao_emite_comprovante_de_ponta_a_ponta():
 
     assert comprovante.items
     assert comprovante.net > 0
+
+
+# ------------------------------------------------ ligação na janela principal
+
+
+class _DialogoMudo:
+    """Substitui o diálogo: estes testes são sobre não gravar, não pintar."""
+
+    criados = []
+
+    def __init__(self, receipt, parent=None):
+        self.receipt = receipt
+        _DialogoMudo.criados.append(receipt)
+
+    def exec(self):
+        return 0
+
+
+@pytest.fixture
+def janela(qapp):
+    from stockflow.presentation.windows.main_window import MainWindow
+
+    _DialogoMudo.criados.clear()
+    window = MainWindow(conta_por_papel(UserRole.ADMIN).session())
+    yield window
+    window.close()
+
+
+def test_janela_monta_o_servico_e_liga_as_duas_entradas(janela):
+    assert janela.receipt_service is not None
+    assert janela.company_repository is not None
+    for pagina in (janela.sale_details_page, janela.vendas_page):
+        assert pagina.receipt_requested is not None
+
+
+def test_janela_abre_o_comprovante_de_uma_venda_do_historico(janela, monkeypatch):
+    from stockflow.presentation.windows import main_window as modulo
+
+    monkeypatch.setattr(modulo, "SaleReceiptDialog", _DialogoMudo)
+    venda = janela.sale_repository.list_all()[0]
+
+    janela._emitir_comprovante(venda["id"])
+
+    assert len(_DialogoMudo.criados) == 1
+    assert _DialogoMudo.criados[0].sale_id == venda["id"]
+
+
+def test_janela_recusa_comprovante_de_venda_pendente_sem_abrir_dialogo(
+    janela, monkeypatch
+):
+    """Regra 7: a recusa é uma mensagem, não uma janela de comprovante."""
+    from PySide6.QtWidgets import QMessageBox
+    from stockflow.presentation.windows import main_window as modulo
+
+    monkeypatch.setattr(modulo, "SaleReceiptDialog", _DialogoMudo)
+    monkeypatch.setattr(
+        janela.sale_service, "get_sale",
+        lambda session, sale_id: VENDA | {"status": "PENDENTE"},
+    )
+    avisos = []
+    monkeypatch.setattr(
+        QMessageBox, "information",
+        staticmethod(lambda parent, titulo, texto, *a, **k: avisos.append(texto)),
+    )
+
+    janela._emitir_comprovante(VENDA["id"])
+
+    assert _DialogoMudo.criados == []
+    assert avisos and "não foi confirmada" in avisos[0]
+
+
+def test_janela_nao_altera_venda_nem_estoque_ao_emitir(janela, monkeypatch):
+    from stockflow.presentation.windows import main_window as modulo
+
+    monkeypatch.setattr(modulo, "SaleReceiptDialog", _DialogoMudo)
+    vendas_antes = [dict(linha) for linha in janela.sale_repository.list_all()]
+    saldos_antes = {code: p.stock for code, p in janela.products.items()}
+
+    janela._emitir_comprovante(vendas_antes[0]["id"])
+    janela._emitir_comprovante(vendas_antes[0]["id"])
+
+    assert [dict(l) for l in janela.sale_repository.list_all()] == vendas_antes
+    assert {code: p.stock for code, p in janela.products.items()} == saldos_antes
