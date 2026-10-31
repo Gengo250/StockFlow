@@ -4,6 +4,18 @@ from decimal import Decimal
 from threading import RLock
 from uuid import uuid4
 
+from stockflow.domain.permissions import ensure_can_return_sales
+from stockflow.domain.sale_return import (
+    OriginalSaleItem,
+    calculate_return_items,
+    return_identifier,
+)
+from stockflow.infrastructure.repositories.return_mapper import (
+    partial_return_args,
+    return_items_from_response,
+    return_result_from_response,
+)
+
 
 def sale_row(
     sale_id, client_name, product_codes, product_names, total, created_on,
@@ -89,7 +101,9 @@ CHAVE_DE_ORDEM = {
 
 
 class DemoSaleRepository:
-    def __init__(self, products=None, movements=None, movement_repository=None):
+    def __init__(
+        self, products=None, movements=None, movement_repository=None, *, session=None
+    ):
         from stockflow.infrastructure.repositories.demo_movement_repository import DemoMovementRepository
         from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
@@ -105,6 +119,11 @@ class DemoSaleRepository:
         else:
             self._products = dict(DEMO_PRODUCTS)
         self.movements = repositorio or DemoMovementRepository(self._products)
+        self._session = session
+        self._return_sales = {}
+        self._returns = {}
+        self._return_requests = {}
+        self._product_ids = {}
         self.rows = [
             sale_row("VND-1001", "Patrícia Lima", ["PRD-004"], ["Cabo HDMI 2m"], 450, "10/08/2026"),
             sale_row("VND-1002", "Ana Ferreira", ["PRD-007"], ["Mouse ergonômico"], 1290, "28/09/2026"),
@@ -480,6 +499,7 @@ class DemoSaleRepository:
                 row["reversal_on"] = None
                 row["reversal_by"] = ""
                 self.rows.insert(0, row)
+                self._return_sales[str(sale_id)] = return_snapshot
                 return row
             except Exception:
                 for code, product in snapshot_products.items():
