@@ -131,7 +131,7 @@ BEGIN
          JOIN jsonb_array_elements(p_items) AS e(item)
            ON si.id = (e.item->>'sale_item_id')::uuid
          WHERE si.sale_id = p_sale_id AND si.company_id = v_company
-     ) ORDER BY p.id FOR UPDATE;
+     ) ORDER BY p.barcode FOR UPDATE;
 
     SELECT COALESCE(sum(si.quantity::numeric * si.unit_price), 0)
       INTO v_original_subtotal FROM public.sale_items si

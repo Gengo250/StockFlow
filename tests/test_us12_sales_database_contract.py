@@ -58,13 +58,16 @@ def test_client_interface_does_not_supply_item_price_to_rpc():
     source = Path(SupabaseSaleRepository.__module__.replace(".", "/") + ".py")
     source_path = ROOT / "src" / source
     text = source_path.read_text(encoding="utf-8")
-    request = text.split("def register_multiple(", 1)[1].split("}).execute()", 1)[0]
-    assert '"p_items": payload' in request
-    assert '"product_code": item.product_code' in request
-    assert '"fn_register_sale"' in text
-    assert '"p_payment_method": payment_method' in request
-    assert '"p_discount": str(discount)' in request
-    assert '"p_unit_price"' not in request
+    register_multiple = text.split("    def register_multiple(", 1)[1].split(
+        "\n    def ", 1
+    )[0]
+    assert '"p_items": payload' in register_multiple
+    assert '"product_code": item.product_code' in register_multiple
+    assert '"fn_register_sale_with_discounts"' in register_multiple
+    assert '"p_payment_method": payment_method' in register_multiple
+    assert '"p_sale_discount_type": sale_discount_type' in register_multiple
+    assert '"p_sale_discount_value": str(sale_discount_value)' in register_multiple
+    assert '"p_unit_price"' not in register_multiple
 
 
 def test_supabase_repository_returns_rpc_snapshot_without_followup_reads():
@@ -91,10 +94,10 @@ def test_supabase_repository_returns_rpc_snapshot_without_followup_reads():
         Decimal("29.98"),
     )
 
-    assert client.name == "fn_register_sale"
+    assert client.name == "fn_register_sale_with_discounts"
     assert client.args["p_items"] == [
-        {"product_code": "P-1", "quantity": 1},
-        {"product_code": "P-2", "quantity": 2},
+        {"product_code": "P-1", "quantity": 1, "discount_type": "FIXED", "discount_value": "0.00"},
+        {"product_code": "P-2", "quantity": 2, "discount_type": "FIXED", "discount_value": "0.00"},
     ]
     assert sale["id"] == "sale-id"
     assert sale["produto_codigo"] == ""

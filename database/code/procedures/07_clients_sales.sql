@@ -698,6 +698,22 @@ BEGIN
             'Somente venda concluída pode ser cancelada (situação atual: %)',
             v_status USING ERRCODE = 'check_violation';
     END IF;
+
+    -- Alinhar a ordem de locks de produto à US20/US22 antes de alterar
+    -- movimentações, cujos triggers atualizam o saldo dos produtos.
+    PERFORM p.id
+      FROM public.products p
+     WHERE p.company_id = v_company
+       AND p.id IN (
+           SELECT sm.product_id
+             FROM public.stock_movements sm
+            WHERE sm.sale_id = p_sale_id
+              AND sm.status = 'CONFIRMADA'
+              AND sm.product_id IS NOT NULL
+       )
+     ORDER BY p.barcode
+     FOR UPDATE;
+
     INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
     VALUES (v_company, p_sale_id, 'CANCELAMENTO', v_reason, v_actor);
     UPDATE public.stock_movements
@@ -738,13 +754,30 @@ BEGIN
             'Somente venda concluída pode ser devolvida (situação atual: %)',
             v_status USING ERRCODE = 'check_violation';
     END IF;
+
+    -- Pré-bloqueia todos os produtos na mesma ordem de US20/US22. Os INSERTs
+    -- de movimentos abaixo podem atualizar saldos e precisam manter essa ordem.
+    PERFORM p.id
+      FROM public.products p
+      JOIN public.sale_items i
+        ON i.product_id = p.id AND i.company_id = p.company_id
+     WHERE i.sale_id = p_sale_id
+       AND p.company_id = v_company
+     ORDER BY p.barcode
+     FOR UPDATE;
+
     INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
     VALUES (v_company, p_sale_id, 'DEVOLUCAO', v_reason, v_actor);
+
     FOR v_item IN
         SELECT i.product_id, i.quantity
           FROM public.sale_items i
-         WHERE i.sale_id = p_sale_id AND i.product_id IS NOT NULL
-         ORDER BY i.product_id, i.id
+          JOIN public.products p
+            ON p.id = i.product_id AND p.company_id = i.company_id
+         WHERE i.sale_id = p_sale_id
+           AND i.product_id IS NOT NULL
+           AND i.company_id = v_company
+         ORDER BY p.barcode, i.id
     LOOP
         INSERT INTO public.stock_movements (
             company_id, product_id, sale_id, kind, quantity, status,

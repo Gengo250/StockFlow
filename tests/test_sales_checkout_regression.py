@@ -164,8 +164,13 @@ def test_supabase_checkout_uses_saved_receipt_without_second_read(vendas_page):
     assert row["payment_method"] == "PIX"
     assert row["discount"] == "2.50"
     assert row["items"] == api.receipt["items"]
-    assert api.calls[-1][0:2] == ("rpc", "fn_register_sale")
-    assert api.calls[-1][2]["p_items"] == [{"product_code": "PRD-009", "quantity": 2}]
+    assert api.calls[-1][0:2] == ("rpc", "fn_register_sale_with_discounts")
+    assert api.calls[-1][2]["p_items"] == [{
+        "product_code": "PRD-009",
+        "quantity": 2,
+        "discount_type": "FIXED",
+        "discount_value": "0.00",
+    }]
 
 
 def test_reloaded_history_keeps_payment_and_item_details():

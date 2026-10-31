@@ -174,7 +174,7 @@ BEGIN
          JOIN jsonb_array_elements(p_items) AS e(item)
            ON si.id = (e.item->>'sale_item_id')::uuid
          WHERE si.sale_id = p_sale_id AND si.company_id = v_company
-     ) ORDER BY p.id FOR UPDATE;
+     ) ORDER BY p.barcode FOR UPDATE;
 
     -- US22: sales.discount inclui descontos dos itens E desconto da venda.
     -- Campo ausente no schema anterior à US22, ou não definido, significa zero.
