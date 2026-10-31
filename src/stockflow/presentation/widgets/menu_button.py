@@ -2,7 +2,7 @@ import qtawesome as qta
 
 from PySide6.QtWidgets import QPushButton
 
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
 
 
 def create_menu_button(text, icon_name, active=False):
@@ -15,7 +15,8 @@ def create_menu_button(text, icon_name, active=False):
         )
     )
 
-    button.setIconSize(QSize(18, 18))
+    button.setCursor(Qt.PointingHandCursor)
+    button.setIconSize(QSize(16, 16))
     button.setFixedHeight(42)
 
     if active:

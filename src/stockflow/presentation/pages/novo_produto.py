@@ -1,3 +1,5 @@
+from stockflow.presentation.styles import design_system as ds
+
 import qtawesome as qta
 
 from PySide6.QtCore import Qt, QSize
@@ -59,10 +61,7 @@ class NovoProdutoPage(QWidget):
         self.edit_mode = edit_mode
         self._preserved_fields = {}
         self.setObjectName("novoProdutoPage")
-        self.setStyleSheet("""
-            QWidget#novoProdutoPage { background-color: #F0F5FF; }
-            QWidget#novoProdutoPage QLabel { background-color: transparent; }
-        """)
+        self.setStyleSheet(ds.page_qss("novoProdutoPage"))
         page_layout = QVBoxLayout(self)
         page_layout.setContentsMargins(0, 0, 0, 0)
         page_layout.setSpacing(0)
@@ -71,28 +70,15 @@ class NovoProdutoPage(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("""
-            QScrollArea { background-color: #F0F5FF; border: none; }
-            QScrollBar:vertical { background: transparent; width: 8px; margin: 4px 2px; }
-            QScrollBar::handle:vertical {
-                background: #CBD5E1;
-                border-radius: 4px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover { background: #94A3B8; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-        """)
+        scroll.setStyleSheet(ds.SCROLL_QSS)
 
         content = QWidget()
         content.setObjectName("novoProdutoContent")
         content.setMaximumWidth(1600)
-        content.setStyleSheet("""
-            QWidget#novoProdutoContent { background-color: #F0F5FF; }
-            QWidget#novoProdutoContent QLabel { background-color: transparent; }
-        """)
+        content.setStyleSheet(ds.page_qss("novoProdutoContent"))
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(26, 24, 26, 36)
-        content_layout.setSpacing(24)
+        ds.page_layout(content_layout)
+        content_layout.setSpacing(ds.SECTION_GAP)
         content_layout.addWidget(self._create_header())
         content_layout.addLayout(self._create_columns())
         self.create_category = None
@@ -102,9 +88,7 @@ class NovoProdutoPage(QWidget):
 
         scroll_container = QWidget()
         scroll_container.setObjectName("novoProdutoScrollContainer")
-        scroll_container.setStyleSheet("""
-            QWidget#novoProdutoScrollContainer { background-color: #F0F5FF; }
-        """)
+        scroll_container.setStyleSheet(ds.page_qss("novoProdutoScrollContainer"))
         scroll_layout = QHBoxLayout(scroll_container)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.addStretch()
@@ -221,18 +205,13 @@ class NovoProdutoPage(QWidget):
             QPushButton:hover { color: #2563EB; }
         """)
         title = QLabel("Editar produto" if self.edit_mode else "Cadastrar novo produto")
-        title.setStyleSheet("""
-            background-color: transparent;
-            color: #0F172A;
-            font-size: 28px;
-            font-weight: 700;
-        """)
+        title.setStyleSheet(ds.TITLE_QSS)
         subtitle = QLabel(
             "Atualize as informações comerciais e de estoque do item."
             if self.edit_mode
             else "Adicione as informações comerciais e de estoque do item."
         )
-        subtitle.setStyleSheet("background-color: transparent; color: #64748B; font-size: 14px;")
+        subtitle.setStyleSheet(ds.SUBTITLE_QSS)
         self.permission_warning = QLabel(
             "Seu perfil não tem permissão para cadastrar ou editar produtos. "
             "Fale com um administrador."
@@ -261,48 +240,16 @@ class NovoProdutoPage(QWidget):
         actions = QFrame()
         self.actions_bar = actions
         actions.setObjectName("productActions")
-        actions.setStyleSheet("QFrame#productActions { background: white; border-top: 1px solid #DBEAFE; }")
+        actions.setStyleSheet(ds.qss("QFrame#productActions { background: $SURFACE; border-top: 1px solid $BORDER; }"))
         actions_layout = QHBoxLayout(actions)
         actions_layout.setContentsMargins(26, 14, 26, 14)
         actions_layout.setSpacing(10)
-        self.cancel_button = self._action_button("Cancelar", """
-            QPushButton {
-                background-color: #FFFFFF;
-                color: #475569;
-                border: 1px solid #DBEAFE;
-                border-radius: 10px;
-                padding: 0px 16px;
-                font-size: 14px;
-            }
-            QPushButton:hover { background-color: #F8FAFC; }
-        """)
-        # Rascunho local isolado por conta e empresa.
-        self.draft_button = self._action_button("Salvar rascunho", """
-            QPushButton {
-                background-color: transparent;
-                color: #1D4ED8;
-                border: none;
-                padding: 0px 14px;
-                font-size: 14px;
-                font-weight: 500;
-            }
-            QPushButton:hover { color: #1E40AF; }
-        """)
+        self.cancel_button = self._action_button("Cancelar", ds.button_qss())
+        self.draft_button = self._action_button("Salvar rascunho", ds.button_qss())
         self.draft_button.setVisible(not self.edit_mode)
         self.save_button = self._action_button(
             "Salvar alterações" if self.edit_mode else "Cadastrar produto",
-            """
-            QPushButton {
-                background-color: #2563EB;
-                color: white;
-                border: none;
-                border-radius: 10px;
-                padding: 0px 18px;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QPushButton:hover { background-color: #1D4ED8; }
-        """,
+            ds.button_qss(primary=True),
         )
         self.save_button.setIcon(qta.icon("fa5s.check", color="white"))
         self.save_button.setIconSize(QSize(13, 13))
@@ -319,7 +266,7 @@ class NovoProdutoPage(QWidget):
         button = QPushButton(text)
         button.setFixedHeight(40)
         button.setCursor(Qt.PointingHandCursor)
-        button.setStyleSheet(style + "QPushButton:disabled { background: #E2E8F0; color: #64748B; } QPushButton:focus { border: 2px solid #93C5FD; }")
+        button.setStyleSheet(style)
         return button
 
     def apply_permission(self, pode_escrever: bool):

@@ -64,7 +64,7 @@ def get_client():
 
 
 def create_independent_auth_client():
-    """Cliente US22 isolado: não substitui nem persiste a sessão principal."""
+    """Cria cliente de autenticação isolado sem substituir a sessão principal."""
     url, key = _credenciais()
     if not (url and key):
         raise RuntimeError(
@@ -73,9 +73,14 @@ def create_independent_auth_client():
         )
     from supabase import ClientOptions, create_client
 
-    return create_client(url, key, options=ClientOptions(
-        persist_session=False, auto_refresh_token=False,
-    ))
+    return create_client(
+        url,
+        key,
+        options=ClientOptions(
+            persist_session=False,
+            auto_refresh_token=False,
+        ),
+    )
 
 
 def reset_client() -> None:

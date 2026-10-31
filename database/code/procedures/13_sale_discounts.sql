@@ -1,4 +1,4 @@
--- Limites e registro atômico de descontos (US22), conciliados com a main.
+-- Limites e registro atômico de descontos (US22).
 
 CREATE OR REPLACE FUNCTION public.fn_get_sale_discount_limits(
     p_company_id uuid
@@ -12,9 +12,11 @@ BEGIN
         RAISE EXCEPTION 'Empresa não encontrada ou sem permissão'
             USING ERRCODE = 'insufficient_privilege';
     END IF;
+
     SELECT limit_percent INTO v_limit
       FROM public.sale_discount_limits
      WHERE company_id = p_company_id AND role = 'SELLER';
+
     RETURN jsonb_build_object(
         'SELLER', COALESCE(v_limit, 10.00),
         'ADMIN', NULL
@@ -43,6 +45,7 @@ BEGIN
         RAISE EXCEPTION 'Perfil ou limite percentual inválido'
             USING ERRCODE = 'check_violation';
     END IF;
+
     INSERT INTO public.sale_discount_limits (
         company_id, role, limit_percent, updated_by, updated_on
     ) VALUES (
@@ -52,6 +55,7 @@ BEGIN
        SET limit_percent = EXCLUDED.limit_percent,
            updated_by = EXCLUDED.updated_by,
            updated_on = EXCLUDED.updated_on;
+
     RETURN p_limit_percent;
 END;
 $$;
@@ -111,6 +115,7 @@ BEGIN
         RAISE EXCEPTION 'Pagamento e pelo menos um item são obrigatórios'
             USING ERRCODE = 'check_violation';
     END IF;
+
     v_seller := COALESCE(p_seller_id, v_actor);
     IF v_seller <> v_actor
        AND NOT public.fn_has_role(
@@ -129,6 +134,7 @@ BEGIN
         RAISE EXCEPTION 'Vendedor não encontrado ou sem permissão'
             USING ERRCODE = 'insufficient_privilege';
     END IF;
+
     IF EXISTS (
         SELECT 1
           FROM jsonb_array_elements(p_items) AS entry(value)
@@ -163,6 +169,7 @@ BEGIN
         RAISE EXCEPTION 'Desconto total inválido'
             USING ERRCODE = 'check_violation';
     END IF;
+
     SELECT name INTO v_client_name
       FROM public.clients
      WHERE id = p_client_id AND company_id = p_company_id AND active
@@ -171,6 +178,7 @@ BEGIN
         RAISE EXCEPTION 'Cliente não encontrado, inativo ou sem permissão'
             USING ERRCODE = 'foreign_key_violation';
     END IF;
+
     FOR v_item IN
         SELECT entry.value->>'product_code' AS product_code,
                sum((entry.value->>'quantity')::numeric) AS quantity
@@ -196,16 +204,19 @@ BEGIN
                 v_item.product_code, v_item.quantity, v_product.stock
                 USING ERRCODE = 'check_violation';
         END IF;
+
         v_product_ids := array_append(v_product_ids, v_product.id);
         v_product_codes := array_append(v_product_codes, v_product.barcode);
         v_product_names := array_append(v_product_names, v_product.name);
         v_unit_prices := array_append(v_unit_prices, v_product.sell_price);
         v_gross_total := v_gross_total + v_product.sell_price * v_item.quantity;
     END LOOP;
+
     IF v_gross_total >= 100000000 THEN
         RAISE EXCEPTION 'Total da venda acima do limite permitido'
             USING ERRCODE = 'check_violation';
     END IF;
+
     FOR v_item IN
         SELECT entry.value->>'product_code' AS product_code,
                (entry.value->>'quantity')::integer AS quantity,
@@ -236,6 +247,7 @@ BEGIN
         v_item_discounts := array_append(v_item_discounts, v_item_discount);
         v_item_discount_total := v_item_discount_total + v_item_discount;
     END LOOP;
+
     v_remaining := v_gross_total - v_item_discount_total;
     IF v_sale_type = 'PERCENTAGE' THEN
         v_sale_discount := round(v_remaining * v_sale_value / 100, 2);
@@ -251,12 +263,14 @@ BEGIN
     IF v_gross_total > 0 THEN
         v_discount_percent := v_discount_total * 100 / v_gross_total;
     END IF;
+
     IF v_seller_role = 'SELLER' THEN
         SELECT COALESCE((
             SELECT sdl.limit_percent
               FROM public.sale_discount_limits sdl
              WHERE sdl.company_id = p_company_id AND sdl.role = 'SELLER'
         ), 10.00) INTO v_limit;
+
         IF v_discount_percent > v_limit THEN
             IF NOT public.fn_has_role(
                 p_company_id, ARRAY['ADMIN']::public.user_role[]
@@ -271,6 +285,7 @@ BEGIN
               FROM public.user_accounts WHERE id = v_authorizer;
         END IF;
     END IF;
+
     INSERT INTO public.sales (
         company_id, client_id, client_name, payment_method, discount, total,
         sale_discount_type, sale_discount_value, created_by,
@@ -282,6 +297,7 @@ BEGIN
         v_authorizer
     )
     RETURNING id INTO v_id;
+
     FOR v_line IN
         SELECT entry.value->>'product_code' AS product_code,
                (entry.value->>'quantity')::integer AS quantity,
@@ -302,6 +318,7 @@ BEGIN
             v_item_discounts[v_line.line_number]
         );
     END LOOP;
+
     UPDATE public.sales SET status = 'CONCLUIDA' WHERE id = v_id;
     RETURN jsonb_build_object(
         'id', v_id,
@@ -336,7 +353,7 @@ BEGIN
 END;
 $$;
 
--- Mesma assinatura legada, agora passando pela regra de limite da US22.
+-- A interface antiga continua compatível, mas também passa pela regra de limite.
 DROP FUNCTION IF EXISTS public.fn_register_sale(
     uuid, uuid, jsonb, public.payment_method, numeric
 );

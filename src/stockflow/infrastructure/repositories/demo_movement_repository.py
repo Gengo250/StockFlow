@@ -205,6 +205,44 @@ class DemoMovementRepository:
         linha["status"] = MovementStatus.CANCELADA.value
 
     @_sob_o_lock
+    def reverse_sale(self, sale_id, itens, kind: str) -> None:
+        """Desfaz o estoque de uma venda, pelo mecanismo da espécie (US17).
+
+        Espelha `fn_cancel_sale` e `fn_return_sale`, e a diferença entre as
+        duas não é cosmética:
+
+        - `CANCELAMENTO` anula as saídas da venda. A venda não deveria ter
+          existido, então o histórico de estoque passa a dizer isso.
+        - `DEVOLUCAO` grava ENTRADA compensatória e DEIXA a saída original
+          confirmada. A venda aconteceu; a mercadoria voltou depois.
+
+        `cancel()` não serve aqui de propósito: ela recusa saída vinculada a
+        venda, porque desfazer meia venda não é operação legítima. Esta é a
+        porta que a venda inteira usa, e é a única.
+        """
+        alvo = str(sale_id)
+        if kind == "CANCELAMENTO":
+            for linha in self._movements:
+                if (str(linha.get("sale_id") or "") == alvo
+                        and linha["status"] == MovementStatus.CONFIRMADA.value):
+                    self._aplicar_no_saldo(linha, sentido=-1)
+                    linha["status"] = MovementStatus.CANCELADA.value
+            return
+
+        for item in itens:
+            code = item["product_code"]
+            if code not in self._products:
+                # Produto saiu do catálogo depois da venda. A entrada não
+                # tem onde pousar, e inventar o produto de volta seria pior
+                # que não devolver o saldo de algo que não se vende mais.
+                continue
+            movement_id = self.register(MovementInput(
+                code, MovementKind.ENTRADA, int(item["quantity"]),
+                note=f"DEVOLUCAO_VENDA - venda {alvo}", confirm=True,
+            ))
+            self._linha(movement_id)["sale_id"] = alvo
+
+    @_sob_o_lock
     def adjust(self, data) -> str:
         """Ajuste manual de inventário, imitando `fn_register_adjustment`.
 

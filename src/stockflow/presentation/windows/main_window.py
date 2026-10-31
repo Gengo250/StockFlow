@@ -13,6 +13,7 @@ from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoErro
 from stockflow.domain.permissions import (
     PERMISSION_MATRIX,
     TODOS_OS_PAPEIS,
+    can_manage_companies,
     can_manage_suppliers,
     exigir_ver,
     pode_gravar,
@@ -51,6 +52,7 @@ from stockflow.presentation.pages.users import UsersPage
 from stockflow.presentation.pages.vendas import VendasPage
 from stockflow.presentation.pages.products import ProductsPage
 from stockflow.presentation.pages.product_details import ProductDetailsPage
+from stockflow.presentation.pages.sale_details import SaleDetailsPage
 from stockflow.application.services.supplier_service import SupplierService
 from stockflow.presentation.pages.suppliers import SuppliersPage
 
@@ -177,6 +179,7 @@ class MainWindow(QMainWindow):
 
         self.products_page = ProductsPage(self.products)
         self.product_details_page = ProductDetailsPage()
+        self.sale_details_page = SaleDetailsPage()
 
         # Vendas e Usuários ficam como atributos: o botão de carrinho da
         # tabela de Usuários precisa alcançar o combo de clientes de Vendas.
@@ -235,8 +238,18 @@ class MainWindow(QMainWindow):
 
         self.dashboard_page = DashboardPage(self.product_repository, self.sale_repository, self.client_repository)
         self.dashboard_page.navigate_requested.connect(self.show_page)
-        self.reports_page = ReportsPage(self.product_repository, self.sale_repository)
+        self.reports_page = ReportsPage(
+            self.product_repository,
+            self.sale_repository,
+            self.session,
+            sale_service=self.sale_service,
+            movement_service=self.movement_service,
+            price_history_service=self.price_history_service,
+        )
         self.settings_page = SettingsPage(self.session)
+        self.settings_page.discount_limits_save_requested.connect(
+            self._save_sale_discount_limit
+        )
         if remote:
             if hasattr(type(self.product_repository), "list_snapshot"):
                 self.dashboard_page.read_products = self.product_repository.list_snapshot
@@ -265,6 +278,7 @@ class MainWindow(QMainWindow):
 
         pages.addWidget(self.editar_produto_page)
         pages.addWidget(self.product_details_page)
+        pages.addWidget(self.sale_details_page)
 
         return pages
 
@@ -320,6 +334,12 @@ class MainWindow(QMainWindow):
         )
         self.suppliers_page.suppliers_changed.connect(self._refresh_supplier_options)
         self.vendas_page.sale_registered.connect(self._venda_registrada)
+        self.vendas_page.detalhes_requested.connect(self._show_sale_details)
+        self.sale_details_page.back_button.clicked.connect(
+            lambda: self.show_page("vendas")
+        )
+        self.sale_details_page.cancel_requested.connect(self._cancelar_venda)
+        self.sale_details_page.return_requested.connect(self._devolver_venda)
 
         self.novo_produto_page.save_button.clicked.connect(self._save_new_product)
         self.editar_produto_page.save_button.clicked.connect(self._save_edited_product)
@@ -401,6 +421,13 @@ class MainWindow(QMainWindow):
             self._reconsultar_estoque()
         if key == "historico_precos":
             self._carregar_historico_precos()
+        if key == "configuracoes" and can_manage_companies(self.session):
+            self._load(
+                "sale_discount_limits",
+                lambda: self.sale_service.get_discount_limits(self.session),
+                self.settings_page.set_discount_limits,
+                self.settings_page.show_discount_limits_error,
+            )
         if key == "movimentacoes":
             self._recarregar_movimentacoes()
             if using_supabase():
@@ -425,6 +452,27 @@ class MainWindow(QMainWindow):
         return execute(fetch, lambda value: deliver(loaded, value),
                        lambda error: deliver(failed, error))
 
+    def _save_sale_discount_limit(self, value):
+        button = self.settings_page.save_discount_limits_button
+        button.setEnabled(False)
+
+        def saved(limits):
+            self.settings_page.set_discount_limits(limits)
+            self.settings_page.discount_limits_feedback.setText(
+                "Limite do vendedor salvo."
+            )
+            button.setEnabled(True)
+
+        def failed(error):
+            self.settings_page.show_discount_limits_error(error)
+            button.setEnabled(True)
+
+        self._execute(
+            lambda: self.sale_service.set_discount_limits(self.session, value),
+            saved,
+            failed,
+        )
+
     def _load(self, key, fetch, loaded, failed):
         if key not in self._loaders:
             self._loaders[key] = PageLoader(self, self._execute)
@@ -442,6 +490,72 @@ class MainWindow(QMainWindow):
         # Vendedores não têm acesso à listagem de movimentações.
         if pode_ver(self.session, "movimentacoes"):
             self._recarregar_movimentacoes()
+
+    def _show_sale_details(self, sale_id):
+        """Abre o detalhe da venda (US17/SCRUM-221).
+
+        Carrega do SERVIÇO, não da linha da tabela: a linha é uma foto do
+        momento da consulta, e o detalhe precisa do que está gravado agora —
+        senão uma reversão feita noutra máquina não apareceria.
+        """
+        try:
+            venda = self.sale_service.get_sale(self.session, sale_id)
+        except PermissionDeniedError as erro:
+            QMessageBox.critical(self, "Acesso restrito", str(erro))
+            return
+        except Exception as erro:
+            QMessageBox.warning(self, "Não foi possível abrir a venda", str(erro))
+            return
+        if venda is None:
+            QMessageBox.information(
+                self,
+                "Venda não encontrada",
+                "Esta venda não está mais disponível para esta empresa.",
+            )
+            return
+        self.sale_details_page.load_sale(venda, self.session)
+        self.pages.setCurrentWidget(self.sale_details_page)
+
+    def _cancelar_venda(self, sale_id, reason):
+        self._reverter_venda(
+            self.sale_service.cancel_sale, sale_id, reason, "cancelar"
+        )
+
+    def _devolver_venda(self, sale_id, reason):
+        self._reverter_venda(
+            self.sale_service.return_sale, sale_id, reason, "devolver"
+        )
+
+    def _reverter_venda(self, operacao, sale_id, reason, acao):
+        """Reverter mexe no SALDO, então reconsulta o catálogo junto.
+
+        Mesma razão de `_venda_registrada`: deixar o estoque desatualizado
+        depois de uma reversão faria a próxima venda ser recusada por um
+        saldo que a tela diz existir.
+        """
+        try:
+            operacao(self.session, sale_id, reason)
+        except PermissionDeniedError as erro:
+            QMessageBox.critical(self, "Acesso restrito", str(erro))
+            return
+        except Exception as erro:
+            QMessageBox.warning(
+                self, f"Não foi possível {acao} a venda", str(erro)
+            )
+            return
+
+        self.vendas_page.reload_sales()
+        self._saldo_mudou()
+        if pode_ver(self.session, "movimentacoes"):
+            self._recarregar_movimentacoes()
+        # Redesenha o detalhe com o vínculo recém-gravado, para o usuário ver
+        # o resultado da operação na tela em que a pediu.
+        try:
+            venda = self.sale_service.get_sale(self.session, sale_id)
+        except Exception:
+            venda = None
+        if venda is not None:
+            self.sale_details_page.load_sale(venda, self.session)
 
     def _recarregar_movimentacoes(self):
         """Recarrega o histórico. A permissão já foi checada na navegação."""
@@ -885,6 +999,7 @@ class MainWindow(QMainWindow):
         # em que a janela sem login apareça com os controles liberados.
         self.clientes_page.apply_session(self.session, reload=not using_supabase())
         self.vendas_page.apply_session(self.session)
+        self.settings_page.apply_session(self.session)
         # Escrita: cada área habilita os widgets que ela controla. As alçadas
         # continuam SEPARADAS de propósito — administrar usuário é só do
         # ADMIN, como `fn_is_admin`, e reaproveitar a permissão de produto

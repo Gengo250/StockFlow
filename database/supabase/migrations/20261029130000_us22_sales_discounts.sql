@@ -1,6 +1,4 @@
 -- US22: descontos por item/venda, limites por perfil e auditoria de aprovação.
--- Correção local autorizada antes da aplicação neste ambiente: PostgreSQL
--- não permite que uma coluna gerada dependa de outra coluna gerada.
 
 ALTER TABLE public.sales
     ADD COLUMN original_total numeric(10,2)
@@ -23,7 +21,7 @@ ALTER TABLE public.sale_items
         CHECK (discount_amount >= 0 AND
                discount_amount <= quantity * unit_price),
     ADD COLUMN final_subtotal numeric(10,2)
-        GENERATED ALWAYS AS (quantity * unit_price - discount_amount) STORED;
+        GENERATED ALWAYS AS (subtotal - discount_amount) STORED;
 
 CREATE TABLE public.sale_discount_limits (
     company_id uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,

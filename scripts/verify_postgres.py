@@ -379,6 +379,34 @@ def exercise(dsn):
                                       'VALUES (%s,%s,%s,%s)',(company,ids['user'],'ADMIN',True)),
             '42501','Not even an ADMIN writes the audit by hand')
 
+    # ------------------------------------------- EXECUTE aberto para PUBLIC
+    #
+    # Função nova nasce com EXECUTE para PUBLIC, e a varredura de
+    # `policies/01_security.sql` só enxerga o que existia quando ela rodou.
+    # Toda migration que cria função precisa revogar por conta própria — foi
+    # esse o buraco de `fn_update_products` (20261004120000) e o da US17
+    # (20261024130000). Esta checagem é EMPÍRICA de propósito: a análise do
+    # texto das migrations não consegue enxergar varredura genérica, e acusa
+    # dezenas de falsos positivos.
+    #
+    # Toleradas: `pr_validate_login`, que policies/01 deixa fora da RLS de
+    # propósito, e funções de GATILHO, que só fazem sentido com contexto de
+    # trigger e erram quando chamadas direto.
+    abertas = [
+        nome for (nome,) in admin.execute("""
+            SELECT p.proname
+              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace,
+                   aclexplode(COALESCE(p.proacl, acldefault('f', p.proowner))) ac
+             WHERE n.nspname = 'public' AND ac.privilege_type = 'EXECUTE'
+               AND ac.grantee = 0
+               AND p.proname NOT LIKE 'trg\\_%'
+               AND p.proname <> 'pr_validate_login'
+             GROUP BY p.proname ORDER BY p.proname
+        """).fetchall()
+    ]
+    check(abertas == [],
+          f'No callable function is reachable by PUBLIC (found: {abertas})')
+
     window.close()
     connection.close()
     admin.close()

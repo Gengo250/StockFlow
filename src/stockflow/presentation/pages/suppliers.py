@@ -1,5 +1,7 @@
 """Cadastro, consulta e inativação lógica de fornecedores."""
 
+from stockflow.presentation.styles import design_system as ds
+
 from PySide6.QtCore import Qt, Signal
 import qtawesome as qta
 from PySide6.QtWidgets import (
@@ -29,8 +31,8 @@ class SuppliersPage(QWidget):
         self.setStyleSheet(SUPPLIERS_QSS)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
         header = QHBoxLayout()
         heading = QVBoxLayout()
         heading.setSpacing(4)
@@ -47,7 +49,7 @@ class SuppliersPage(QWidget):
             "Buscar por nome, CPF/CNPJ ou informações de contato"
         )
         self.search_input.setAccessibleName("Buscar fornecedores")
-        self.search_input.setFixedHeight(42)
+        self.search_input.setFixedHeight(ds.CONTROL_HEIGHT)
         self.search_input.setClearButtonEnabled(True)
         self.search_input.addAction(
             qta.icon("fa5s.search", color="#94A3B8"), QLineEdit.LeadingPosition
@@ -56,14 +58,14 @@ class SuppliersPage(QWidget):
 
         self.new_supplier_button = QPushButton("Novo fornecedor")
         self.new_supplier_button.setObjectName("primaryButton")
-        self.new_supplier_button.setFixedHeight(42)
+        self.new_supplier_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.new_supplier_button.setCursor(Qt.PointingHandCursor)
         self.new_supplier_button.setIcon(qta.icon("fa5s.plus", color="white"))
         self.new_supplier_button.clicked.connect(lambda: self.open_form())
         self.refresh_button = QPushButton("Atualizar")
         self.refresh_button.setObjectName("secondaryButton")
         self.refresh_button.setIcon(qta.icon("fa5s.sync-alt", color="#475569"))
-        self.refresh_button.setFixedHeight(42)
+        self.refresh_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.refresh_button.setCursor(Qt.PointingHandCursor)
         self.refresh_button.clicked.connect(self.reload_table)
         header.addWidget(self.refresh_button)
@@ -105,6 +107,8 @@ class SuppliersPage(QWidget):
         self.table.setShowGrid(False)
         self.table.setStyleSheet(inventory.TABLE_QSS)
         self.table.verticalHeader().hide()
+        self.table.verticalHeader().setMinimumSectionSize(ds.ROW_HEIGHT)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         
         header_view = self.table.horizontalHeader()
         header_view.setSectionResizeMode(QHeaderView.Stretch)
@@ -232,8 +236,12 @@ class SuppliersPage(QWidget):
         dialog.setStyleSheet(SUPPLIERS_QSS)
         form = QFormLayout(dialog)
         form.setContentsMargins(24, 24, 24, 24)
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         form.setHorizontalSpacing(16)
         form.setVerticalSpacing(12)
+        form_title = QLabel(dialog.windowTitle())
+        form_title.setObjectName("pageTitle")
+        form.addRow(form_title)
         fields = {
             "name": QLineEdit(supplier.name if supplier else ""),
             "document": QLineEdit(supplier.document if supplier else ""),
@@ -257,7 +265,12 @@ class SuppliersPage(QWidget):
         buttons.button(QDialogButtonBox.Cancel).setObjectName("secondaryButton")
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
-        form.addRow(buttons)
+        # Keep cancel on the left and the primary action on the right.
+        buttons.setLayoutDirection(Qt.RightToLeft)
+        actions = QHBoxLayout()
+        actions.addStretch()
+        actions.addWidget(buttons)
+        form.addRow(actions)
         if dialog.exec() != QDialog.Accepted:
             return
 

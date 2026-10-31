@@ -45,7 +45,7 @@ def run():
         for role in ("anon", "authenticated", "service_role"):
             if not control.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
                 control.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(role)))
-        for scenario in (exercise, exercise_us07):
+        for scenario in (exercise, exercise_us07, exercise_us17):
             name = "stockflow_verify_" + uuid4().hex[:12]
             control.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
             target = make_conninfo(dsn, dbname=name)
@@ -395,6 +395,176 @@ def exercise_ui(connection, db, company, seller, client_id, product):
         page.close()
         page.deleteLater()
         app.processEvents()
+
+
+def exercise_us17(dsn):
+    """Histórico paginado, filtros e reversão de venda (US17).
+
+    Aplica a fonte DECLARATIVA, e não as migrations: é `database/code` que o
+    `declarative sync` diffa contra o banco, e um defeito que só existe lá
+    passaria despercebido no outro caminho.
+    """
+    with psycopg.connect(dsn, autocommit=True) as db:
+        db.execute(BOOTSTRAP)
+        for grupo in ('tables', 'procedures', 'views', 'triggers', 'policies'):
+            for arquivo in sorted((ROOT / 'database' / 'code' / grupo).glob('*.sql')):
+                try:
+                    db.execute(arquivo.read_text())
+                except psycopg.Error as erro:
+                    erro.add_note(f'SQL file: {arquivo.relative_to(ROOT)}')
+                    raise
+
+        company, outra_company, client, outro_client, produto = (uuid4() for _ in range(5))
+        contas = {}
+        db.execute("INSERT INTO company(id,name) VALUES (%s,'US17')", (company,))
+        db.execute("INSERT INTO company(id,name) VALUES (%s,'Outra')", (outra_company,))
+        for nome, papel, empresa in (('admin', 'ADMIN', company),
+                                     ('seller', 'SELLER', company),
+                                     ('stock', 'STOCK', company),
+                                     ('estranho', 'ADMIN', outra_company)):
+            uid, auth = uuid4(), uuid4()
+            contas[nome] = auth
+            db.execute("INSERT INTO auth.users(id,email) VALUES (%s,%s)",
+                       (auth, f'{nome}@us17.invalid'))
+            db.execute("INSERT INTO user_accounts(id,auth_user_id,name,pass_hash) "
+                       "VALUES (%s,%s,%s,'$stub$0123456789abcdef')",
+                       (uid, auth, f'{nome} us17'))
+            db.execute("INSERT INTO company_users(company_id,user_account_id,role) "
+                       "VALUES (%s,%s,%s)", (empresa, uid, papel))
+        db.execute("INSERT INTO clients(id,company_id,name) VALUES (%s,%s,'Cliente A')",
+                   (client, company))
+        db.execute("INSERT INTO clients(id,company_id,name) VALUES (%s,%s,'Cliente B')",
+                   (outro_client, company))
+        db.execute("INSERT INTO products(id,company_id,barcode,name,sell_price) "
+                   "VALUES (%s,%s,'US17-1','Produto US17',10)", (produto, company))
+        db.execute("INSERT INTO stock_movements(company_id,product_id,kind,quantity,status) "
+                   "VALUES (%s,%s,'ENTRADA',500,'CONFIRMADA')", (company, produto))
+
+        def como(nome):
+            conexao = psycopg.connect(dsn, autocommit=True)
+            conexao.execute("SET ROLE authenticated")
+            conexao.execute("SELECT set_config('request.jwt.claim.sub', %s, false)",
+                            (str(contas[nome]),))
+            return conexao
+
+        admin, seller, stock, estranho = (como(n) for n in
+                                          ('admin', 'seller', 'stock', 'estranho'))
+
+        # 120 vendas históricas, metade de cada cliente, uma por hora.
+        for i in range(120):
+            db.execute(
+                "INSERT INTO sales(company_id,client_id,client_name,total,status,created_on) "
+                "VALUES (%s,%s,%s,%s,'CONCLUIDA', "
+                "timestamptz '2026-01-01 00:00+00' + (%s || ' hours')::interval)",
+                (company, client if i % 2 == 0 else outro_client,
+                 'Cliente A' if i % 2 == 0 else 'Cliente B', 10 + i, i))
+
+        # ------------------------------------------------- SCRUM-218
+        vistos = []
+        for offset in (0, 50, 100):
+            pagina = seller.execute(
+                "SELECT id, total_count FROM public.fn_list_sales(%s, p_limit=>50, p_offset=>%s)",
+                (company, offset)).fetchall()
+            check(pagina[0][1] == 120, 'The page total matches the filtered set')
+            vistos += [linha[0] for linha in pagina]
+        check(len(vistos) == len(set(vistos)) == 120,
+              'Paging the real history neither repeats nor skips a sale')
+
+        ordem = [l[0] for l in seller.execute(
+            "SELECT created_on FROM public.fn_list_sales(%s, p_limit=>5)", (company,)).fetchall()]
+        check(ordem == sorted(ordem, reverse=True),
+              'The first page starts with the most recent sale')
+
+        # ------------------------------------------------- SCRUM-219
+        n = seller.execute("SELECT count(*) FROM public.fn_list_sales("
+                           "%s, p_client_id=>%s, p_limit=>200)", (company, client)).fetchone()[0]
+        check(n == 60, f'Filtering by client narrows the result (got {n})')
+
+        n = seller.execute(
+            "SELECT count(*) FROM public.fn_list_sales(%s, p_client_id=>%s, "
+            "p_from=>timestamptz '2026-01-01 00:00+00', "
+            "p_to=>timestamptz '2026-01-02 00:00+00', p_limit=>200)",
+            (company, client)).fetchone()[0]
+        check(n == 12, f'Client and period combine (got {n})')
+
+        topo = seller.execute("SELECT total FROM public.fn_list_sales("
+                              "%s, p_sort=>'VALOR_DESC', p_limit=>1)", (company,)).fetchone()[0]
+        check(int(topo) == 129, f'VALOR_DESC returns the highest total (got {topo})')
+
+        rejects(lambda: seller.execute("SELECT * FROM public.fn_list_sales(%s, p_sort=>%s)",
+                                       (company, "id; DROP TABLE sales")),
+                '23514', 'An unknown sort order is refused instead of interpolated')
+        rejects(lambda: seller.execute("SELECT * FROM public.fn_list_sales(%s, p_limit=>5000)",
+                                       (company,)),
+                '23514', 'A page above the ceiling is refused')
+        rejects(lambda: estranho.execute("SELECT * FROM public.fn_list_sales(%s)", (company,)),
+                '42501', 'An unaffiliated account cannot read this history')
+
+        # ------------------------------------------------- SCRUM-222/223
+        def saldo():
+            return db.execute("SELECT stock FROM products WHERE id=%s", (produto,)).fetchone()[0]
+
+        def vender(quantidade=4):
+            return seller.execute(
+                "SELECT (public.fn_register_sale(%s,%s,%s::jsonb,'PIX','0'))->>'id'",
+                (company, client,
+                 '[{"product_code":"US17-1","quantity":%d}]' % quantidade)).fetchone()[0]
+
+        base = saldo()
+        cancelada = vender()
+        check(saldo() == base - 4, 'The sale withdrew the sold quantity')
+        admin.execute("SELECT public.fn_cancel_sale(%s,%s)", (cancelada, 'engano'))
+        check(saldo() == base, 'Cancelling a sale gives the balance back')
+        check(db.execute("SELECT count(*) FROM stock_movements WHERE sale_id=%s "
+                         "AND status='CANCELADA'", (cancelada,)).fetchone()[0] == 1,
+              'Cancelling annuls the withdrawal rather than deleting it')
+
+        devolvida = vender()
+        admin.execute("SELECT public.fn_return_sale(%s,%s)", (devolvida, 'defeito'))
+        check(saldo() == base, 'Returning a sale gives the balance back')
+        check(db.execute("SELECT count(*) FROM stock_movements WHERE sale_id=%s "
+                         "AND kind='SAIDA' AND status='CONFIRMADA'",
+                         (devolvida,)).fetchone()[0] == 1,
+              'Returning leaves the original withdrawal confirmed: the sale happened')
+        check(db.execute("SELECT count(*) FROM stock_movements WHERE sale_id=%s "
+                         "AND kind='ENTRADA'", (devolvida,)).fetchone()[0] == 1,
+              'Returning writes a compensating entry')
+
+        rejects(lambda: admin.execute("SELECT public.fn_return_sale(%s,%s)",
+                                      (cancelada, 'segunda')),
+                '23514', 'A reversed sale cannot be reversed again')
+
+        viva = vender()
+        rejects(lambda: seller.execute("SELECT public.fn_cancel_sale(%s,%s)", (viva, 'x')),
+                '42501', 'SELLER cannot cancel a sale')
+        rejects(lambda: stock.execute("SELECT public.fn_return_sale(%s,%s)", (viva, 'x')),
+                '42501', 'STOCK cannot return a sale')
+        rejects(lambda: estranho.execute("SELECT public.fn_cancel_sale(%s,%s)", (viva, 'x')),
+                '42501', 'A sale from another company cannot be reversed')
+        rejects(lambda: admin.execute("SELECT public.fn_cancel_sale(%s,%s)", (viva, '   ')),
+                '23514', 'A reversal without a reason is refused by the database')
+        check(db.execute("SELECT count(*) FROM sale_reversals WHERE sale_id=%s",
+                         (viva,)).fetchone()[0] == 0,
+              'A refused reversal leaves no orphan link')
+
+        check(estranho.execute("SELECT count(*) FROM public.sale_reversals").fetchone()[0] == 0,
+              'RLS hides sale reversals from an unaffiliated account')
+        rejects(lambda: admin.execute(
+            "INSERT INTO public.sale_reversals(company_id,sale_id,kind,reason) "
+            "VALUES (%s,%s,'CANCELAMENTO','a mao')", (company, viva)),
+            '42501', 'Not even an ADMIN writes a reversal link by hand')
+
+        # O vinculo chega na consulta, que e o que o SCRUM-222 pede.
+        linha = seller.execute(
+            "SELECT status::text, reversal_kind::text, reversal_reason "
+            "FROM public.fn_list_sales(%s, p_sale_id=>%s, p_limit=>1)",
+            (company, str(devolvida))).fetchone()
+        check(linha == ('DEVOLVIDA', 'DEVOLUCAO', 'defeito'),
+              'The history query carries the reversal link')
+
+        for conexao in (admin, seller, stock, estranho):
+            conexao.close()
+        print('PASS US17 sales history and reversal complete', flush=True)
 
 
 if __name__ == '__main__':

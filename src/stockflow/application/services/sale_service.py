@@ -3,22 +3,27 @@
 from decimal import Decimal, InvalidOperation
 import re
 
-from stockflow.application.dto.sale_item import SaleItemInput, SaleItemValidator
 from stockflow.application.dto.sale_filter import (
-    MOTIVO_MAXIMO, TAMANHO_MAXIMO, TAMANHO_PADRAO, SaleFilter,
+    MOTIVO_MAXIMO,
+    TAMANHO_MAXIMO,
+    TAMANHO_PADRAO,
+    SaleFilter,
 )
+from stockflow.application.dto.sale_item import SaleItemInput, SaleItemValidator
 from stockflow.domain.enums.operation_kind import OperationKind
 from stockflow.domain.enums.user_role import UserRole
 from stockflow.domain.permissions import (
-    ensure_can_register_sales, ensure_can_reverse_sales,
-    ensure_can_manage_companies, exigir_ver,
+    ensure_can_register_sales,
+    ensure_can_manage_companies,
+    ensure_can_reverse_sales,
+    exigir_ver,
 )
 from stockflow.domain.product_status import ensure_product_selectable
 from stockflow.domain.sale_discount import (
-    DiscountKind, calculate_discount, calculate_discount_breakdown,
+    DiscountKind,
+    calculate_discount,
+    calculate_discount_breakdown,
 )
-
-_LEGACY_LIST = object()
 
 _MONEY_PATTERN = re.compile(
     r"(?:\d+|\d{1,3}(?:\.\d{3})+)(?:,\d{1,2})?|\d+\.\d{1,2}"
@@ -123,8 +128,8 @@ class SaleService:
 
         `itens` são pares código/quantidade. O preço NÃO vem daqui: o total
         calculado nesta camada é o que a tela mostra. O repositório envia
-        códigos, quantidades e instruções de desconto; a RPC relê os preços
-        do catálogo na mesma transação que valida e baixa o estoque.
+        apenas código e quantidade; `fn_register_sale` relê os preços de
+        `products.sell_price` na mesma transação que valida e baixa o estoque.
         """
         ensure_can_register_sales(session)
 
@@ -141,7 +146,8 @@ class SaleService:
                 quantity=parse_quantity(item["quantidade"]),
                 discount_type=item.get("discount_type", "FIXED"),
                 discount_value=self._parse_discount_value(
-                    item.get("discount_value", "0"), item.get("discount_type", "FIXED")
+                    item.get("discount_value", "0"),
+                    item.get("discount_type", "FIXED"),
                 ),
             )
             for item in itens
@@ -151,18 +157,22 @@ class SaleService:
             discount_type, approval_credentials,
         )
 
-    def list_sales(self, session=_LEGACY_LIST, filtro=None, page=1, size=TAMANHO_PADRAO):
-        # Compatibilidade temporária com a UI local pré-US17. Não habilita o
-        # caminho paginado sem sessão, nem transforma sessão inválida em legado.
-        if session is _LEGACY_LIST:
-            if filtro is not None or page != 1 or size != TAMANHO_PADRAO:
-                raise ValueError("Informe a sessão para consultar o histórico paginado.")
-            return self.repository.list_all()
+    def list_sales(self, session, filtro=None, page=1, size=TAMANHO_PADRAO):
+        """Página do histórico, com a alçada conferida antes da consulta.
+
+        Antes da US17 este método não recebia sessão: a RLS escopava por
+        empresa e o resultado ficava certo por CONSEQUÊNCIA, não por
+        decisão. A guarda explícita alinha vendas às demais áreas, e é ela
+        que fica vermelha se a matriz mudar.
+        """
         exigir_ver(session, "vendas", "consultar o histórico de vendas")
-        if type(page) is not int or page < 1:
+        if not isinstance(page, int) or isinstance(page, bool) or page < 1:
             raise ValueError("Página inválida.")
-        if type(size) is not int or not 1 <= size <= TAMANHO_MAXIMO:
-            raise ValueError(f"Tamanho de página inválido: use entre 1 e {TAMANHO_MAXIMO}.")
+        if (not isinstance(size, int) or isinstance(size, bool)
+                or not 1 <= size <= TAMANHO_MAXIMO):
+            raise ValueError(
+                f"Tamanho de página inválido: use entre 1 e {TAMANHO_MAXIMO}."
+            )
         return self.repository.list_page(filtro or SaleFilter(), page, size)
 
     def get_sale(self, session, sale_id):
@@ -172,21 +182,31 @@ class SaleService:
         return self.repository.get(sale_id)
 
     def cancel_sale(self, session, sale_id, reason):
+        """Anula a venda. Alçada e motivo conferidos antes do repositório."""
         ensure_can_reverse_sales(session, action="cancelar vendas")
         return self.repository.cancel(sale_id, self._motivo(reason))
 
     def return_sale(self, session, sale_id, reason):
+        """Devolve a venda. Mesma alçada e mesma exigência de motivo."""
         ensure_can_reverse_sales(session, action="devolver vendas")
         return self.repository.revert(sale_id, self._motivo(reason))
 
     @staticmethod
-    def _motivo(reason):
-        if not isinstance(reason, str) or not reason.strip():
+    def _motivo(reason) -> str:
+        """O motivo é obrigatório e nasce aqui, não na tela.
+
+        O banco recusa vazio também, mas deixar a recusa só lá gastaria uma
+        ida à rede para dizer o que a aplicação já sabia — e a mensagem que
+        voltaria seria a do Postgres, não a do domínio.
+        """
+        texto = (reason or "").strip()
+        if not texto:
             raise ValueError("Informe o motivo da operação.")
-        text = reason.strip()
-        if len(text) > MOTIVO_MAXIMO:
-            raise ValueError(f"O motivo deve ter no máximo {MOTIVO_MAXIMO} caracteres.")
-        return text
+        if len(texto) > MOTIVO_MAXIMO:
+            raise ValueError(
+                f"O motivo deve ter no máximo {MOTIVO_MAXIMO} caracteres."
+            )
+        return texto
 
     def register_multiple(
         self,
@@ -206,10 +226,15 @@ class SaleService:
             raise ValueError("Selecione uma forma de pagamento válida.")
         client = self._cliente_ativo(client_id)
 
-        normalized_items = tuple(SaleItemInput(
-            item.product_code, item.quantity, DiscountKind(item.discount_type).value,
-            self._parse_discount_value(item.discount_value, item.discount_type),
-        ) for item in items)
+        normalized_items = tuple(
+            SaleItemInput(
+                item.product_code,
+                item.quantity,
+                DiscountKind(item.discount_type).value,
+                self._parse_discount_value(item.discount_value, item.discount_type),
+            )
+            for item in items
+        )
         item_validator = SaleItemValidator(self.products)
         item_validator.validate(normalized_items)
 
@@ -229,47 +254,53 @@ class SaleService:
         bruto = calculate_total_from_items(normalized_items, prices_by_code)
         if bruto >= Decimal("100000000"):
             raise ValueError("Total da venda acima do limite de R$ 99.999.999,99.")
-        descontos_itens = tuple(calculate_discount(
-            prices_by_code[item.product_code] * item.quantity,
-            item.discount_type, item.discount_value,
-        ) for item in normalized_items)
-        base_desconto_venda = bruto - sum(descontos_itens, Decimal("0.00"))
-        valor_desconto_venda = self._parse_discount_value(discount or "0", discount_type)
-        desconto_venda = calculate_discount(base_desconto_venda, discount_type, valor_desconto_venda)
-        resumo = calculate_discount_breakdown(bruto, descontos_itens, desconto_venda)
-        get_limits = getattr(self.repository, "get_discount_limits", None)
-        if callable(get_limits):
-            limites = get_limits()
-            role = UserRole.from_value(session.role)
-            limite = limites.get(role.value)
-            if limite is not None and resumo.effective_percent > Decimal(str(limite)):
-                if not approval_credentials:
-                    raise DiscountApprovalRequired(
-                        "Este desconto excede o limite do vendedor e exige "
-                        "autorização de um administrador."
-                    )
-            return self.repository.register_multiple(
-                client, normalized_items, resumo.net, payment_method, resumo.total_discount,
-                original_total=resumo.gross,
-                sale_discount_type=DiscountKind(discount_type).value,
-                sale_discount_value=valor_desconto_venda,
-                approval_credentials=approval_credentials,
-                seller_id=getattr(session, "user_id", None),
+        descontos_itens = tuple(
+            calculate_discount(
+                prices_by_code[item.product_code] * item.quantity,
+                item.discount_type,
+                item.discount_value,
             )
-        # Adaptador anterior à US22: preservar somente o contrato já suportado.
-        # Nunca descartar descontos por item, percentual ou pedido de aprovação.
-        if (any(item.discount_value != 0 for item in normalized_items)
-                or DiscountKind(discount_type) is not DiscountKind.FIXED
-                or approval_credentials is not None):
-            raise ValueError("Este repositório não suporta o fluxo de descontos US22.")
+            for item in normalized_items
+        )
+        base_desconto_venda = bruto - sum(
+            descontos_itens, start=Decimal("0.00")
+        )
+        valor_desconto_venda = self._parse_discount_value(
+            discount or "0", discount_type
+        )
+        desconto_venda = calculate_discount(
+            base_desconto_venda, discount_type, valor_desconto_venda
+        )
+        resumo = calculate_discount_breakdown(
+            bruto, descontos_itens, desconto_venda
+        )
+        role = UserRole.from_value(session.role)
+        limites = self.repository.get_discount_limits()
+        limite = limites.get(role.value)
+        if limite is not None and resumo.effective_percent > Decimal(str(limite)):
+            if not approval_credentials:
+                raise DiscountApprovalRequired(
+                    "Este desconto excede o limite do vendedor e exige "
+                    "autorização de um administrador."
+                )
+
         # The repository owns the transaction boundary. In particular, stock
         # changes are never performed as a second write after this returns.
         return self.repository.register_multiple(
-            client, normalized_items, resumo.net, payment_method, resumo.total_discount
+            client,
+            normalized_items,
+            resumo.net,
+            payment_method,
+            resumo.total_discount,
+            original_total=resumo.gross,
+            sale_discount_type=DiscountKind(discount_type).value,
+            sale_discount_value=valor_desconto_venda,
+            approval_credentials=approval_credentials,
+            seller_id=getattr(session, "user_id", None),
         )
 
     @staticmethod
-    def _parse_discount_value(value, discount_type):
+    def _parse_discount_value(value, discount_type) -> Decimal:
         try:
             kind = DiscountKind(discount_type)
         except ValueError as error:

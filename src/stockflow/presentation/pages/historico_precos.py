@@ -6,6 +6,8 @@ lugares — com o agravante de que o desempate do banco (pelo id da linha) não
 é reproduzível fora dele.
 """
 
+from stockflow.presentation.styles import design_system as ds
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QTableWidget,
@@ -29,23 +31,10 @@ class HistoricoPrecosPage(QWidget):
     def __init__(self):
         super().__init__()
         self.setObjectName("historicoPrecosPage")
-        self.setStyleSheet("""
-            QWidget#historicoPrecosPage { background: #F5F7FB; }
-            QWidget#historicoPrecosPage QLabel { background: transparent; color: #334155; }
-            QLabel#pageTitle { color: #0F172A; font-size: 24px; font-weight: 700; }
-            QLabel#pageSubtitle { color: #64748B; font-size: 13px; }
-            QFrame#historyFilter, QFrame#historyTableCard {
-                background: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 14px;
-            }
-            QComboBox {
-                background: #FFFFFF; color: #334155; border: 1px solid #D7E0EC;
-                border-radius: 9px; padding: 8px 12px;
-            }
-            QLabel#emptyState { color: #64748B; padding: 18px; }
-        """)
+        self.setStyleSheet(ds.page_qss("historicoPrecosPage") + ds.field_qss() + ds.surface_qss("QFrame#historyFilter, QFrame#historyTableCard"))
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 22, 24, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
 
         titulo = QLabel("Histórico de preços")
         titulo.setObjectName("pageTitle")
@@ -56,7 +45,7 @@ class HistoricoPrecosPage(QWidget):
         subtitulo.setWordWrap(True)
 
         self.produto_combo = QComboBox()
-        self.produto_combo.setFixedHeight(42)
+        self.produto_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         self.produto_combo.setMinimumContentsLength(18)
         self.produto_combo.setSizeAdjustPolicy(
             QComboBox.AdjustToMinimumContentsLengthWithIcon
@@ -93,7 +82,7 @@ class HistoricoPrecosPage(QWidget):
         for coluna in (0, 2, 3, 4, 5):
             cabecalho.setSectionResizeMode(coluna, QHeaderView.ResizeToContents)
         cabecalho.setMinimumSectionSize(90)
-        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         self.table.setAlternatingRowColors(False)
         self.table.setHorizontalScrollMode(QTableWidget.ScrollPerPixel)
 

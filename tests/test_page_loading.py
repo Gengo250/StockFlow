@@ -112,10 +112,17 @@ def test_remote_window_build_and_navigation_do_not_read_synchronously(qapp, monk
 
 def test_report_type_change_during_load_discards_old_shape(qapp):
     from stockflow.presentation.pages.reports import ReportsPage
+    from stockflow.domain.entities.session import Session
+    from stockflow.domain.enums.user_role import UserRole
     from stockflow.infrastructure.repositories.demo_product_repository import DemoProductRepository
     from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
     from stockflow.presentation.demo_products import DEMO_PRODUCTS
-    page = ReportsPage(DemoProductRepository(dict(DEMO_PRODUCTS)), DemoSaleRepository(dict(DEMO_PRODUCTS)))
+    session = Session('admin', 'Admin', 'admin@example.com', UserRole.ADMIN)
+    page = ReportsPage(
+        DemoProductRepository(dict(DEMO_PRODUCTS)),
+        DemoSaleRepository(dict(DEMO_PRODUCTS)),
+        session,
+    )
     jobs = []
     page.loader.execute = lambda *job: jobs.append(job)
     page.refresh()
@@ -124,7 +131,10 @@ def test_report_type_change_during_load_discards_old_shape(qapp):
     assert page.rows == []
     jobs[1][1](jobs[1][0]())
     assert page.headers[0] == 'Venda'
-    assert all(len(row) == 5 for row in page.rows)
+    # A invariante é a FORMA casar com o cabeçalho do tipo atual, não um
+    # número fixo: a coluna Status entrou na US17 e um 5 cravado aqui só
+    # dizia quantas colunas havia naquele dia.
+    assert all(len(row) == len(page.headers) for row in page.rows)
     assert page.refresh_button.isEnabled()
     page.close()
 

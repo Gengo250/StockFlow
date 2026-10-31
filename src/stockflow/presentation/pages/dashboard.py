@@ -1,5 +1,7 @@
 """Indicadores da empresa e planejamento de reposição (H31)."""
 
+from stockflow.presentation.styles import design_system as ds
+
 from datetime import datetime
 from decimal import Decimal
 
@@ -11,6 +13,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from stockflow.domain.enums.sale_status import SaleStatus
 from stockflow.domain.replenishment import suggest_replenishment
 from stockflow.presentation.workers import PageLoader
 from stockflow.presentation.styles import inventory
@@ -29,7 +32,7 @@ class DashboardPage(QWidget):
         self.suggestions = []
         self._loaded = False
         self.setObjectName('dashboardPage')
-        self.setStyleSheet('QWidget#dashboardPage { background: #F0F5FF; } QLabel { color: #334155; background: transparent; }')
+        self.setStyleSheet(ds.page_qss("dashboardPage"))
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
@@ -37,12 +40,12 @@ class DashboardPage(QWidget):
         scroll.setFrameShape(QFrame.NoFrame)
         content = QWidget()
         content.setObjectName('dashboardContent')
-        content.setStyleSheet('QWidget#dashboardContent { background: #F0F5FF; }')
+        content.setStyleSheet(ds.page_qss("dashboardContent"))
         scroll.setWidget(content)
         outer.addWidget(scroll)
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(26, 24, 26, 24)
-        layout.setSpacing(18)
+        layout.setContentsMargins(ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN, ds.PAGE_MARGIN)
+        layout.setSpacing(ds.SECTION_GAP)
         heading = QHBoxLayout()
         titles = QVBoxLayout()
         titles.setSpacing(4)
@@ -57,7 +60,7 @@ class DashboardPage(QWidget):
         self.refresh_button = QPushButton('Atualizar resumo')
         self.refresh_button.setIcon(qta.icon('fa5s.sync-alt', color='#475569'))
         self.refresh_button.setStyleSheet(inventory.FILTER_QSS)
-        self.refresh_button.setFixedHeight(42)
+        self.refresh_button.setFixedHeight(ds.CONTROL_HEIGHT)
         self.refresh_button.setCursor(Qt.PointingHandCursor)
         self.refresh_button.clicked.connect(self.refresh)
         heading.addWidget(self.refresh_button)
@@ -82,7 +85,7 @@ class DashboardPage(QWidget):
             badge.setPixmap(qta.icon(icon, color='#2563EB').pixmap(18, 18))
             top.addWidget(badge)
             value = QLabel('—')
-            value.setStyleSheet('color: #0F172A; font-size: 25px; font-weight: 700;')
+            value.setStyleSheet(ds.METRIC_QSS)
             detail = QLabel('Aguardando dados')
             detail.setWordWrap(True)
             detail.setStyleSheet('color: #64748B; font-size: 12px;')
@@ -114,7 +117,7 @@ class DashboardPage(QWidget):
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.verticalHeader().hide()
-        self.table.verticalHeader().setDefaultSectionSize(48)
+        self.table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -157,11 +160,18 @@ class DashboardPage(QWidget):
         products, sales, clients = result
         suggestions = suggest_replenishment(products)
         active = [product for product in products if product.active]
-        total = sum((Decimal(str(sale['total'])) for sale in sales), Decimal(0))
+        # Venda cancelada ou devolvida NÃO é receita (US17). A contagem de
+        # operações continua incluindo todas — o histórico aconteceu — mas o
+        # dinheiro não: somá-lo reportaria faturamento que foi desfeito.
+        vendidas = [
+            sale for sale in sales
+            if not SaleStatus.from_value(sale.get('status') or 'CONCLUIDA').revertida
+        ]
+        total = sum((Decimal(str(sale['total'])) for sale in vendidas), Decimal(0))
         values = (len(active), len(suggestions), money(total), sum(client.active for client in clients))
         details = (f'{sum(int(product.stock) for product in active)} unidades em estoque ativo',
                    f'{sum(item.status == "Crítico" for item in suggestions)} produtos sem estoque',
-                   f'{len(sales)} vendas · todo o histórico', f'{len(clients)} clientes cadastrados')
+                   f'{len(vendidas)} de {len(sales)} vendas valem · todo o histórico', f'{len(clients)} clientes cadastrados')
         for label, value, detail_label, detail in zip(self.metric_values, values, self.metric_details, details):
             label.setText(str(value))
             detail_label.setText(detail)

@@ -192,11 +192,11 @@ class Sidebar(QFrame):
         name_layout.setContentsMargins(0, 0, 0, 0)
         name_layout.setSpacing(0)
 
-        app_name = QLabel("Atlas")
+        app_name = QLabel("StockFlow")
 
         app_name.setStyleSheet(theme.APP_NAME_QSS)
 
-        app_subtitle = QLabel("Stock Management")
+        app_subtitle = QLabel("Gestão de estoque")
 
         app_subtitle.setStyleSheet(theme.APP_SUBTITLE_QSS)
 

@@ -110,9 +110,18 @@ CREATE INDEX idx_clients_company_name
 -- enquanto a de cliente é RESTRICT — cliente com venda não some; produto sim,
 -- e a venda guarda o que foi vendido.
 
--- Estado final da US17 já registrada no remoto; não amplia movement_kind.
--- A US20 mantém o status original: DEVOLVIDA pertence à reversão total legada.
-CREATE TYPE public.sale_status AS ENUM ('PENDENTE', 'CONCLUIDA', 'CANCELADA', 'DEVOLVIDA');
+-- `DEVOLVIDA` entra na US17, junto com o cancelamento de venda. Os dois
+-- estados são TERMINAIS e chegam por portas diferentes: cancelar anula as
+-- saídas da venda; devolver grava entradas compensatórias e deixa a saída
+-- original de pé. Quem distingue um do outro no registro é `sale_reversals`,
+-- no fim deste arquivo.
+CREATE TYPE public.sale_status AS ENUM (
+    'PENDENTE', 'CONCLUIDA', 'CANCELADA', 'DEVOLVIDA'
+);
+
+-- Cancelar e devolver não são a mesma operação, e a diferença precisa
+-- sobreviver no registro: cancelamento diz que a venda não deveria ter
+-- existido; devolução diz que existiu e a mercadoria voltou.
 CREATE TYPE public.sale_reversal_kind AS ENUM ('CANCELAMENTO', 'DEVOLUCAO');
 
 -- Segue a nomenclatura de movement_kind/movement_status: rótulo em português
@@ -128,8 +137,8 @@ CREATE TABLE public.sales (
     client_name      text NOT NULL,
     payment_method   public.payment_method NOT NULL DEFAULT 'DINHEIRO',
     -- Desconto do cabeçalho, já abatido em `total`. Guardado à parte porque a
-    -- soma dos subtotais BRUTOS menos o desconto é o que reconcilia o total.
-    -- US22: inclui descontos dos itens + desconto adicional da venda.
+    -- soma dos subtotais dos itens menos o desconto é o que reconcilia o
+    -- total; sem a coluna não há como auditar a diferença.
     discount         numeric(10,2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
     total            numeric(10,2) NOT NULL CHECK (total >= 0),
     original_total   numeric(10,2) GENERATED ALWAYS AS (total + discount) STORED,
@@ -161,13 +170,13 @@ CREATE TABLE public.sale_discount_limits (
     company_id uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
     role       public.user_role NOT NULL,
     limit_percent numeric(5,2)
-                 CHECK (limit_percent IS NULL OR limit_percent BETWEEN 0 AND 100),
+                 CHECK (limit_percent IS NULL OR
+                        limit_percent BETWEEN 0 AND 100),
     updated_by uuid,
     updated_on timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (company_id, role),
     CHECK (role = 'SELLER')
 );
-ALTER TABLE public.sale_discount_limits ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE public.sale_items (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -190,20 +199,18 @@ CREATE TABLE public.sale_items (
                   CHECK (discount_type IN ('FIXED', 'PERCENTAGE')),
     discount_value numeric(10,2) NOT NULL DEFAULT 0
                    CHECK (discount_value >= 0 AND
-                          (discount_type <> 'PERCENTAGE' OR discount_value <= 100)),
+                          (discount_type <> 'PERCENTAGE'
+                           OR discount_value <= 100)),
     discount_amount numeric(10,2) NOT NULL DEFAULT 0
                     CHECK (discount_amount >= 0 AND
                            discount_amount <= quantity * unit_price),
-    -- Não referenciar subtotal: PostgreSQL proíbe dependência entre geradas.
-    final_subtotal numeric(10,2)
-                   GENERATED ALWAYS AS (quantity * unit_price - discount_amount) STORED,
+    final_subtotal numeric(10,2) NOT NULL
+                   GENERATED ALWAYS AS (subtotal - discount_amount) STORED,
     created_on    timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (company_id, sale_id)
         REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
     FOREIGN KEY (product_id)
-        REFERENCES public.products (id) ON DELETE SET NULL,
-    -- US20: alvo da FK que prende o item devolvido à venda e à empresa.
-    CONSTRAINT uq_sale_items_company_sale_id UNIQUE (company_id, sale_id, id)
+        REFERENCES public.products (id) ON DELETE SET NULL
 );
 CREATE INDEX idx_sale_items_sale ON public.sale_items (sale_id);
 CREATE INDEX idx_sale_items_company ON public.sale_items (company_id);
@@ -228,18 +235,29 @@ ALTER TABLE public.stock_movements
     ADD COLUMN sale_item_id uuid REFERENCES public.sale_items(id) ON DELETE SET NULL;
 CREATE INDEX idx_stock_movements_sale ON public.stock_movements (sale_id);
 
--- US17: preservar a reversão legada existente, sem substituir returns da US20.
+-- Vínculo entre a venda original e a operação que a desfez (US17).
+--
+-- Tabela, e não colunas em `sales`: o vínculo é uma RELAÇÃO com autor,
+-- motivo e instante próprios. Como atributo do cabeçalho ele engordaria a
+-- cada motivo novo e não teria onde guardar autoria separada da autoria da
+-- venda. É o mesmo papel que `sales_log` cumpre para a conclusão.
 CREATE TABLE public.sale_reversals (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    -- Redundante com sales.company_id, e proposital: a policy escopa por
+    -- esta coluna sem entrar em `sales` a cada linha, como em sale_items.
     company_id  uuid NOT NULL,
     sale_id     uuid NOT NULL,
     kind        public.sale_reversal_kind NOT NULL,
     reason      text NOT NULL CHECK (btrim(reason) <> ''),
+    -- Sem FK, como sales.created_by: a autoria da reversão precisa
+    -- sobreviver à remoção da conta que a fez.
     created_by  uuid,
     created_on  timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (company_id, sale_id)
         REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
+    -- Reversão é TERMINAL: venda cancelada não vira devolvida depois, nem
+    -- acumula reversões. As funções conferem também, mas é este índice que
+    -- torna a regra verdadeira para quem chegue por outro caminho.
     UNIQUE (sale_id)
 );
 CREATE INDEX idx_sale_reversals_company ON public.sale_reversals (company_id);
-ALTER TABLE public.sale_reversals ENABLE ROW LEVEL SECURITY;

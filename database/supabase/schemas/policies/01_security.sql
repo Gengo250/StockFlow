@@ -136,7 +136,9 @@ CREATE POLICY sales_log_select ON public.sales_log
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
 
--- US17: somente leitura por empresa; a escrita pertence às RPCs de reversão.
+-- Mesma proteção de `sales`: SELECT e nada mais. A escrita é exclusiva de
+-- fn_cancel_sale/fn_return_sale, que são SECURITY DEFINER. Dar INSERT aqui
+-- deixaria a aplicação forjar o vínculo que a auditoria deveria provar.
 CREATE POLICY sale_reversals_select ON public.sale_reversals
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
@@ -206,18 +208,21 @@ DECLARE
     -- Venda com vários itens, desconto e forma de pagamento (US10) e edição
     -- de estoque por código de barras (US09).
     'fn_create_complete_sale', 'fn_checkout_sale', 'fn_edit_product_stock',
-    -- US20: ambas validam identidade, empresa e papel ADMIN internamente.
-    'fn_get_returnable_items', 'fn_return_partial_sale',
-    -- US17/US22: restaurar a superfície da main sem retirar as RPCs US20.
-    'fn_list_sales', 'fn_cancel_sale', 'fn_return_sale',
-    'fn_get_sale_discount_limits', 'fn_set_sale_discount_limit',
-    'fn_register_sale_with_discounts',
     'fn_list_company_suppliers', 'fn_create_supplier', 'fn_update_supplier',
     'fn_set_supplier_active', 'fn_set_product_supplier',
     'fn_register_supplier_movement', 'fn_save_product', 'fn_save_company_member',
     -- Histórico cronológico de preço e custo (H09). Só leitura, e só do ADMIN:
     -- a própria função repete a alçada de `price_edit_log_select`, porque
     -- SECURITY DEFINER passa por cima da RLS que protege a tabela.
+    -- Histórico de vendas (US17). Só leitura; a alçada é a mesma de
+    -- `sales_select`, repetida dentro da função porque SECURITY DEFINER
+    -- passa por cima da RLS.
+    'fn_list_sales',
+    'fn_get_sale_discount_limits', 'fn_set_sale_discount_limit',
+    'fn_register_sale_with_discounts',
+    -- Cancelamento e devolução de venda (US17). Só o ADMIN; a função
+    -- repete essa alçada, e o teste de espelhamento da matriz compara.
+    'fn_cancel_sale', 'fn_return_sale',
     'fn_list_price_edits','fn_set_company_max_stock_limit','fn_set_max_stock','fn_get_effective_max_stock'
   ];
   v_name    text;
