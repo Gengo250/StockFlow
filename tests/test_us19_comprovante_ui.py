@@ -1,0 +1,105 @@
+"""Interface do comprovante (US19/SCRUM-224).
+
+O diálogo é o ponto de entrega: mostra, grava PDF e imprime. Impressão abre
+diálogo do sistema e por isso não é exercida aqui; o PDF é, porque
+`QPdfWriter` funciona sem servidor gráfico.
+"""
+
+import pytest
+
+from stockflow.application.services.receipt_renderer import (
+    TITULO_CANCELADO,
+    TITULO_VALIDO,
+)
+from stockflow.domain.sale_receipt import ReceiptCompany, build_sale_receipt
+from stockflow.presentation.widgets.sale_receipt_dialog import SaleReceiptDialog
+
+# Repetida aqui de propósito: `tests/unit` não está no caminho de import de
+# `tests/` quando este arquivo roda sozinho, e `test_us17_detalhe_da_venda.py`
+# já fixa a mesma convenção de venda literal no teste de tela.
+EMPRESA = ReceiptCompany(name="StockFlow Comércio LTDA", document="11222333000181")
+
+VENDA = {
+    "id": "3f2a7c41-0000-4000-8000-000000000001",
+    "cliente": "Ana Ferreira",
+    "seller": "juliana.ramos",
+    "data": "31/10/2026 14:22",
+    "status": "CONCLUIDA",
+    "payment_method": "PIX",
+    "discount": "11.00",
+    "original_total": "90.00",
+    "total": "79.00",
+    "valor": "R$ 79,00",
+    "items": [
+        {"product_code": "PRD-001", "product_name": "Teclado", "quantity": 2,
+         "unit_price": "30.00", "subtotal": "60.00",
+         "discount_amount": "6.00", "final_subtotal": "54.00"},
+        {"product_code": "PRD-002", "product_name": "Mouse", "quantity": 1,
+         "unit_price": "30.00", "subtotal": "30.00",
+         "discount_amount": "0.00", "final_subtotal": "30.00"},
+    ],
+}
+
+CANCELADA = VENDA | {
+    "status": "CANCELADA",
+    "reversal_kind": "CANCELAMENTO",
+    "reversal_reason": "Registro em duplicidade",
+    "reversal_on": "31/10/2026 15:00",
+    "reversal_by": "ana.ferreira",
+}
+
+
+@pytest.fixture
+def dialogo(qapp):
+    janela = SaleReceiptDialog(build_sale_receipt(VENDA, EMPRESA))
+    yield janela
+    janela.close()
+
+
+def test_dialogo_mostra_o_comprovante_renderizado(dialogo):
+    texto = dialogo.viewer.toPlainText()
+    assert "Ana Ferreira" in texto
+    assert "Teclado" in texto
+    assert "R$ 79,00" in texto
+    assert TITULO_VALIDO in texto
+
+
+def test_dialogo_oferece_pdf_impressao_e_fechar(dialogo):
+    assert dialogo.pdf_button.isEnabled()
+    assert dialogo.print_button.isEnabled()
+    assert dialogo.close_button.isEnabled()
+
+
+def test_nome_sugerido_carrega_o_identificador_da_venda(dialogo):
+    nome = dialogo.sugerir_nome_do_arquivo()
+    assert nome.endswith(".pdf")
+    assert VENDA["id"][:8] in nome
+
+
+def test_exportar_pdf_grava_um_arquivo_legivel(dialogo, tmp_path):
+    destino = tmp_path / "comprovante.pdf"
+    dialogo.export_pdf(str(destino))
+
+    assert destino.exists()
+    assert destino.read_bytes().startswith(b"%PDF")
+
+
+def test_falha_na_gravacao_vira_aviso_na_janela_e_nao_derruba_o_dialogo(
+    dialogo, tmp_path
+):
+    """Regra 7: falhar ao gerar não pode quebrar nada além da geração."""
+    inexistente = tmp_path / "sem" / "pasta" / "c.pdf"
+    dialogo._gravar_pdf(str(inexistente))
+
+    assert "Não foi possível" in dialogo.status_label.text()
+    assert dialogo.isEnabled()
+
+
+def test_dialogo_de_venda_cancelada_mostra_a_marcacao(qapp):
+    janela = SaleReceiptDialog(build_sale_receipt(CANCELADA, EMPRESA))
+    try:
+        texto = janela.viewer.toPlainText()
+        assert TITULO_CANCELADO in texto
+        assert "Registro em duplicidade" in texto
+    finally:
+        janela.close()
