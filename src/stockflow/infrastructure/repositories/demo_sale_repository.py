@@ -119,6 +119,12 @@ class DemoSaleRepository:
         else:
             self._products = dict(DEMO_PRODUCTS)
         self.movements = repositorio or DemoMovementRepository(self._products)
+        # Estado US20 por instância, independente das sementes de comprovante.
+        self._session = session
+        self._return_sales = {}
+        self._returns = {}
+        self._return_requests = {}
+        self._product_ids = {}
         # As sementes carregam itens, status e totais porque o comprovante
         # (US19) lê o SNAPSHOT da venda: linha sem item não tem o que
         # comprovar, e a demonstração ficaria sem histórico emitível.

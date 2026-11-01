@@ -36,6 +36,66 @@ def payload(row, quantity=1, index=0):
     return [{"sale_item_id": row["items"][index]["id"], "quantity": quantity}]
 
 
+@pytest.mark.parametrize("session", [None, SimpleNamespace(
+    role="ADMIN", user_id="admin", company_id="company",
+)])
+def test_constructor_initializes_return_state_with_or_without_session(session):
+    repo = DemoSaleRepository({}, session=session)
+    assert repo._session is session
+    for name in ("_return_sales", "_returns", "_return_requests", "_product_ids"):
+        assert getattr(repo, name) == {}
+    assert repo.returns == ()
+
+
+def test_constructor_does_not_share_return_state_between_instances():
+    first, second = DemoSaleRepository({}), DemoSaleRepository({})
+    for name in ("_return_sales", "_returns", "_return_requests", "_product_ids"):
+        first_state, second_state = getattr(first, name), getattr(second, name)
+        assert first_state is not second_state
+        first_state["only-first"] = "marker"
+        assert second_state == {}
+
+
+def test_legacy_sale_without_session_keeps_seeds_and_publishes_original_snapshot():
+    products = {
+        "P1": Product("P1", "Produto", "Categoria", "UN", "1.00", "0", True, "10", "Normal"),
+    }
+    repo = DemoSaleRepository(products)
+    seeds = deepcopy(repo.rows)
+    sale = repo.register_multiple(
+        SimpleNamespace(name="Cliente"), (SaleItemInput("P1", 2),), Decimal("2.00"),
+    )
+    assert len(repo.rows) == len(seeds) + 1
+    assert repo.rows[0] == sale
+    assert repo.rows[1:] == seeds
+    assert products["P1"].stock == "8"
+    item_id = sale["items"][0]["id"]
+    snapshot = repo._return_sales[sale["id"]]
+    assert snapshot["items"][0].sale_item_id == item_id
+    assert snapshot["items"][0].unit_price == Decimal("1.00")
+    assert snapshot["items"][0].discount_amount == 0
+    assert snapshot["product_ids"][item_id] == repo._product_ids["P1"]
+    assert repo.returns == ()
+    assert repo._return_requests == {}
+    # Registrar pelo contrato legado não libera devoluções sem contexto.
+    with pytest.raises(PermissionDeniedError):
+        repo.get_returnable_items(sale["id"])
+
+
+def test_receipt_seeds_keep_items_and_totals_without_fabricated_return_snapshots():
+    repo = DemoSaleRepository({})
+    assert [row["id"] for row in repo.rows] == ["VND-1001", "VND-1002"]
+    for row in repo.rows:
+        assert row["status"] == "CONCLUIDA"
+        assert row["payment_method"] == "DINHEIRO"
+        assert row["seller"]
+        assert len(row["items"]) == 1
+        assert Decimal(row["items"][0]["final_subtotal"]) == Decimal(row["total"])
+        assert Decimal(row["original_total"]) == Decimal(row["total"])
+        assert Decimal(row["discount"]) == 0
+    assert repo._return_sales == {}
+
+
 def test_partial_then_total_preserves_history_and_original_sale():
     repo, products, movements, row = setup_sale()
     sale_before = deepcopy(row)
