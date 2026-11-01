@@ -119,6 +119,28 @@ class DemoSaleRepository:
         else:
             self._products = dict(DEMO_PRODUCTS)
         self.movements = repositorio or DemoMovementRepository(self._products)
+        # Sessão da operação. `ensure_can_return_sales` e o escopo de empresa
+        # das devoluções leem daqui; sem guardar o argumento, todo método da
+        # US20 morria com AttributeError antes de chegar na permissão.
+        self._session = session
+        # Estado das devoluções (US20), que no banco mora em tabelas e aqui
+        # precisa ser mantido à mão:
+        #   _return_sales    snapshot por venda — itens, nomes e totais como
+        #                    estavam na conclusão, que é o que a devolução
+        #                    valida contra (o catálogo pode ter mudado desde
+        #                    então, e o histórico não pode mudar junto);
+        #   _returns         cabeçalhos já registrados, de onde sai quanto de
+        #                    cada item já voltou;
+        #   _return_requests resultado por chave de idempotência, para repetir
+        #                    a resposta em vez de gravar a mesma devolução duas
+        #                    vezes;
+        #   _product_ids     uuid estável por código de produto, porque o
+        #                    catálogo de demonstração não tem id próprio e o
+        #                    retorno da RPC carrega `product_id`.
+        self._return_sales = {}
+        self._returns = {}
+        self._return_requests = {}
+        self._product_ids = {}
         # As sementes carregam itens, status e totais porque o comprovante
         # (US19) lê o SNAPSHOT da venda: linha sem item não tem o que
         # comprovar, e a demonstração ficaria sem histórico emitível.

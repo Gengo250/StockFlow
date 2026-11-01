@@ -9,12 +9,35 @@ POLICIES = ROOT / "database/code/policies/01_security.sql"
 MIGRATION = ROOT / (
     "database/supabase/migrations/20261029130000_us22_sales_discounts.sql"
 )
+MIGRATIONS_DIR = ROOT / "database/supabase/migrations"
 
 
 def _function_body(path, name):
     source = path.read_text(encoding="utf-8")
     start = source.index(f"CREATE OR REPLACE FUNCTION public.{name}(")
     return source[start:source.index("\n$$;", start) + len("\n$$;")]
+
+
+def _ultima_migration_que_define(name):
+    """A migration mais recente que define `name`, por ordem de timestamp.
+
+    Comparar o declarativo com uma migration FIXA só funciona enquanto aquela
+    for a última a tocar a função — e a regra deste repositório é justamente
+    corrigir por migration NOVA, nunca editando migration já aplicada. Foi o
+    que aconteceu com `fn_validate_sale_discount_limit`: a US22 a criou e
+    20261031140000 a redefiniu, então o declarativo passou a divergir da
+    migration da US22 por estar CERTO.
+
+    O nome do arquivo começa pelo timestamp, então a ordem alfabética é a
+    ordem de aplicação.
+    """
+    definem = [
+        caminho
+        for caminho in sorted(MIGRATIONS_DIR.glob("*.sql"))
+        if f"CREATE OR REPLACE FUNCTION public.{name}(" in caminho.read_text(encoding="utf-8")
+    ]
+    assert definem, f"nenhuma migration define {name}"
+    return definem[-1]
 
 
 def test_discount_schema_keeps_original_and_final_values_with_audit():
@@ -55,7 +78,11 @@ def test_us22_migration_matches_declarative_functions_and_grants_them():
         "fn_validate_sale_discount_limit",
     ):
         source_path = TRIGGER if name == "fn_validate_sale_discount_limit" else PROCEDURES
-        assert _function_body(MIGRATION, name) == _function_body(source_path, name)
+        ultima = _ultima_migration_que_define(name)
+        assert _function_body(ultima, name) == _function_body(source_path, name), (
+            f"{name}: o declarativo precisa bater com {ultima.name}, "
+            "que é a última migration a defini-la"
+        )
     assert "ALTER TABLE public.sale_discount_limits ENABLE ROW LEVEL SECURITY" in migration
     assert "GRANT EXECUTE ON FUNCTION public.fn_register_sale_with_discounts" in migration
 
