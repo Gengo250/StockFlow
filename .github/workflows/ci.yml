@@ -20,9 +20,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# A suíte roda offline por desenho — catálogo em memória, contas locais, nenhuma
-# chamada ao Supabase. Logo este job não precisa de segredo nenhum: nada de
-# `SUPABASE_*`, nada de token de escrita. Ler o código é todo o acesso que ele tem.
+# A suíte não fala com o Supabase — catálogo em memória, contas locais, e o
+# PostgreSQL abaixo é um container descartável deste job. Logo este job não
+# precisa de segredo nenhum: nada de `SUPABASE_*`, nada de token de escrita.
+# Ler o código é todo o acesso que ele tem.
 permissions:
   contents: read
 
@@ -30,10 +31,36 @@ jobs:
   tests:
     name: pytest (Linux headless)
     runs-on: ubuntu-latest
-    # A suíte local leva ~25s. O teto não é para ela, é para o caso patológico:
-    # se o Qt tentar abrir janela, ele fica esperando um servidor gráfico que não
+    # A suíte leva ~7min. O teto não é para ela, é para o caso patológico: se o
+    # Qt tentar abrir janela, ele fica esperando um servidor gráfico que não
     # existe, e sem este limite o job só morreria no teto de 6h da plataforma.
-    timeout-minutes: 15
+    timeout-minutes: 25
+
+    # PostgreSQL de verdade, e não por capricho: sem ele `tests/integration`
+    # se PULA sozinho (veja o skip em tests/integration/conftest.py), e os 32
+    # testes que comparam `database/code/` com `database/supabase/migrations/`
+    # nunca rodam no merge. Foi exatamente assim que a fonte declarativa parou
+    # de construir o schema sem ninguém perceber.
+    #
+    # Imagem oficial, não a do Supabase: o que estes testes exercitam é SQL
+    # padrão mais `pgcrypto`, que o contrib da imagem oficial já traz. A
+    # versão 16 é a mesma contra a qual o schema foi verificado à mão.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          # Sem senha, porque o banco só existe dentro deste job e nunca
+          # recebe conexão de fora do runner.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        # Sem o health check, os primeiros testes chegam antes do servidor
+        # aceitar conexão e falham por indisponibilidade, não por regressão.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Obter o código
@@ -114,5 +141,13 @@ jobs:
         #
         # `tests/` — `pytest` sem argumento varre `scripts/` e tenta coletar
         # `scripts/test_supabase_connection.py`, que fala com a rede. O caminho
-        # não é economia de tempo: é o que mantém a suíte offline.
+        # não é economia de tempo: é o que mantém a suíte longe da internet.
+        #
+        # `STOCKFLOW_TEST_DSN` é o que ACORDA `tests/integration`. Sem ela os
+        # testes de banco se pulam em silêncio, e um `31 passed, 32 skipped`
+        # parece verde sendo que a metade que compara declarativo e migrations
+        # nem rodou. `user=postgres` é obrigatório: sem isso o psycopg tenta a
+        # role do usuário do runner, que não existe no container.
+        env:
+          STOCKFLOW_TEST_DSN: host=127.0.0.1 port=5432 dbname=postgres user=postgres
         run: QT_QPA_PLATFORM=offscreen uv run --with pytest python -m pytest tests/ -q
