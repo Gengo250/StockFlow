@@ -242,6 +242,28 @@ def build_sale_repository(session, products):
     return SupabaseSaleRepository(_client(), session.company_id, role=session.role)
 
 
+def build_company_repository(session=None):
+    """Cadastro da empresa emitente do comprovante (US19)."""
+    if not using_supabase():
+        from stockflow.infrastructure.repositories.demo_company_repository import (
+            DemoCompanyRepository,
+        )
+
+        return DemoCompanyRepository()
+
+    from stockflow.infrastructure.repositories.supabase_company_repository import (
+        SupabaseCompanyRepository,
+    )
+
+    company_id = getattr(session, "company_id", None)
+    if not company_id:
+        raise RuntimeError(
+            "A sessão não tem empresa. O comprovante precisa do company_id "
+            "para ler o cadastro do emitente."
+        )
+    return SupabaseCompanyRepository(_client(), company_id)
+
+
 def build_client_directory(session=None):
     return build_client_repository(session).list_all()
 

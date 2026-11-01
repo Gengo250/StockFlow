@@ -63,6 +63,9 @@ class SaleDetailsPage(QWidget):
     #: trata a recusa é a janela, que também precisa atualizar o estoque.
     cancel_requested = Signal(str, str)
     return_requested = Signal(str, str)
+    #: Identificador da venda cujo comprovante foi pedido (US19). A página
+    #: não monta o documento: quem o monta é o serviço, que a janela já tem.
+    receipt_requested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -185,6 +188,10 @@ class SaleDetailsPage(QWidget):
     def _criar_acoes(self):
         linha = QHBoxLayout()
         linha.addStretch()
+        self.receipt_button = QPushButton("Emitir comprovante")
+        self.receipt_button.setIcon(qta.icon("fa5s.file-invoice", color="#2563EB"))
+        self.receipt_button.setAccessibleName("Emitir o comprovante desta venda")
+        self.receipt_button.clicked.connect(self._pedir_comprovante)
         self.cancel_button = QPushButton("Cancelar venda")
         self.cancel_button.setIcon(qta.icon("fa5s.ban", color="#B91C1C"))
         self.cancel_button.setAccessibleName("Cancelar esta venda")
@@ -193,7 +200,7 @@ class SaleDetailsPage(QWidget):
         self.return_button.setIcon(qta.icon("fa5s.undo", color="#B45309"))
         self.return_button.setAccessibleName("Registrar devolução desta venda")
         self.return_button.clicked.connect(self._pedir_devolucao)
-        for botao in (self.cancel_button, self.return_button):
+        for botao in (self.receipt_button, self.cancel_button, self.return_button):
             botao.setFixedHeight(40)
             botao.setCursor(Qt.PointingHandCursor)
             botao.setStyleSheet(inventory.NEW_BUTTON_QSS)
@@ -213,7 +220,8 @@ class SaleDetailsPage(QWidget):
             self.totais_label.setText("")
             self.status_label.setText("")
             self.reversao_card.setVisible(False)
-            for botao in (self.cancel_button, self.return_button):
+            for botao in (self.receipt_button, self.cancel_button,
+                          self.return_button):
                 botao.setEnabled(False)
             return
 
@@ -323,6 +331,18 @@ class SaleDetailsPage(QWidget):
             for botao in (self.cancel_button, self.return_button):
                 botao.setToolTip(dica)
 
+        # Comprovante é LEITURA: quem abre o detalhe pode emitir, inclusive
+        # o vendedor que não tem alçada para reverter. O que o status decide
+        # é outra coisa — venda pendente nunca foi confirmada, então não há
+        # operação a comprovar (SCRUM-227). Cancelada tem comprovante, e ele
+        # sai marcado (SCRUM-229).
+        emitivel = situacao is not SaleStatus.PENDENTE
+        self.receipt_button.setEnabled(emitivel)
+        self.receipt_button.setToolTip(
+            "Emitir o comprovante desta venda" if emitivel
+            else "Esta venda ainda não foi confirmada."
+        )
+
     # --------------------------------------------------------------- ações
 
     def _pedir_motivo(self, titulo, rotulo):
@@ -342,6 +362,10 @@ class SaleDetailsPage(QWidget):
             )
             return None
         return texto
+
+    def _pedir_comprovante(self):
+        if self.venda:
+            self.receipt_requested.emit(str(self.venda["id"]))
 
     def _pedir_cancelamento(self):
         if not self.venda:
