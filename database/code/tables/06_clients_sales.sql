@@ -133,8 +133,18 @@ CREATE TYPE public.payment_method AS ENUM (
 CREATE TABLE public.sales (
     id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id       uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
-    client_id        uuid NOT NULL,
+    -- Aceita nulo porque o schema implantado aceita. A aplicação é mais
+    -- estrita que o banco aqui: `SaleService` recusa venda sem cliente ativo
+    -- antes de gravar. Apertar a coluna exige antes conferir se há linha
+    -- antiga com nulo, e isso é decisão com checagem de dado, não ajuste de
+    -- arquivo.
+    client_id        uuid,
     client_name      text NOT NULL,
+    -- Herança do período em que `sales` foi recriada com outro desenho
+    -- (migration 20261010231302). Nenhum caminho da aplicação lê ou grava
+    -- esta coluna; está declarada porque existe no banco, e sair dela é
+    -- remoção de coluna, que pede decisão própria.
+    customer_document text,
     payment_method   public.payment_method NOT NULL DEFAULT 'DINHEIRO',
     -- Desconto do cabeçalho, já abatido em `total`. Guardado à parte porque a
     -- soma dos subtotais dos itens menos o desconto é o que reconcilia o
@@ -153,10 +163,17 @@ CREATE TABLE public.sales (
     -- Nasce PENDENTE: montar o carrinho não é fechar a venda. A baixa de
     -- estoque acontece na transição para CONCLUIDA (triggers/06).
     status           public.sale_status NOT NULL DEFAULT 'PENDENTE',
-    -- Autor da venda (H14), por fn_current_user_id(). Sem FK, como
-    -- clients.created_by: a autoria precisa sobreviver à remoção da conta.
-    created_by       uuid,
+    -- Autor da venda (H14), por fn_current_user_id(). Sem chave estrangeira,
+    -- como clients.created_by: a autoria precisa sobreviver à remoção da
+    -- conta. Obrigatória, como no banco implantado — toda venda tem autor, e
+    -- auditoria que aceita nulo não é auditoria.
+    created_by       uuid NOT NULL,
     created_on       timestamptz NOT NULL DEFAULT now(),
+    -- RESTRICT, e isso é decisão de domínio, não detalhe: cliente com venda
+    -- no histórico não pode ser apagado. `tests/test_clientes_database_contract.py`
+    -- cobra esta ação por nome. O banco implantado ficou com SET NULL desde a
+    -- recriação da tabela em 20261010231302; quem corrige isso é a migration
+    -- 20261101120000, não um afrouxamento aqui.
     FOREIGN KEY (company_id, client_id)
         REFERENCES public.clients (company_id, id) ON DELETE RESTRICT,
     -- Alvo da FK composta de sale_items, que garante que item e venda
@@ -211,7 +228,16 @@ CREATE TABLE public.sale_items (
     FOREIGN KEY (company_id, sale_id)
         REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
     FOREIGN KEY (product_id)
-        REFERENCES public.products (id) ON DELETE SET NULL
+        REFERENCES public.products (id) ON DELETE SET NULL,
+    -- Alvo da FK composta de return_items, pelo mesmo motivo do UNIQUE em
+    -- `sales`: a devolução precisa apontar para um item da MESMA empresa e da
+    -- MESMA venda. Sem esta linha o declarativo não aplicava — a chave
+    -- estrangeira de `11_return_items.sql` não tinha alvo único.
+    --
+    -- Nome explícito de propósito: a migration que a introduziu
+    -- (20261030100000_us20_return_models.sql) nomeia assim, e um nome gerado
+    -- pelo PostgreSQL faria os dois caminhos produzirem schemas diferentes.
+    CONSTRAINT uq_sale_items_company_sale_id UNIQUE (company_id, sale_id, id)
 );
 CREATE INDEX idx_sale_items_sale ON public.sale_items (sale_id);
 CREATE INDEX idx_sale_items_company ON public.sale_items (company_id);
@@ -222,9 +248,13 @@ CREATE INDEX idx_sale_items_company ON public.sale_items (company_id);
 CREATE TABLE public.sales_log (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     company_id  uuid NOT NULL REFERENCES public.company(id) ON DELETE CASCADE,
-    sale_id     uuid NOT NULL REFERENCES public.sales(id) ON DELETE CASCADE,
+    -- Os dois aceitam nulo porque o banco implantado aceita (migration
+    -- 20261012230316 criou a tabela assim). Quem grava é o gatilho de
+    -- conclusão, que sempre informa os dois; o nulo é possibilidade do
+    -- schema, não caminho da aplicação.
+    sale_id     uuid REFERENCES public.sales(id) ON DELETE CASCADE,
     created_by  uuid,
-    logged_on   timestamptz NOT NULL DEFAULT now()
+    logged_on   timestamptz DEFAULT now()
 );
 CREATE INDEX idx_sales_log_sale ON public.sales_log (sale_id);
 
