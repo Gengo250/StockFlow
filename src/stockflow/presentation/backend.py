@@ -28,6 +28,16 @@ from stockflow.presentation.demo_accounts import (
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
+from stockflow.application.dto.register_input import (
+    OpenRegisterInput,
+    CloseRegisterInput,
+)
+from stockflow.infrastructure.repositories.supabase_register_repository import (
+    SupabaseRegisterRepository,
+)
+from stockflow.application.services.register_service import RegisterService
+
+
 BACKEND_VAR = "STOCKFLOW_BACKEND"
 SUPABASE = "supabase"
 
@@ -228,7 +238,10 @@ def build_demo_user_directory():
 def build_client_repository(session=None):
     if not using_supabase():
         return DemoClientRepository()
-    from stockflow.infrastructure.repositories.supabase_client_repository import SupabaseClientRepository
+    from stockflow.infrastructure.repositories.supabase_client_repository import (
+        SupabaseClientRepository,
+    )
+
     if not getattr(session, "company_id", None):
         raise RuntimeError("A sessão não tem empresa.")
     return SupabaseClientRepository(_client(), session.company_id, role=session.role)
@@ -236,9 +249,15 @@ def build_client_repository(session=None):
 
 def build_sale_repository(session, products):
     if not using_supabase():
-        from stockflow.infrastructure.repositories.demo_sale_repository import DemoSaleRepository
+        from stockflow.infrastructure.repositories.demo_sale_repository import (
+            DemoSaleRepository,
+        )
+
         return DemoSaleRepository(products, session=session)
-    from stockflow.infrastructure.repositories.supabase_sale_repository import SupabaseSaleRepository
+    from stockflow.infrastructure.repositories.supabase_sale_repository import (
+        SupabaseSaleRepository,
+    )
+
     return SupabaseSaleRepository(_client(), session.company_id, role=session.role)
 
 
@@ -270,12 +289,16 @@ def build_client_directory(session=None):
 
 def set_client_active(session, client_id, active):
     from stockflow.application.services.client_service import ClientService
-    return ClientService(build_client_repository(session), session).set_active(client_id, active)
+
+    return ClientService(build_client_repository(session), session).set_active(
+        client_id, active
+    )
 
 
 def sign_out():
     if using_supabase():
         from stockflow.infrastructure.database.supabase_client import reset_client
+
         try:
             _client().auth.sign_out()
         finally:
@@ -325,6 +348,7 @@ def save_user(session, *, user_id=None, name, email, role, department="", passwo
     import re
     from stockflow.domain.permissions import ensure_can_manage_users
     from stockflow.domain.enums.user_role import UserRole
+
     ensure_can_manage_users(session)
     role = UserRole.from_value(role)
     name, email = name.strip(), email.strip().lower()
@@ -334,30 +358,61 @@ def save_user(session, *, user_id=None, name, email, role, department="", passwo
         from uuid import uuid4
         from stockflow.presentation.user_directory_row import UserDirectoryRow
         from stockflow.presentation.roles import rotulo_de_papel
-        from stockflow.presentation.demo_accounts import DemoAccount, DEMO_ACCOUNTS_BY_EMAIL
-        existing = next((r for r in build_demo_user_directory() if r.user_id == user_id), None)
-        if not user_id and (email in DEMO_ACCOUNTS_BY_EMAIL or any(r[1] == email for r in build_demo_user_directory())):
+        from stockflow.presentation.demo_accounts import (
+            DemoAccount,
+            DEMO_ACCOUNTS_BY_EMAIL,
+        )
+
+        existing = next(
+            (r for r in build_demo_user_directory() if r.user_id == user_id), None
+        )
+        if not user_id and (
+            email in DEMO_ACCOUNTS_BY_EMAIL
+            or any(r[1] == email for r in build_demo_user_directory())
+        ):
             raise ValueError("E-mail já cadastrado.")
         if not user_id and len(password) < 6:
             raise ValueError("Defina uma senha inicial de pelo menos 6 caracteres.")
         user_id = user_id or f"USR-{uuid4().hex[:8]}"
-        _demo_users[user_id] = UserDirectoryRow((name, email, department or "—", rotulo_de_papel(role),
-                                               existing[4] if existing else "Ativo", existing[5] if existing else "Nunca", "#2563EB"), user_id=user_id)
-        account = next((a for a in DEMO_ACCOUNTS_BY_EMAIL.values() if a.user_id == user_id), None)
+        _demo_users[user_id] = UserDirectoryRow(
+            (
+                name,
+                email,
+                department or "—",
+                rotulo_de_papel(role),
+                existing[4] if existing else "Ativo",
+                existing[5] if existing else "Nunca",
+                "#2563EB",
+            ),
+            user_id=user_id,
+        )
+        account = next(
+            (a for a in DEMO_ACCOUNTS_BY_EMAIL.values() if a.user_id == user_id), None
+        )
         if account or password:
             if account:
                 DEMO_ACCOUNTS_BY_EMAIL.pop(account.email, None)
-            DEMO_ACCOUNTS_BY_EMAIL[email] = DemoAccount(user_id, name, email, password or account.password, role)
+            DEMO_ACCOUNTS_BY_EMAIL[email] = DemoAccount(
+                user_id, name, email, password or account.password, role
+            )
         return user_id
-    args = {"p_company_id": session.company_id, "p_user_id": user_id,
-            "p_email": email, "p_name": name, "p_role": role.value, "p_department": department}
+    args = {
+        "p_company_id": session.company_id,
+        "p_user_id": user_id,
+        "p_email": email,
+        "p_name": name,
+        "p_role": role.value,
+        "p_department": department,
+    }
     try:
         return _client().rpc("fn_save_company_member", args).execute().data
     except Exception as error:
         if user_id or str(getattr(error, "code", "")) != "P0002":
             raise
     if len(password) < 6:
-        raise ValueError("Conta ainda não existe. Defina uma senha inicial de pelo menos 6 caracteres.")
+        raise ValueError(
+            "Conta ainda não existe. Defina uma senha inicial de pelo menos 6 caracteres."
+        )
     # A separate Auth client prevents signup from replacing the administrator's session.
     auth_client = independent_auth_client()
     try:
@@ -365,9 +420,41 @@ def save_user(session, *, user_id=None, name, email, role, department="", passwo
         try:
             return _client().rpc("fn_save_company_member", args).execute().data
         except Exception as error:
-            raise RuntimeError("Conta de acesso criada, mas o vínculo não foi concluído. Repita o cadastro com o mesmo e-mail para vincular a conta.") from error
+            raise RuntimeError(
+                "Conta de acesso criada, mas o vínculo não foi concluído. Repita o cadastro com o mesmo e-mail para vincular a conta."
+            ) from error
     finally:
         try:
             auth_client.auth.sign_out()
         except Exception:
             pass
+
+
+def get_register_service(
+    client: Client = Depends(get_supabase_client),
+) -> RegisterService:
+    repo = SupabaseRegisterRepository(client)
+    return RegisterService(repo)
+
+
+@app.post("/api/v1/registers/open", status_code=status.HTTP_201_CREATED)
+def open_register_session(
+    payload: OpenRegisterInput, service: RegisterService = Depends(get_register_service)
+):
+    try:
+        log_id = service.open_register(payload)
+        return {"status": "OPEN", "register_log_id": log_id}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/v1/registers/close", status_code=status.HTTP_200_OK)
+def close_register_session(
+    payload: CloseRegisterInput,
+    service: RegisterService = Depends(get_register_service),
+):
+    try:
+        result = service.close_register(payload)
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
