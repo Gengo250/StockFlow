@@ -219,6 +219,12 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
+    -- Serializa configurações da empresa sem bloquear os KEY SHARE das FKs.
+    PERFORM c.id FROM public.company c WHERE c.id = p_company_id FOR NO KEY UPDATE;
+    -- Mantém estáveis os saldos dos produtos existentes durante a validação.
+    PERFORM p.id FROM public.products p WHERE p.company_id = p_company_id
+     ORDER BY p.barcode, p.id FOR UPDATE;
+
     IF EXISTS (
     SELECT 1 FROM public.product_stock ps
     JOIN public.products p ON p.id = ps.product_id
@@ -227,6 +233,14 @@ BEGIN
     RAISE EXCEPTION 'Não é possível definir o teto para %, pois existem produtos com estoque máximo superior', p_limit
         USING ERRCODE = 'check_violation';
 END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM public.products p
+         WHERE p.company_id = p_company_id AND p.stock > p_limit
+    ) THEN
+        RAISE EXCEPTION 'Não é possível definir o teto para %, pois existem produtos com saldo atual superior', p_limit
+            USING ERRCODE = 'check_violation';
+    END IF;
 
     UPDATE public.company SET max_stock_limit = p_limit WHERE id = p_company_id;
 END;

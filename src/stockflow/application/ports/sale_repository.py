@@ -7,9 +7,15 @@ lugar só — senão o repositório de demonstração e o do Supabase divergem e
 silêncio, e os testes de interface passam a validar ficção.
 """
 
-from typing import Protocol
+from typing import Protocol, TypedDict
 
+from stockflow.application.dto.return_dto import ReturnResultDTO
 from stockflow.application.dto.sale_filter import SaleFilter, SalePage
+
+
+class ReturnItemPayload(TypedDict):
+    sale_item_id: str
+    quantity: int
 
 
 class SaleRepository(Protocol):
@@ -49,4 +55,15 @@ class SaleRepository(Protocol):
         corta em 1000 linhas sem avisar, que é o defeito que `list_page`
         existe para resolver.
         """
+        ...
+
+    def get_returnable_items(self, sale_id: str) -> list[dict]:
+        """Itens da venda concluída que ainda podem ser devolvidos."""
+        ...
+
+    def partial_return(
+        self, sale_id: str, items: list[ReturnItemPayload], reason: str,
+        idempotency_key: str,
+    ) -> ReturnResultDTO:
+        """Registra uma devolução parcial/total e restitui estoque atomicamente."""
         ...

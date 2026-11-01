@@ -204,8 +204,9 @@ CREATE TABLE public.sale_items (
     discount_amount numeric(10,2) NOT NULL DEFAULT 0
                     CHECK (discount_amount >= 0 AND
                            discount_amount <= quantity * unit_price),
-    final_subtotal numeric(10,2) NOT NULL
-                   GENERATED ALWAYS AS (subtotal - discount_amount) STORED,
+    -- Usar colunas-base; subtotal também é gerada. Mesma definição da migration.
+    final_subtotal numeric(10,2)
+                   GENERATED ALWAYS AS (quantity * unit_price - discount_amount) STORED,
     created_on    timestamptz NOT NULL DEFAULT now(),
     FOREIGN KEY (company_id, sale_id)
         REFERENCES public.sales (company_id, id) ON DELETE CASCADE,

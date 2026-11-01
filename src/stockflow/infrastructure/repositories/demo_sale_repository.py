@@ -1,7 +1,20 @@
 from datetime import date, datetime
+from copy import deepcopy
 from decimal import Decimal
 from threading import RLock
 from uuid import uuid4
+
+from stockflow.domain.permissions import ensure_can_return_sales
+from stockflow.domain.sale_return import (
+    OriginalSaleItem,
+    calculate_return_items,
+    return_identifier,
+)
+from stockflow.infrastructure.repositories.return_mapper import (
+    partial_return_args,
+    return_items_from_response,
+    return_result_from_response,
+)
 
 
 def sale_row(
@@ -88,7 +101,9 @@ CHAVE_DE_ORDEM = {
 
 
 class DemoSaleRepository:
-    def __init__(self, products=None, movements=None, movement_repository=None):
+    def __init__(
+        self, products=None, movements=None, movement_repository=None, *, session=None
+    ):
         from stockflow.infrastructure.repositories.demo_movement_repository import DemoMovementRepository
         from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
@@ -153,6 +168,121 @@ class DemoSaleRepository:
     def list_all(self):
         with self._lock:
             return list(self.rows)
+
+    @property
+    def returns(self) -> tuple[dict, ...]:
+        """Histórico defensivo das devoluções registradas no Demo."""
+        with self._lock:
+            return tuple(deepcopy(list(self._returns.values())))
+
+    def _sale_for_return(self, sale_id, *, require_concluded=True):
+        sale = self._return_sales.get(sale_id)
+        if sale is None:
+            if any(str(row["id"]) == sale_id for row in self.rows):
+                raise ValueError("Venda sem snapshot confiável para devolução.")
+            raise LookupError("Venda não encontrada ou sem snapshot para devolução.")
+        if sale["company_id"] != self._session.company_id:
+            from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+            raise PermissionDeniedError("registrar devoluções", self._session.role)
+        if require_concluded and sale["status"] != "CONCLUIDA":
+            raise ValueError("Somente venda concluída pode ser devolvida.")
+        return sale
+
+    def _returned_items(self, sale_id):
+        result = {}
+        for header in self._returns.values():
+            if (header["sale_id"] != sale_id or header["status"] != "COMPLETED"
+                    or header["company_id"] != self._session.company_id):
+                continue
+            for item in header["items"]:
+                qty, amount = result.get(item.sale_item_id, (0, Decimal(0)))
+                result[item.sale_item_id] = (qty + item.quantity, amount + item.subtotal)
+        return result
+
+    def get_returnable_items(self, sale_id: str) -> list[dict]:
+        ensure_can_return_sales(self._session, "consultar itens devolvíveis")
+        sale_id = return_identifier(sale_id)
+        with self._lock:
+            sale = self._sale_for_return(sale_id)
+            returned = self._returned_items(sale_id)
+            rows = []
+            for item in sorted(sale["items"], key=lambda item: item.sale_item_id):
+                qty, _ = returned.get(item.sale_item_id, (0, Decimal(0)))
+                if qty < item.quantity:
+                    rows.append({
+                        "sale_item_id": item.sale_item_id,
+                        "product_id": sale["product_ids"][item.sale_item_id]
+                        if item.product_code in self._products else None,
+                        "product_name": sale["names"][item.sale_item_id],
+                        "quantity_sold": item.quantity,
+                        "quantity_returned": qty,
+                        "max_returnable": item.quantity - qty,
+                    })
+            return return_items_from_response(rows)
+
+    def partial_return(self, sale_id, items, reason, idempotency_key):
+        ensure_can_return_sales(self._session)
+        args = partial_return_args(sale_id, items, reason, idempotency_key)
+        sale_id = args["p_sale_id"]
+        requested = tuple(
+            (item["sale_item_id"], item["quantity"]) for item in args["p_items"]
+        )
+        with self._lock:
+            self._sale_for_return(sale_id, require_concluded=False)
+            request_key = (self._session.company_id, args["p_idempotency_key"])
+            previous = self._return_requests.get(request_key)
+            if previous is not None:
+                original_args, original_result = previous
+                if original_args != args:
+                    raise ValueError("Chave de idempotência reutilizada com conteúdo diferente.")
+                return dict(original_result)
+            if self.movements.products is not self._products:
+                raise RuntimeError("Vendas e movimentos devem compartilhar o mesmo catálogo Demo.")
+            sale = self._sale_for_return(sale_id)
+            returned = self._returned_items(sale_id)
+            calculated = calculate_return_items(
+                sale["items"], sale["discount"], sale["total"], requested, returned
+            )
+            return_id = str(uuid4())
+            new_quantities = {item.sale_item_id: item.quantity for item in calculated}
+            result = return_result_from_response({
+                "return_id": return_id,
+                "status": "COMPLETED",
+                "total_amount": sum((item.subtotal for item in calculated), Decimal(0)),
+                "is_total_return": all(
+                    returned.get(item.sale_item_id, (0, Decimal(0)))[0]
+                    + new_quantities.get(item.sale_item_id, 0) == item.quantity
+                    for item in sale["items"]
+                ),
+            })
+            header = {
+                **result,
+                "company_id": self._session.company_id,
+                "sale_id": sale_id,
+                "user_id": self._session.user_id,
+                "reason": args["p_reason"],
+                "created_on": datetime.now(),
+                "items": calculated,
+            }
+
+            def publish():
+                self._returns[return_id] = header
+                self._return_requests[request_key] = (deepcopy(args), dict(result))
+
+            committed = False
+            try:
+                self.movements.register_return(
+                    return_id, sale_id, calculated,
+                    created_by=self._session.user_id,
+                    company_id=self._session.company_id,
+                    publish=publish,
+                )
+                committed = True
+                return result
+            finally:
+                if not committed:
+                    self._returns.pop(return_id, None)
+                    self._return_requests.pop(request_key, None)
 
     def _combina(self, linha, filtro):
         """Mesmas regras de `fn_list_sales`, inclusive o período inclusivo.
@@ -312,6 +442,7 @@ class DemoSaleRepository:
                         subtotal, item.discount_type, item.discount_value
                     )
                     summary.append({
+                        "id": str(uuid4()),
                         "product_code": item.product_code,
                         "product_name": product.name,
                         "quantity": item.quantity,
@@ -321,6 +452,26 @@ class DemoSaleRepository:
                         "final_subtotal": str(subtotal - item_discount),
                     })
                     original += subtotal
+                for item in summary:
+                    self._product_ids.setdefault(item["product_code"], str(uuid4()))
+                return_snapshot = {
+                    "company_id": getattr(self._session, "company_id", None),
+                    "status": "CONCLUIDA",
+                    "total": Decimal(str(total)),
+                    "discount": Decimal(str(discount)),
+                    "items": tuple(OriginalSaleItem(
+                        item["id"],
+                        item["product_code"],
+                        item["quantity"],
+                        Decimal(item["unit_price"]),
+                        Decimal(item["discount_amount"]),
+                    ) for item in summary),
+                    "names": {item["id"]: item["product_name"] for item in summary},
+                    "product_ids": {
+                        item["id"]: self._product_ids[item["product_code"]]
+                        for item in summary
+                    },
+                }
                 code, description = resumo_dos_itens(summary)
                 row = sale_row(
                     sale_id,
@@ -367,6 +518,7 @@ class DemoSaleRepository:
                 row["reversal_on"] = None
                 row["reversal_by"] = ""
                 self.rows.insert(0, row)
+                self._return_sales[str(sale_id)] = return_snapshot
                 return row
             except Exception:
                 for code, product in snapshot_products.items():
