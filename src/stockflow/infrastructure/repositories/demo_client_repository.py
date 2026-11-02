@@ -27,10 +27,10 @@ class DemoClientRepository:
                 client_id=p.cliente_id,
                 name=p.name,
                 email=p.login,
-                phone="",
+                phone=f"(11) 90000-{int(p.cliente_id.split('-')[-1]):04d}",
                 document="",
                 active=is_demo_client_active(p.cliente_id, default=p.status != "Inativo"),
-                notes="",
+                notes="Cadastro fictício para experimentar vendas e atendimento.",
             ) for p in DEMO_PEOPLE}
         else:
             self._clients = dict(clients)

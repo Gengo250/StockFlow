@@ -428,6 +428,7 @@ class NovoProdutoPage(QWidget):
         """
         if isinstance(product, (tuple, list)):
             unit = cost = None
+            maximum = None
             if len(product) >= 8:
                 # Linha do modelo da tela de Estoque, que ganhou a coluna de
                 # mínimo entre estoque e preço:
@@ -440,7 +441,6 @@ class NovoProdutoPage(QWidget):
                 code, name, category, stock, sale_price, _stock_status = product[:6]
                 active = True
                 minimum = None
-                maximum = None
         else:
             code = product.code
             name = product.name

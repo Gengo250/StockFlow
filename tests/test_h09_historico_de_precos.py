@@ -128,6 +128,7 @@ def test_valor_que_nao_existia_antes_aparece_como_ausencia(janela):
 def test_o_filtro_por_produto_reduz_a_consulta(janela):
     w = janela(UserRole.ADMIN)
     page = w.historico_precos_page
+    assert page.produto_combo.isVisibleTo(page), "O filtro precisa estar acessível na tela"
     total = page.table.rowCount()
 
     codigo = linhas_da_tabela(page)[0][1].split(" — ")[0]

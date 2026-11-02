@@ -47,11 +47,13 @@ def capture(output, baseline=None):
             snapshot(window, f'{prefix}-{key}')
         window.show_page('movimentacoes')
         movement = window.movimentacoes_page
+        before_count = movement.table.rowCount()
         movement.produto_combo.setCurrentIndex(1)
         movement.fornecedor_combo.setCurrentIndex(1)
+        movement.nota_input.setText('Movimentação da verificação visual')
         movement.registrar_button.click()
-        assert movement.table.rowCount() == 1, 'O lançamento não chegou ao histórico'
-        movement.search_input.setText(movement.produto_combo.currentText().split(' — ')[0])
+        assert movement.table.rowCount() == before_count + 1, 'O lançamento não chegou ao histórico'
+        movement.search_input.setText('Movimentação da verificação visual')
         assert movement.table.rowCount() == 1, 'A busca perdeu a movimentação cadastrada'
         window.pages.currentWidget().parentWidget().parentWidget().ensureWidgetVisible(movement.table)
         snapshot(window, f'{prefix}-movement-search')

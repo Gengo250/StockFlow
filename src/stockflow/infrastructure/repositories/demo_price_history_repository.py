@@ -20,9 +20,9 @@ from stockflow.domain.price_change import PriceChange
 #: sobrevive ao seu alvo), mas na demonstração vira uma linha que o filtro
 #: nunca oferece — parece defeito, não histórico.
 SEMENTE = (
-    (1, "PRD-009", PriceEditField.SELL_PRICE, "2499.90", "2399.90", "Miguel Gengo"),
+    (1, "PRD-009", PriceEditField.SELL_PRICE, "2599.90", "2499.90", "Ana Ferreira"),
     (3, "PRD-009", PriceEditField.BUY_PRICE, None, "1850.00", "Miguel Gengo"),
-    (9, "PRD-007", PriceEditField.SELL_PRICE, "1290.00", "1350.00", "Ana Ferreira"),
+    (9, "PRD-007", PriceEditField.SELL_PRICE, "179.90", "189.90", "Ana Ferreira"),
 )
 
 

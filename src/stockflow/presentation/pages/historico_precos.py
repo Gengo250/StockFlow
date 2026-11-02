@@ -100,7 +100,7 @@ class HistoricoPrecosPage(QWidget):
 
         layout.addWidget(titulo)
         layout.addWidget(subtitulo)
-        layout.addLayout(filtro)
+        layout.addWidget(self.filter_card)
         layout.addWidget(self.aviso_label)
         layout.addWidget(self.table_card, 1)
 

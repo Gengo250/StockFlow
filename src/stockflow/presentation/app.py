@@ -1,3 +1,5 @@
+import argparse
+import os
 import sys
 import traceback
 
@@ -60,8 +62,16 @@ class LoginFlow:
         self.login.show()
 
 
-def run():
-    app = QApplication(sys.argv)
+def run(argv=None):
+    parser = argparse.ArgumentParser(description="StockFlow — gestão de estoque desktop")
+    parser.add_argument(
+        "--mock", action="store_true",
+        help="Usar dados de demonstração locais, sem conexão com Supabase.",
+    )
+    options, qt_args = parser.parse_known_args(sys.argv[1:] if argv is None else argv)
+    if options.mock:
+        os.environ[backend.BACKEND_VAR] = "demo"
+    app = QApplication([sys.argv[0], *qt_args])
 
     flow = LoginFlow()
     flow.login.show()

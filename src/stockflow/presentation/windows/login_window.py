@@ -166,7 +166,16 @@ class LoginWindow(QWidget):
         self.password_input.returnPressed.connect(self._submit)
         layout.addWidget(self.submit_button)
         layout.addSpacing(26)
-        footer = label("Acesso local · versão de demonstração", "footer")
+        self.demo_button = QPushButton("Entrar na demonstração")
+        self.demo_button.setObjectName("help")
+        self.demo_button.setMinimumHeight(36)
+        self.demo_button.setVisible(not using_supabase())
+        self.demo_button.clicked.connect(self._enter_demo)
+        layout.addWidget(self.demo_button)
+        footer = label(
+            "Acesso conectado" if using_supabase() else "Demonstração local · dados fictícios",
+            "footer",
+        )
         footer.setAlignment(Qt.AlignCenter)
         layout.addWidget(footer)
         layout.addSpacing(16)
@@ -176,6 +185,14 @@ class LoginWindow(QWidget):
         layout.addWidget(demo, 0, Qt.AlignCenter)
         layout.addStretch()
         return form
+
+    def _enter_demo(self):
+        if using_supabase():
+            return
+        account = conta_admin()
+        self.email_input.setText(account.email)
+        self.password_input.setText(account.password)
+        self._submit()
 
     def _toggle_password(self):
         visible = self.password_input.echoMode() == QLineEdit.Password

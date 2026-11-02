@@ -258,6 +258,7 @@ def test_seletores_so_oferecem_fornecedores_ativos(janela):
 
 def test_entrada_exige_fornecedor_e_historico_preserva_nome(janela):
     page = janela.movimentacoes_page
+    registros_antes = len(janela.movement_repository.list_movements())
     page.produto_combo.setCurrentIndex(page.produto_combo.findData("PRD-009"))
     page.especie_combo.setCurrentIndex(page.especie_combo.findData(MovementKind.ENTRADA))
     page.fornecedor_combo.setCurrentIndex(0)
@@ -270,7 +271,7 @@ def test_entrada_exige_fornecedor_e_historico_preserva_nome(janela):
         page.fornecedor_combo.findData(supplier.supplier_id)
     )
     page.registrar_confirmar_button.click()
-    assert page.table.rowCount() == 1
+    assert page.table.rowCount() == registros_antes + 1
     assert page.table.item(0, 6).text() == supplier.name
     assert janela.products["PRD-009"].stock == "19"
 

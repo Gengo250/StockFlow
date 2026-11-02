@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDateEdit,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -461,21 +462,21 @@ class VendasPage(QWidget):
         parece "não há vendas", quando o que houve foi deslocamento sem
         resultado.
         """
-        linha = QHBoxLayout()
+        linha = QGridLayout()
         linha.setSpacing(8)
 
         self.filtro_id = _line_edit("ID da venda")
         self.filtro_id.setAccessibleName("Filtrar por identificador da venda")
         self.filtro_id.setClearButtonEnabled(True)
         self.filtro_id.textChanged.connect(self._filtro_mudou)
-        linha.addWidget(self.filtro_id, 2)
+        linha.addWidget(self.filtro_id, 0, 0)
 
         hoje = QDate.currentDate()
         self.filtro_inicio = QDateEdit(hoje)
         self.filtro_inicio.setAccessibleName("Início do período")
         self.filtro_fim = QDateEdit(hoje)
         self.filtro_fim.setAccessibleName("Fim do período")
-        for campo in (self.filtro_inicio, self.filtro_fim):
+        for column, campo in enumerate((self.filtro_inicio, self.filtro_fim), start=1):
             campo.setCalendarPopup(True)
             campo.setDisplayFormat("dd/MM/yyyy")
             campo.setFixedHeight(38)
@@ -483,19 +484,19 @@ class VendasPage(QWidget):
             # alguém escolhendo uma data, e exigir um botão "aplicar" só para
             # isso faria o campo parecer quebrado.
             campo.dateChanged.connect(self._periodo_mudou)
-            linha.addWidget(campo, 1)
+            linha.addWidget(campo, 0, column)
 
         self.filtro_cliente = QComboBox()
         self.filtro_cliente.setAccessibleName("Filtrar por cliente")
         self.filtro_cliente.setFixedHeight(38)
         self.filtro_cliente.currentIndexChanged.connect(self._filtro_mudou)
-        linha.addWidget(self.filtro_cliente, 2)
+        linha.addWidget(self.filtro_cliente, 1, 0)
 
         self.filtro_vendedor = QComboBox()
         self.filtro_vendedor.setAccessibleName("Filtrar por vendedor")
         self.filtro_vendedor.setFixedHeight(38)
         self.filtro_vendedor.currentIndexChanged.connect(self._filtro_mudou)
-        linha.addWidget(self.filtro_vendedor, 2)
+        linha.addWidget(self.filtro_vendedor, 1, 1)
 
         self.filtro_status = QComboBox()
         self.filtro_status.setAccessibleName("Filtrar por situação")
@@ -504,7 +505,7 @@ class VendasPage(QWidget):
         for situacao in SaleStatus:
             self.filtro_status.addItem(situacao.label, situacao.value)
         self.filtro_status.currentIndexChanged.connect(self._filtro_mudou)
-        linha.addWidget(self.filtro_status, 2)
+        linha.addWidget(self.filtro_status, 1, 2)
 
         self.ordenacao_combo = QComboBox()
         self.ordenacao_combo.setAccessibleName("Ordenar vendas")
@@ -512,14 +513,22 @@ class VendasPage(QWidget):
         for codigo, rotulo in ORDENACOES:
             self.ordenacao_combo.addItem(rotulo, codigo)
         self.ordenacao_combo.currentIndexChanged.connect(self._filtro_mudou)
-        linha.addWidget(self.ordenacao_combo, 2)
+        linha.addWidget(self.ordenacao_combo, 2, 0, 1, 2)
 
         self.limpar_filtros_button = QPushButton("Limpar filtros")
         self.limpar_filtros_button.setFixedHeight(38)
         self.limpar_filtros_button.setStyleSheet(inventory.FILTER_QSS)
         self.limpar_filtros_button.setCursor(Qt.PointingHandCursor)
         self.limpar_filtros_button.clicked.connect(self.limpar_filtros)
-        linha.addWidget(self.limpar_filtros_button, 1)
+        linha.addWidget(self.limpar_filtros_button, 2, 2)
+
+        for combo in (self.filtro_cliente, self.filtro_vendedor,
+                      self.filtro_status, self.ordenacao_combo):
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(10)
+            combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        for column in range(3):
+            linha.setColumnStretch(column, 1)
 
         self._recarregar_filtro_de_clientes()
         return linha

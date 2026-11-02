@@ -71,10 +71,11 @@ def test_movimentacao_nasce_pendente_e_nao_mexe_no_saldo(janela):
     """A distinção inteira da US03 em um teste."""
     window = janela()
     antes = window.products["PRD-009"].stock
+    linhas_antes = window.movimentacoes_page.table.rowCount()
 
     lancar(window)
 
-    assert window.movimentacoes_page.table.rowCount() == 1
+    assert window.movimentacoes_page.table.rowCount() == linhas_antes + 1
     assert situacao(window.movimentacoes_page) == "Pendente"
     assert window.products["PRD-009"].stock == antes
 
@@ -158,8 +159,9 @@ def test_papel_autorizado_entra_e_lanca(janela, papel):
     window = janela(papel)
 
     assert window.pages.currentWidget() is window.movimentacoes_page
+    linhas_antes = window.movimentacoes_page.table.rowCount()
     lancar(window)
-    assert window.movimentacoes_page.table.rowCount() == 1
+    assert window.movimentacoes_page.table.rowCount() == linhas_antes + 1
 
 
 def test_vendedor_nao_abre_a_tela(qapp, request, sem_dialogos):
@@ -195,11 +197,12 @@ def test_relogin_para_vendedor_tranca_os_controles(janela):
 def test_lancar_sem_produto_e_recusado(janela):
     window = janela()
     page = window.movimentacoes_page
+    linhas_antes = page.table.rowCount()
     page.produto_combo.setCurrentIndex(0)      # o placeholder
 
     page.registrar_button.click()
 
-    assert page.table.rowCount() == 0
+    assert page.table.rowCount() == linhas_antes
     assert "produto" in page.warning_label.text().casefold()
 
 

@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import (
     QMainWindow,
+    QLabel,
     QMessageBox,
     QWidget,
     QHBoxLayout,
@@ -127,6 +128,15 @@ class MainWindow(QMainWindow):
 
         self.top_bar = TopBar()
         content_layout.addWidget(self.top_bar)
+        if not using_supabase():
+            self.demo_notice = QLabel(
+                "Demonstração · Dados fictícios. As operações ficam apenas nesta sessão."
+            )
+            self.demo_notice.setWordWrap(True)
+            self.demo_notice.setStyleSheet(
+                "background: #EFF6FF; color: #1E40AF; padding: 8px 20px; font-size: 12px;"
+            )
+            content_layout.addWidget(self.demo_notice)
         content_layout.addWidget(self.pages, 1)
 
         main_layout.addWidget(self.sidebar)
@@ -199,6 +209,12 @@ class MainWindow(QMainWindow):
         )
         if not using_supabase():
             self.sale_repository.movements = self.movement_repository
+            from stockflow.presentation.demo_scenario import populate_demo_operations
+
+            populate_demo_operations(
+                self.products, self.client_repository,
+                self.sale_repository, self.movement_repository,
+            )
         self.sale_service = SaleService(self.sale_repository, self.client_repository, self.product_repository)
         from stockflow.application.services.receipt_service import ReceiptService
 

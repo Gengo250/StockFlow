@@ -15,7 +15,8 @@ class DemoSupplierRepository:
                 "contato@central.example", "São Paulo - SP", True,
             ),
             "FOR-002": Supplier(
-                "FOR-002", "Fornecedor Inativo", "", "", "", "", False,
+                "FOR-002", "Fornecedor Inativo", "", "(19) 3000-2000",
+                "contato@fornecedor.example", "Campinas - SP", False,
             ),
         }
 

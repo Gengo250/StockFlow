@@ -35,7 +35,7 @@ def corpo_da_tabela(nome, sql=None):
     sem ele, continua lendo as migrations.
     """
     achado = re.search(
-        rf"CREATE TABLE (?:public\.)?{nome}\s*\((.*?)\n\);",
+        rf"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?{nome}\s*\((.*?)\n\);",
         sql_completo() if sql is None else sql,
         re.S | re.I,
     )
@@ -107,7 +107,7 @@ def test_toda_tabela_referenciada_e_criada_em_migration_anterior():
     criada_em = {}
     for posicao, arquivo in enumerate(arquivos()):
         texto = arquivo.read_text(encoding="utf-8")
-        for tabela in re.findall(r"CREATE TABLE (?:public\.)?(\w+)", texto, re.I):
+        for tabela in re.findall(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)", texto, re.I):
             criada_em.setdefault(tabela.lower(), posicao)
 
     fora_de_ordem = []

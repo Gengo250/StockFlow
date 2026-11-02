@@ -28,16 +28,6 @@ from stockflow.presentation.demo_accounts import (
 from stockflow.presentation.demo_data import base_de_clientes
 from stockflow.presentation.demo_products import DEMO_PRODUCTS
 
-from stockflow.application.dto.register_input import (
-    OpenRegisterInput,
-    CloseRegisterInput,
-)
-from stockflow.infrastructure.repositories.supabase_register_repository import (
-    SupabaseRegisterRepository,
-)
-from stockflow.application.services.register_service import RegisterService
-
-
 BACKEND_VAR = "STOCKFLOW_BACKEND"
 SUPABASE = "supabase"
 
@@ -430,31 +420,3 @@ def save_user(session, *, user_id=None, name, email, role, department="", passwo
             pass
 
 
-def get_register_service(
-    client: Client = Depends(get_supabase_client),
-) -> RegisterService:
-    repo = SupabaseRegisterRepository(client)
-    return RegisterService(repo)
-
-
-@app.post("/api/v1/registers/open", status_code=status.HTTP_201_CREATED)
-def open_register_session(
-    payload: OpenRegisterInput, service: RegisterService = Depends(get_register_service)
-):
-    try:
-        log_id = service.open_register(payload)
-        return {"status": "OPEN", "register_log_id": log_id}
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@app.post("/api/v1/registers/close", status_code=status.HTTP_200_OK)
-def close_register_session(
-    payload: CloseRegisterInput,
-    service: RegisterService = Depends(get_register_service),
-):
-    try:
-        result = service.close_register(payload)
-        return result
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))

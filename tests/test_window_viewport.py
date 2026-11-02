@@ -26,6 +26,9 @@ def test_navigation_preserves_requested_viewport(qapp, monkeypatch, tmp_path, si
         window.show_page("vendas")
         page = window.vendas_page
         scroll = page.parentWidget().parentWidget()
+        assert scroll.horizontalScrollBar().maximum() == 0, (
+            "Os filtros do histórico não podem alargar o formulário de venda"
+        )
         scroll.ensureWidgetVisible(page.save_button)
         qapp.processEvents()
         assert scroll.viewport().rect().intersects(page.save_button.rect().translated(

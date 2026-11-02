@@ -23,7 +23,41 @@ Esse comando cria o `.venv/` e instala as dependências travadas no `uv.lock` (P
 
 ## Como rodar
 
-Duas formas equivalentes:
+Para abrir em **modo mock**, sem Supabase, banco local ou serviço PHP:
+
+```bash
+uv run stockflow --mock
+```
+
+Clique em **Entrar na demonstração** na tela de login para acessar como
+administrador. A opção `--mock` força o modo local mesmo quando
+`STOCKFLOW_BACKEND=supabase` estiver exportado no terminal. Não é necessário
+configurar `.env`. Também funciona com `uv run python app --mock`.
+
+Os dados de estoque e operações ficam em memória e são recriados ao entrar
+novamente. Preferências da interface, como tela inicial e e-mail lembrado,
+continuam salvas no dispositivo. A faixa azul identifica a demonstração.
+
+| Parte da aplicação | Exemplos disponíveis |
+|---|---|
+| Dashboard | Indicadores, valor das vendas e sugestões de reposição |
+| Estoque e Produtos | 7 produtos com saldo normal, baixo, crítico, atenção e mínimo não configurado |
+| Movimentações | Saldo de abertura, entradas, saídas de vendas, reposição pendente, cancelamento e ajuste de inventário |
+| Fornecedores | Cadastros ativo e inativo, com contatos |
+| Clientes | 8 cadastros fictícios com contatos e situações distintas |
+| Vendas | 7 vendas, incluindo carrinho com vários itens, desconto, pagamentos distintos, cancelamento e devolução |
+| Detalhes e comprovantes | Histórico dos itens e emissão local de comprovante não fiscal |
+| Histórico de preços | Alterações de preço e custo com datas recentes |
+| Relatórios | Estoque, vendas, movimentações e auditoria; filtros e exportação CSV |
+| Usuários | Administrador, Estoque e Vendedor; exemplos ativos, inativos e pendentes |
+| Configurações | Tela inicial, alertas e limite de desconto do vendedor |
+
+Cadastros, vendas e movimentações continuam interativos na demonstração:
+uma venda baixa o estoque e aparece nos relatórios; cancelar a venda repõe
+o saldo. Não são emitidas notas fiscais reais.
+
+Sem a opção, o modo de demonstração também é o padrão, salvo quando houver
+opt-in explícito para Supabase. Duas formas equivalentes:
 
 ```bash
 uv run stockflow
