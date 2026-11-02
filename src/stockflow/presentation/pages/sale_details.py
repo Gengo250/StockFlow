@@ -6,6 +6,8 @@ consultar e operar que o SCRUM-223 pede, e tira a ação destrutiva de uma
 tabela densa onde ela ficaria a um clique de distância da linha errada.
 """
 
+from html import escape
+
 import qtawesome as qta
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -56,7 +58,7 @@ def _moeda(valor) -> str:
 
 
 class SaleDetailsPage(QWidget):
-    """Itens, valores, pagamento, responsável e vínculo de reversão."""
+    """Resumo, cliente, pagamento, itens e vínculo de reversão."""
 
     back_requested = Signal()
     #: (identificador, motivo) — a tela não reverte sozinha; quem decide e
@@ -76,6 +78,7 @@ class SaleDetailsPage(QWidget):
         )
         self.venda = None
         self.session = None
+        self.cliente = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(26, 24, 26, 24)
@@ -111,6 +114,13 @@ class SaleDetailsPage(QWidget):
         conteudo_layout.setSpacing(16)
 
         conteudo_layout.addWidget(self._criar_resumo())
+        # Cliente e pagamento lado a lado: são consulta curta, e empilhados
+        # empurrariam a tabela de itens para fora da primeira tela.
+        lateral = QHBoxLayout()
+        lateral.setSpacing(16)
+        lateral.addWidget(self._criar_cliente(), 1)
+        lateral.addWidget(self._criar_pagamento(), 1)
+        conteudo_layout.addLayout(lateral)
         conteudo_layout.addWidget(self._criar_itens())
         conteudo_layout.addWidget(self._criar_reversao())
         conteudo_layout.addStretch()
@@ -124,7 +134,7 @@ class SaleDetailsPage(QWidget):
     def _criar_resumo(self):
         card = _card("saleSummary")
         card.layout().addLayout(
-            _card_header("fa5s.receipt", "Resumo", "Cliente, responsável e pagamento.")
+            _card_header("fa5s.receipt", "Resumo", "Identificação e responsável.")
         )
         self.resumo_label = QLabel()
         self.resumo_label.setWordWrap(True)
@@ -136,6 +146,32 @@ class SaleDetailsPage(QWidget):
         self.status_label.setFixedWidth(130)
         self.status_label.setFixedHeight(28)
         card.layout().addWidget(self.status_label, 0, Qt.AlignLeft)
+        return card
+
+    def _criar_cliente(self):
+        card = _card("saleClient")
+        card.layout().addLayout(
+            _card_header("fa5s.user", "Cliente", "Quem comprou, como no cadastro.")
+        )
+        self.cliente_label = QLabel()
+        self.cliente_label.setWordWrap(True)
+        self.cliente_label.setTextFormat(Qt.RichText)
+        card.layout().addWidget(self.cliente_label)
+        card.layout().addStretch()
+        return card
+
+    def _criar_pagamento(self):
+        card = _card("salePayment")
+        card.layout().addLayout(
+            _card_header(
+                "fa5s.credit-card", "Pagamento", "Forma, valor e autorização do desconto."
+            )
+        )
+        self.pagamento_label = QLabel()
+        self.pagamento_label.setWordWrap(True)
+        self.pagamento_label.setTextFormat(Qt.RichText)
+        card.layout().addWidget(self.pagamento_label)
+        card.layout().addStretch()
         return card
 
     def _criar_itens(self):
@@ -209,14 +245,23 @@ class SaleDetailsPage(QWidget):
 
     # --------------------------------------------------------------- carga
 
-    def load_sale(self, venda, session=None):
-        """Desenha a venda. `None` mostra o aviso em vez de uma tela vazia."""
+    def load_sale(self, venda, session=None, cliente=None):
+        """Desenha a venda. `None` mostra o aviso em vez de uma tela vazia.
+
+        `cliente` é opcional: a entidade do cadastro (documento, e-mail,
+        telefone). A venda só guarda o NOME como estava no momento da
+        operação; sem o cadastro, o cartão mostra só esse nome, e não
+        inventa o resto.
+        """
         self.venda = venda
         self.session = session
+        self.cliente = cliente
         if not venda:
             self.error_label.setVisible(True)
             self.itens_table.setRowCount(0)
             self.resumo_label.setText("")
+            self.cliente_label.setText("")
+            self.pagamento_label.setText("")
             self.totais_label.setText("")
             self.status_label.setText("")
             self.reversao_card.setVisible(False)
@@ -227,13 +272,19 @@ class SaleDetailsPage(QWidget):
 
         self.error_label.setVisible(False)
         self._desenhar_resumo(venda)
+        self._desenhar_cliente(venda, cliente)
+        self._desenhar_pagamento(venda)
         self._desenhar_itens(venda)
         self._desenhar_reversao(venda)
         self._aplicar_alcada(venda, session)
 
     def resumo_text(self) -> str:
-        """Texto plano do resumo, para teste e leitor de tela."""
-        return self.resumo_label.text()
+        """Texto do resumo, cliente e pagamento, para teste e leitor de tela."""
+        return "<br>".join(
+            rotulo.text()
+            for rotulo in (self.resumo_label, self.cliente_label, self.pagamento_label)
+            if rotulo.text()
+        )
 
     def _desenhar_resumo(self, venda):
         situacao = SaleStatus.from_value(venda.get("status") or "CONCLUIDA")
@@ -245,18 +296,42 @@ class SaleDetailsPage(QWidget):
         )
         # Responsável vazio vira travessão, e não string vazia: campo em
         # branco parece defeito de carga; travessão diz "não há".
-        vendedor = venda.get("seller") or "—"
-        desconto_aplicado_por = venda.get("discount_applied_by_name") or vendedor
-        autorizador = venda.get("discount_authorized_by_name") or "—"
+        vendedor = escape(str(venda.get("seller") or "—"))
         self.resumo_label.setText(
-            f"<b>Venda:</b> {venda.get('id', '—')}<br>"
-            f"<b>Cliente:</b> {venda.get('cliente', '—')}<br>"
-            f"<b>Responsável:</b> {vendedor}<br>"
-            f"<b>Data:</b> {venda.get('data', '—')}<br>"
-            f"<b>Forma de pagamento:</b> {venda.get('payment_method') or '—'}<br>"
-            f"<b>Desconto aplicado por:</b> {desconto_aplicado_por}<br>"
-            f"<b>Desconto autorizado por:</b> {autorizador}"
+            f"<b>Venda:</b> {escape(str(venda.get('id', '—')))}<br>"
+            f"<b>Data:</b> {escape(str(venda.get('data', '—')))}<br>"
+            f"<b>Responsável:</b> {vendedor}"
         )
+
+    def _desenhar_cliente(self, venda, cliente):
+        """Nome gravado na venda + dados do cadastro, quando a janela os traz."""
+        linhas = [f"<b>Nome:</b> {escape(str(venda.get('cliente') or '—'))}"]
+        if cliente is not None:
+            for rotulo, atributo in (
+                ("Documento", "document"),
+                ("E-mail", "email"),
+                ("Telefone", "phone"),
+                ("Situação no cadastro", "status"),
+            ):
+                valor = getattr(cliente, atributo, None) or "—"
+                linhas.append(f"<b>{rotulo}:</b> {escape(str(valor))}")
+        self.cliente_label.setText("<br>".join(linhas))
+
+    def _desenhar_pagamento(self, venda):
+        vendedor = venda.get("seller") or "—"
+        aplicado_por = venda.get("discount_applied_by_name") or vendedor
+        autorizador = venda.get("discount_authorized_by_name") or "—"
+        self.pagamento_label.setText(
+            f"<b>Forma de pagamento:</b> "
+            f"{escape(str(venda.get('payment_method') or '—'))}<br>"
+            f"<b>Valor da venda:</b> {escape(self._total_texto(venda))}<br>"
+            f"<b>Desconto aplicado por:</b> {escape(str(aplicado_por))}<br>"
+            f"<b>Desconto autorizado por:</b> {escape(str(autorizador))}"
+        )
+
+    @staticmethod
+    def _total_texto(venda) -> str:
+        return venda.get("valor") or _moeda(venda.get("total") or "0")
 
     def _desenhar_itens(self, venda):
         itens = venda.get("items") or []
@@ -294,7 +369,7 @@ class SaleDetailsPage(QWidget):
             f"Bruto: {_moeda(bruto)} &nbsp;·&nbsp; "
             f"Desconto: {_moeda(desconto)} &nbsp;·&nbsp; "
             f"<span style='font-size:16px'>Total: "
-            f"{venda.get('valor') or _moeda(venda.get('total'))}</span>"
+            f"{self._total_texto(venda)}</span>"
         )
 
     def _desenhar_reversao(self, venda):
