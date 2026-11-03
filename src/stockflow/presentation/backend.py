@@ -420,3 +420,15 @@ def save_user(session, *, user_id=None, name, email, role, department="", passwo
             pass
 
 
+
+
+def build_cash_register_service(session, sales):
+    from stockflow.application.services.cash_register_service import CashRegisterService
+    if using_supabase():
+        from stockflow.infrastructure.repositories.supabase_cash_register_repository import SupabaseCashRegisterRepository
+        repository = SupabaseCashRegisterRepository(_client(), getattr(session, "company_id", None))
+    else:
+        from stockflow.infrastructure.repositories.demo_cash_register_repository import DemoCashRegisterRepository
+        repository = DemoCashRegisterRepository(sales)
+        sales.cash_register = repository
+    return CashRegisterService(repository, session)

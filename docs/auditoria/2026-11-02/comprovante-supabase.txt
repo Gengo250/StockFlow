@@ -1,0 +1,36 @@
+StockFlow
+COMPROVANTE	DE	VENDA
+Venda
+3c32f7cb-f5f0-4095-a90c-83618214149c
+Data
+19/10/2026	13:22
+Cliente
+Roberto
+Responsável
+miguel
+Código
+Produto
+Qtd.
+Preço	unit.
+Subtotal
+Desconto
+Total
+PRD-002
+Monitor	teste
+1
+R$	230,00
+R$	230,00
+R$	0,00
+R$	230,00
+Subtotal	bruto
+R$	230,00
+Desconto	total
+R$	0,00
+TOTAL
+R$	230,00
+Forma	de	pagamento
+PIX
+Valor	pago
+R$	230,00
+Documento	de	conferência	emitido	pelo	StockFlow.	Não	tem	valor	ﬁscal.
+1

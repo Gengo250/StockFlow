@@ -1,0 +1,12 @@
+[
+  {
+    "function": "fn_open_register_session",
+    "code": "P0001",
+    "message": "O saldo inicial não pode ser negativo."
+  },
+  {
+    "function": "fn_close_register_session",
+    "code": "P0001",
+    "message": "Sessão de caixa não encontrada."
+  }
+]

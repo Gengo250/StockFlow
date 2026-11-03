@@ -99,6 +99,7 @@ def test_confirmacao_grava_venda_e_saida_de_estoque(page):
 
 def test_venda_atualiza_visualmente_as_abas_de_produtos_e_estoque(qapp):
     window = MainWindow(conta_por_papel(UserRole.SELLER).session())
+    window.cash_register_service.open(0)
     try:
         page = window.vendas_page
         assert page.selecionar_cliente_externo("Ana Ferreira")

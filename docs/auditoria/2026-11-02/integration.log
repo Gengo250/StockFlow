@@ -1,0 +1,56 @@
+................FFF.............                                         [100%]
+=================================== FAILURES ===================================
+__ test_seller_limit_applies_to_fixed_discount_and_rejects_excess[migrations] __
+tests/integration/test_sale_discount_integration.py:78: in test_seller_limit_applies_to_fixed_discount_and_rejects_excess
+    receipt = _register_discounted_sale(
+tests/integration/test_sale_discount_integration.py:49: in _register_discounted_sale
+    return db_tx.execute(
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.
+E   CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE
+E   SQL statement "INSERT INTO public.sales (
+E           company_id, client_id, client_name, payment_method, discount, total,
+E           sale_discount_type, sale_discount_value, created_by,
+E           discount_applied_by, discount_authorized_by
+E       ) VALUES (
+E           p_company_id, p_client_id, v_client_name, p_payment_method,
+E           v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,
+E           CASE WHEN v_discount_total > 0 THEN v_seller ELSE NULL END,
+E           v_authorizer
+E       )
+E       RETURNING id"
+E   PL/pgSQL function fn_register_sale_with_discounts(uuid,uuid,jsonb,payment_method,text,numeric,uuid) line 217 at SQL statement
+________ test_admin_approval_is_reauthenticated_and_audited[migrations] ________
+tests/integration/test_sale_discount_integration.py:127: in test_admin_approval_is_reauthenticated_and_audited
+    receipt = _register_discounted_sale(
+tests/integration/test_sale_discount_integration.py:49: in _register_discounted_sale
+    return db_tx.execute(
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.
+E   CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE
+E   SQL statement "INSERT INTO public.sales (
+E           company_id, client_id, client_name, payment_method, discount, total,
+E           sale_discount_type, sale_discount_value, created_by,
+E           discount_applied_by, discount_authorized_by
+E       ) VALUES (
+E           p_company_id, p_client_id, v_client_name, p_payment_method,
+E           v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,
+E           CASE WHEN v_discount_total > 0 THEN v_seller ELSE NULL END,
+E           v_authorizer
+E       )
+E       RETURNING id"
+E   PL/pgSQL function fn_register_sale_with_discounts(uuid,uuid,jsonb,payment_method,text,numeric,uuid) line 217 at SQL statement
+_ test_history_lists_final_sales_by_default_and_pending_when_filtered[migrations] _
+tests/integration/test_sales_history.py:19: in test_history_lists_final_sales_by_default_and_pending_when_filtered
+    db_tx.execute(
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.
+E   CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE
+=========================== short test summary info ============================
+FAILED tests/integration/test_sale_discount_integration.py::test_seller_limit_applies_to_fixed_discount_and_rejects_excess[migrations]
+FAILED tests/integration/test_sale_discount_integration.py::test_admin_approval_is_reauthenticated_and_audited[migrations]
+FAILED tests/integration/test_sales_history.py::test_history_lists_final_sales_by_default_and_pending_when_filtered[migrations]
+3 failed, 29 passed in 2.00s

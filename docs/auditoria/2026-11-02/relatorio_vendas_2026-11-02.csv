@@ -1,0 +1,5 @@
+﻿Venda;Cliente;Produto;Valor;Data;Status;Vendedor
+3c32f7cb-f5f0-4095-a90c-83618214149c;Roberto;Monitor teste;230.00;19/10/2026 13:22;Concluída;miguel
+7e4426fa-763d-493c-9ae0-5d7db43b5b75;Cliente Teste;5x Monitor teste;50.00;12/10/2026 20:05;Concluída;
+43d596b0-87d7-4ed7-84ab-9b6f46a2402d;Cliente Teste;5x __AUDIT_20261005_4b8b4098_EDITADO;50.00;12/10/2026 20:04;Concluída;
+42e5d7f6-27ff-4488-8581-91a9d666e506;Cliente Teste;5x __AUDIT_20261005_4b8b4098_EDITADO;50.00;12/10/2026 20:04;Concluída;

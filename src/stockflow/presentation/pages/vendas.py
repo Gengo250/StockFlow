@@ -94,6 +94,7 @@ def _em_reais(valor):
 class VendasPage(QWidget):
     """Checkout pelo catálogo, com quantidade, pagamento e desconto."""
 
+    cash_register_requested = Signal()
     sale_registered = Signal(object)
     #: Identificador da venda cujo detalhe o usuário pediu.
     detalhes_requested = Signal(str)
@@ -203,6 +204,12 @@ class VendasPage(QWidget):
         titles.addWidget(title)
         titles.addWidget(subtitle)
         heading.addLayout(titles, 1)
+        self.cash_register_button = QPushButton("Caixa · iniciar / fechar")
+        self.cash_register_button.setMinimumHeight(ds.CONTROL_HEIGHT)
+        self.cash_register_button.setStyleSheet(inventory.FILTER_QSS)
+        self.cash_register_button.clicked.connect(self.cash_register_requested.emit)
+        self.cash_register_button.setEnabled(can_manage_clients(self.session))
+        heading.addWidget(self.cash_register_button)
         self.refresh_button = QPushButton("Atualizar")
         self.refresh_button.setIcon(qta.icon("fa5s.sync-alt", color="#475569"))
         self.refresh_button.setStyleSheet(inventory.FILTER_QSS)
@@ -664,6 +671,7 @@ class VendasPage(QWidget):
     def apply_session(self, session):
         self.session = session
         pode = can_manage_clients(session)
+        self.cash_register_button.setEnabled(pode)
         self.save_button.setEnabled(pode and not self._saving and not self._loading)
         self.add_button.setEnabled(pode and not self._saving)
 

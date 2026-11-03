@@ -220,6 +220,8 @@ DECLARE
     'fn_list_sales',
     'fn_get_sale_discount_limits', 'fn_set_sale_discount_limit',
     'fn_register_sale_with_discounts',
+    'fn_open_register_session', 'fn_close_register_session',
+    'fn_current_register_session', 'fn_start_my_register',
     -- Cancelamento e devolução de venda (US17). Só o ADMIN; a função
     -- repete essa alçada, e o teste de espelhamento da matriz compara.
     'fn_cancel_sale', 'fn_return_sale',

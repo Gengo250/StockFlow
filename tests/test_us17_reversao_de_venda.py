@@ -25,7 +25,9 @@ def sem_dialogos(monkeypatch):
 def _janela(qapp, monkeypatch, tmp_path, papel=UserRole.ADMIN):
     monkeypatch.setenv("STOCKFLOW_BACKEND", "demo")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
-    return MainWindow(conta_por_papel(papel).session())
+    window = MainWindow(conta_por_papel(papel).session())
+    window.cash_register_service.open(0)
+    return window
 
 
 @pytest.fixture

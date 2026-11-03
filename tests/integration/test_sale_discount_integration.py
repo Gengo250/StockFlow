@@ -29,6 +29,7 @@ def _seller(db_tx, company_id):
         "SELECT set_config('request.jwt.claim.sub', %s, true)",
         (str(auth_id),),
     )
+    db_tx.execute('SELECT fn_start_my_register(%s,0)', (company_id,))
     return user_id, auth_id
 
 

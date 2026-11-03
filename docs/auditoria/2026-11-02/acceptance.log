@@ -1,0 +1,96 @@
+FssssssFFs.FFF...F.FF                                                    [100%]
+=================================== FAILURES ===================================
+_______________________ test_cash_schema_parity[schema] ________________________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:52: in test_cash_schema_parity
+    assert db_tx.execute("SELECT to_regclass('public.register_log')").fetchone()[0], "US23 missing in declarative schema"
+E   AssertionError: US23 missing in declarative schema
+E   assert None
+___________ test_partial_return_stock_amount_and_idempotency[schema] ___________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:116: in test_partial_return_stock_amount_and_idempotency
+    first = db_tx.execute("SELECT fn_return_partial_sale(%s,%s,'audit',%s)", args).fetchone()[0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.InsufficientPrivilege: permission denied for function fn_return_partial_sale
+__________________ test_partial_return_on_seeded_sale[schema] __________________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:154: in test_partial_return_on_seeded_sale
+    first = db_tx.execute("SELECT fn_return_partial_sale(%s,%s,'audit',%s)", args).fetchone()[0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.InsufficientPrivilege: permission denied for function fn_return_partial_sale
+________________ test_checkout_works_with_open_cash[migrations] ________________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:58: in test_checkout_works_with_open_cash
+    result = sale(db_tx, create_company, product)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:45: in sale
+    return db.execute(
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.
+E   CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE
+E   SQL statement "INSERT INTO public.sales (
+E           company_id, client_id, client_name, payment_method, discount, total,
+E           sale_discount_type, sale_discount_value, created_by,
+E           discount_applied_by, discount_authorized_by
+E       ) VALUES (
+E           p_company_id, p_client_id, v_client_name, p_payment_method,
+E           v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,
+E           CASE WHEN v_discount_total > 0 THEN v_seller ELSE NULL END,
+E           v_authorizer
+E       )
+E       RETURNING id"
+E   PL/pgSQL function fn_register_sale_with_discounts(uuid,uuid,jsonb,payment_method,text,numeric,uuid) line 217 at SQL statement
+_________________ test_anonymous_cannot_open_cash[migrations] __________________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:68: in test_anonymous_cannot_open_cash
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE InsufficientPrivilege
+_________________ test_anonymous_cannot_close_cash[migrations] _________________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:77: in test_anonymous_cannot_close_cash
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE InsufficientPrivilege
+_________ test_partial_return_stock_amount_and_idempotency[migrations] _________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:112: in test_partial_return_stock_amount_and_idempotency
+    result = sale(db_tx, create_company, product)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:45: in sale
+    return db.execute(
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.
+E   CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE
+E   SQL statement "INSERT INTO public.sales (
+E           company_id, client_id, client_name, payment_method, discount, total,
+E           sale_discount_type, sale_discount_value, created_by,
+E           discount_applied_by, discount_authorized_by
+E       ) VALUES (
+E           p_company_id, p_client_id, v_client_name, p_payment_method,
+E           v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,
+E           CASE WHEN v_discount_total > 0 THEN v_seller ELSE NULL END,
+E           v_authorizer
+E       )
+E       RETURNING id"
+E   PL/pgSQL function fn_register_sale_with_discounts(uuid,uuid,jsonb,payment_method,text,numeric,uuid) line 217 at SQL statement
+____________ test_concurrent_open_keeps_single_session[migrations] _____________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:196: in test_concurrent_open_keeps_single_session
+    assert count == 1, f'{count} simultaneous OPEN sessions for the same register/operator'
+E   AssertionError: 2 simultaneous OPEN sessions for the same register/operator
+E   assert 2 == 1
+_______________ test_receipt_rejects_inconsistent_payment_total ________________
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:130: in test_receipt_rejects_inconsistent_payment_total
+    with pytest.raises(ReceiptNotAvailable):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ReceiptNotAvailable
+=========================== short test summary info ============================
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_cash_schema_parity[schema]
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_partial_return_stock_amount_and_idempotency[schema]
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_partial_return_on_seeded_sale[schema]
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_checkout_works_with_open_cash[migrations]
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_anonymous_cannot_open_cash[migrations]
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_anonymous_cannot_close_cash[migrations]
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_partial_return_stock_amount_and_idempotency[migrations]
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_concurrent_open_keeps_single_session[migrations]
+FAILED docs/auditoria/2026-11-02/test_acceptance_gaps.py::test_receipt_rejects_inconsistent_payment_total
+9 failed, 5 passed, 7 skipped in 1.51s

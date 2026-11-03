@@ -1,0 +1,67 @@
+{
+  "relatorio_auditoria_2026-11-02.csv": {
+    "rows": 2,
+    "columns": [
+      "Quando",
+      "Produto",
+      "Campo",
+      "De",
+      "Para",
+      "Por"
+    ],
+    "utf8_bom": true
+  },
+  "relatorio_estoque_2026-11-02.csv": {
+    "rows": 4,
+    "columns": [
+      "Código",
+      "Produto",
+      "Categoria",
+      "Saldo",
+      "Mínimo",
+      "Ativo"
+    ],
+    "utf8_bom": true
+  },
+  "relatorio_movimentações_2026-11-02.csv": {
+    "rows": 12,
+    "columns": [
+      "Movimentação",
+      "Código",
+      "Produto",
+      "Espécie",
+      "Quantidade",
+      "Situação",
+      "Observação",
+      "Quando",
+      "Fornecedor",
+      "Motivo"
+    ],
+    "utf8_bom": true
+  },
+  "relatorio_vendas_2026-11-02.csv": {
+    "rows": 4,
+    "columns": [
+      "Venda",
+      "Cliente",
+      "Produto",
+      "Valor",
+      "Data",
+      "Status",
+      "Vendedor"
+    ],
+    "utf8_bom": true
+  },
+  "totals": {
+    "stock_units": 173,
+    "sales_brl": "380.00",
+    "confirmed_in": 189,
+    "confirmed_out": 16
+  },
+  "filtered_sales": {
+    "rows": 1,
+    "client": "Roberto",
+    "sales_brl": "230.00",
+    "utf8_bom": true
+  }
+}

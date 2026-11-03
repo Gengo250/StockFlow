@@ -23,6 +23,7 @@ from stockflow.domain.permissions import (
 )
 from stockflow.presentation.backend import (
     build_catalog,
+    build_cash_register_service,
     build_client_repository,
     build_company_repository,
     build_sale_repository,
@@ -215,6 +216,7 @@ class MainWindow(QMainWindow):
                 self.products, self.client_repository,
                 self.sale_repository, self.movement_repository,
             )
+        self.cash_register_service = build_cash_register_service(self.session, self.sale_repository)
         self.sale_service = SaleService(self.sale_repository, self.client_repository, self.product_repository)
         from stockflow.application.services.receipt_service import ReceiptService
 
@@ -358,6 +360,7 @@ class MainWindow(QMainWindow):
             lambda _codigo: self._carregar_historico_precos()
         )
         self.suppliers_page.suppliers_changed.connect(self._refresh_supplier_options)
+        self.vendas_page.cash_register_requested.connect(self._show_cash_register)
         self.vendas_page.sale_registered.connect(self._venda_registrada)
         self.vendas_page.detalhes_requested.connect(self._show_sale_details)
         self.sale_details_page.back_button.clicked.connect(
@@ -468,6 +471,18 @@ class MainWindow(QMainWindow):
     # ======================================================
     # MOVIMENTAÇÕES
     # ======================================================
+
+    def _show_cash_register(self):
+        from stockflow.domain.permissions import ensure_can_register_sales
+        from stockflow.presentation.widgets.cash_register_dialog import CashRegisterDialog
+        try:
+            ensure_can_register_sales(self.session)
+        except PermissionDeniedError as error:
+            QMessageBox.warning(self, "Caixa", str(error))
+            return
+        dialog = CashRegisterDialog(self.cash_register_service, self, execute=self._execute)
+        dialog.refresh()
+        dialog.exec()
 
     def _execute(self, fetch, loaded, failed):
         from shiboken6 import isValid

@@ -417,6 +417,10 @@ class DemoSaleRepository:
         approval_credentials=None,
         seller_id=None,
     ) -> dict:
+        register = getattr(self, "cash_register", None)
+        current_register = register.current() if register else None
+        if register and not current_register:
+            raise ValueError("Inicie o caixa pelo botão Caixa antes de registrar a venda.")
         authorized_by = None
         if approval_credentials:
             from stockflow.presentation.demo_accounts import autenticar
@@ -539,6 +543,8 @@ class DemoSaleRepository:
                 row["reversal_reason"] = None
                 row["reversal_on"] = None
                 row["reversal_by"] = ""
+                if current_register:
+                    row["register_log_id"] = current_register["id"]
                 self.rows.insert(0, row)
                 self._return_sales[str(sale_id)] = return_snapshot
                 return row

@@ -1,0 +1,13 @@
+﻿Movimentação;Código;Produto;Espécie;Quantidade;Situação;Observação;Quando;Fornecedor;Motivo
+7d179ca9-916e-40c7-af1f-7b8657ca0c5d;PRD-004;Mouse teste;Entrada;130;Confirmada;Ajuste pelo cadastro;19/10/2026;—;—
+2d54cc38-8a1f-4389-9bdb-e4c333609f23;PRD-002;Monitor teste;Saída;1;Confirmada;SAIDA_VENDA - venda 3c32f7cb-f5f0-4095-a90c-83618214149c;19/10/2026;—;—
+b994f9ec-f50d-43d8-8c30-72e0e7af959f;PRD-003;Monitor teste;Saída;5;Confirmada;Venda concluida: 7e4426fa-763d-493c-9ae0-5d7db43b5b75;12/10/2026;—;—
+11e3de0e-1400-4b0c-983c-1284afd9f900;PRD-003;Monitor teste;Entrada;15;Confirmada;Teste Entrada Automatizada;12/10/2026;—;—
+0ef0dd2a-a921-49ab-8397-0133eecf4373;PRD-001;__AUDIT_20261005_4b8b4098_EDITADO;Saída;5;Confirmada;Venda concluida: 43d596b0-87d7-4ed7-84ab-9b6f46a2402d;12/10/2026;—;—
+e4bbddf0-094a-4e6c-991d-19901f550e65;PRD-001;__AUDIT_20261005_4b8b4098_EDITADO;Entrada;15;Confirmada;Teste Entrada Automatizada;12/10/2026;—;—
+c591a58f-dab7-43f8-9865-f8dee9220d2d;PRD-001;__AUDIT_20261005_4b8b4098_EDITADO;Saída;5;Confirmada;Venda concluida: 42e5d7f6-27ff-4488-8581-91a9d666e506;12/10/2026;—;—
+743a0bff-c9a6-4526-8ef3-38e029394777;PRD-001;__AUDIT_20261005_4b8b4098_EDITADO;Entrada;15;Confirmada;Teste Entrada Automatizada;12/10/2026;—;—
+9e167c26-a000-490f-aa9c-e114656e7111;PRD-003;Monitor teste;Entrada;7;Confirmada;Saldo inicial do cadastro;06/10/2026;—;—
+246ea035-53db-4664-bb7f-3927919dfa7f;PRD-002;Monitor teste;Entrada;7;Confirmada;Saldo inicial do cadastro;06/10/2026;—;—
+9b7914ac-4ca6-49f4-b3ae-8f318eded4af;PRD-001;__AUDIT_20261005_4b8b4098_EDITADO;Saída;2;Cancelada;__AUDIT_20261005_4b8b4098;05/10/2026;—;—
+099cdddb-23e1-4c1b-a53f-5090e65b61e0;PRD-001;__AUDIT_20261005_4b8b4098_EDITADO;Entrada;5;Cancelada;__AUDIT_20261005_4b8b4098;05/10/2026;leandro_FORNECEDOR;—

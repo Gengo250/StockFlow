@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="9" skipped="7" tests="21" time="1.510" timestamp="2026-11-02T10:24:18.752507-03:00" hostname="archlinux"><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_cash_schema_parity[schema]" time="0.181"><failure message="AssertionError: US23 missing in declarative schema&#10;assert None">docs/auditoria/2026-11-02/test_acceptance_gaps.py:52: in test_cash_schema_parity
+    assert db_tx.execute("SELECT to_regclass('public.register_log')").fetchone()[0], "US23 missing in declarative schema"
+E   AssertionError: US23 missing in declarative schema
+E   assert None</failure></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_checkout_works_with_open_cash[schema]" time="0.032"><skipped type="pytest.skip" message="US23 absent from declarative schema">/home/luccas/Projects/StockFlow/docs/auditoria/2026-11-02/test_acceptance_gaps.py:29: US23 absent from declarative schema</skipped></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_anonymous_cannot_open_cash[schema]" time="0.018"><skipped type="pytest.skip" message="US23 absent from declarative schema">/home/luccas/Projects/StockFlow/docs/auditoria/2026-11-02/test_acceptance_gaps.py:29: US23 absent from declarative schema</skipped></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_anonymous_cannot_close_cash[schema]" time="0.017"><skipped type="pytest.skip" message="US23 absent from declarative schema">/home/luccas/Projects/StockFlow/docs/auditoria/2026-11-02/test_acceptance_gaps.py:29: US23 absent from declarative schema</skipped></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_closed_session_is_immutable[schema]" time="0.015"><skipped type="pytest.skip" message="US23 absent from declarative schema">/home/luccas/Projects/StockFlow/docs/auditoria/2026-11-02/test_acceptance_gaps.py:29: US23 absent from declarative schema</skipped></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_duplicate_open_session_rejected[schema]" time="0.016"><skipped type="pytest.skip" message="US23 absent from declarative schema">/home/luccas/Projects/StockFlow/docs/auditoria/2026-11-02/test_acceptance_gaps.py:29: US23 absent from declarative schema</skipped></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_cash_difference_requires_reason[schema]" time="0.015"><skipped type="pytest.skip" message="US23 absent from declarative schema">/home/luccas/Projects/StockFlow/docs/auditoria/2026-11-02/test_acceptance_gaps.py:29: US23 absent from declarative schema</skipped></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_partial_return_stock_amount_and_idempotency[schema]" time="0.050"><failure message="psycopg.errors.InsufficientPrivilege: permission denied for function fn_return_partial_sale">docs/auditoria/2026-11-02/test_acceptance_gaps.py:116: in test_partial_return_stock_amount_and_idempotency
+    first = db_tx.execute("SELECT fn_return_partial_sale(%s,%s,'audit',%s)", args).fetchone()[0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.InsufficientPrivilege: permission denied for function fn_return_partial_sale</failure></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_partial_return_on_seeded_sale[schema]" time="0.035"><failure message="psycopg.errors.InsufficientPrivilege: permission denied for function fn_return_partial_sale">docs/auditoria/2026-11-02/test_acceptance_gaps.py:154: in test_partial_return_on_seeded_sale
+    first = db_tx.execute("SELECT fn_return_partial_sale(%s,%s,'audit',%s)", args).fetchone()[0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.InsufficientPrivilege: permission denied for function fn_return_partial_sale</failure></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_concurrent_open_keeps_single_session[schema]" time="0.006"><skipped type="pytest.skip" message="US23 absent from declarative schema">/home/luccas/Projects/StockFlow/docs/auditoria/2026-11-02/test_acceptance_gaps.py:29: US23 absent from declarative schema</skipped></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_cash_schema_parity[migrations]" time="0.442" /><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_checkout_works_with_open_cash[migrations]" time="0.051"><failure message="psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.&#10;CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE&#10;SQL statement &quot;INSERT INTO public.sales (&#10;        company_id, client_id, client_name, payment_method, discount, total,&#10;        sale_discount_type, sale_discount_value, created_by,&#10;        discount_applied_by, discount_authorized_by&#10;    ) VALUES (&#10;        p_company_id, p_client_id, v_client_name, p_payment_method,&#10;        v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,&#10;        CASE WHEN v_discount_total &gt; 0 THEN v_seller ELSE NULL END,&#10;        v_authorizer&#10;    )&#10;    RETURNING id&quot;&#10;PL/pgSQL function fn_register_sale_with_discounts(uuid,uuid,jsonb,payment_method,text,numeric,uuid) line 217 at SQL statement">docs/auditoria/2026-11-02/test_acceptance_gaps.py:58: in test_checkout_works_with_open_cash
+    result = sale(db_tx, create_company, product)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:45: in sale
+    return db.execute(
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.
+E   CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE
+E   SQL statement "INSERT INTO public.sales (
+E           company_id, client_id, client_name, payment_method, discount, total,
+E           sale_discount_type, sale_discount_value, created_by,
+E           discount_applied_by, discount_authorized_by
+E       ) VALUES (
+E           p_company_id, p_client_id, v_client_name, p_payment_method,
+E           v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,
+E           CASE WHEN v_discount_total &gt; 0 THEN v_seller ELSE NULL END,
+E           v_authorizer
+E       )
+E       RETURNING id"
+E   PL/pgSQL function fn_register_sale_with_discounts(uuid,uuid,jsonb,payment_method,text,numeric,uuid) line 217 at SQL statement</failure></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_anonymous_cannot_open_cash[migrations]" time="0.021"><failure message="Failed: DID NOT RAISE InsufficientPrivilege">docs/auditoria/2026-11-02/test_acceptance_gaps.py:68: in test_anonymous_cannot_open_cash
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE InsufficientPrivilege</failure></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_anonymous_cannot_close_cash[migrations]" time="0.032"><failure message="Failed: DID NOT RAISE InsufficientPrivilege">docs/auditoria/2026-11-02/test_acceptance_gaps.py:77: in test_anonymous_cannot_close_cash
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE InsufficientPrivilege</failure></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_closed_session_is_immutable[migrations]" time="0.034" /><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_duplicate_open_session_rejected[migrations]" time="0.023" /><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_cash_difference_requires_reason[migrations]" time="0.023" /><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_partial_return_stock_amount_and_idempotency[migrations]" time="0.037"><failure message="psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.&#10;CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE&#10;SQL statement &quot;INSERT INTO public.sales (&#10;        company_id, client_id, client_name, payment_method, discount, total,&#10;        sale_discount_type, sale_discount_value, created_by,&#10;        discount_applied_by, discount_authorized_by&#10;    ) VALUES (&#10;        p_company_id, p_client_id, v_client_name, p_payment_method,&#10;        v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,&#10;        CASE WHEN v_discount_total &gt; 0 THEN v_seller ELSE NULL END,&#10;        v_authorizer&#10;    )&#10;    RETURNING id&quot;&#10;PL/pgSQL function fn_register_sale_with_discounts(uuid,uuid,jsonb,payment_method,text,numeric,uuid) line 217 at SQL statement">docs/auditoria/2026-11-02/test_acceptance_gaps.py:112: in test_partial_return_stock_amount_and_idempotency
+    result = sale(db_tx, create_company, product)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+docs/auditoria/2026-11-02/test_acceptance_gaps.py:45: in sale
+    return db.execute(
+.venv/lib/python3.12/site-packages/psycopg/connection.py:304: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.RaiseException: Venda deve estar associada a uma sessão de caixa aberta.
+E   CONTEXT:  PL/pgSQL function trg_guard_sale_open_register() line 6 at RAISE
+E   SQL statement "INSERT INTO public.sales (
+E           company_id, client_id, client_name, payment_method, discount, total,
+E           sale_discount_type, sale_discount_value, created_by,
+E           discount_applied_by, discount_authorized_by
+E       ) VALUES (
+E           p_company_id, p_client_id, v_client_name, p_payment_method,
+E           v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,
+E           CASE WHEN v_discount_total &gt; 0 THEN v_seller ELSE NULL END,
+E           v_authorizer
+E       )
+E       RETURNING id"
+E   PL/pgSQL function fn_register_sale_with_discounts(uuid,uuid,jsonb,payment_method,text,numeric,uuid) line 217 at SQL statement</failure></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_partial_return_on_seeded_sale[migrations]" time="0.065" /><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_concurrent_open_keeps_single_session[migrations]" time="0.043"><failure message="AssertionError: 2 simultaneous OPEN sessions for the same register/operator&#10;assert 2 == 1">docs/auditoria/2026-11-02/test_acceptance_gaps.py:196: in test_concurrent_open_keeps_single_session
+    assert count == 1, f'{count} simultaneous OPEN sessions for the same register/operator'
+E   AssertionError: 2 simultaneous OPEN sessions for the same register/operator
+E   assert 2 == 1</failure></testcase><testcase classname="docs.auditoria.2026-11-02.test_acceptance_gaps" name="test_receipt_rejects_inconsistent_payment_total" time="0.028"><failure message="Failed: DID NOT RAISE ReceiptNotAvailable">docs/auditoria/2026-11-02/test_acceptance_gaps.py:130: in test_receipt_rejects_inconsistent_payment_total
+    with pytest.raises(ReceiptNotAvailable):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ReceiptNotAvailable</failure></testcase></testsuite></testsuites>

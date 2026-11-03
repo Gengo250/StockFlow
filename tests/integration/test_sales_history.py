@@ -4,6 +4,7 @@ from uuid import uuid4
 def test_history_lists_final_sales_by_default_and_pending_when_filtered(
     db_tx, create_company
 ):
+    db_tx.execute('SELECT fn_start_my_register(%s,0)', (create_company,))
     client_id = uuid4()
     db_tx.execute("RESET ROLE")
     db_tx.execute(
