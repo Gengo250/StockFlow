@@ -132,7 +132,7 @@ class DemoMovementRepository:
     # ======================================================
 
     @_sob_o_lock
-    def register(self, data: MovementInput) -> str:
+    def register(self, data: MovementInput, *, created_by=None) -> str:
         """Registra e devolve o id. Nasce PENDENTE salvo `confirm=True`.
 
         Produto inexistente levanta, espelhando o `foreign_key_violation` de
@@ -158,6 +158,7 @@ class DemoMovementRepository:
             ).value,
             "note": data.note,
             "supplier_id": getattr(data, "supplier_id", None),
+            "created_by": created_by,
             "created_on": agora,
             "confirmed_on": agora if confirmada else None,
         }

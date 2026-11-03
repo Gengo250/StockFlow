@@ -1,10 +1,10 @@
 """Tradução entre a linha de `public.stock_movements` e a linha da tela.
 
-A tabela de Movimentações consome tuplas neste contrato, DEZ posições SEMPRE
+A tabela de Movimentações consome tuplas neste contrato, ONZE posições SEMPRE
 (ver a nota em `row_to_movement` sobre por que a cauda deixou de ser opcional):
 
     (id, código, nome do produto, espécie, quantidade, situação, nota, quando,
-     fornecedor, motivo)
+     fornecedor, motivo, usuário responsável)
 
 Mesmo desenho de `user_mapper`: tupla, e não objeto, porque é o formato que as
 tabelas desta aplicação já desenham, e porque assim o adaptador de banco e o
@@ -101,7 +101,7 @@ def row_to_movement(row, product_code="", product_name="", agora=None,
                     supplier_name="") -> tuple:
     """Linha de `stock_movements` na tupla que a tabela desenha.
 
-    DEZ posições, SEMPRE. A cauda já foi opcional — o fornecedor só entrava
+    ONZE posições, SEMPRE. A cauda já foi opcional — o fornecedor só entrava
     quando existia — e a tela lia `mov[8] if len(mov) > 8`. Com duas caudas
     opcionais o motivo do ajuste ocuparia o índice do fornecedor sempre que o
     produto não tivesse um, e "Quebra / avaria" apareceria na coluna errada.
@@ -121,6 +121,7 @@ def row_to_movement(row, product_code="", product_name="", agora=None,
         formatar_quando(row.get("created_on"), agora),
         supplier_name or VAZIO,
         _rotulo_de_motivo(row.get("adjustment_reason")),
+        str(row.get("created_by") or VAZIO),
     )
 
 

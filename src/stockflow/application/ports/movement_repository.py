@@ -23,7 +23,7 @@ class MovementRepository(Protocol):
         """
         ...
 
-    def register(self, data: MovementInput) -> str:
+    def register(self, data: MovementInput, *, created_by: str | None = None) -> str:
         """Registra e devolve o identificador. Nasce pendente salvo pedido."""
         ...
 

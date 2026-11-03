@@ -181,6 +181,9 @@ def _stock_input():
 # válido (a coluna tem CHECK >= 0), e descer de 0 pelas setas chega nele.
 SEM_MINIMO = -1
 
+# Valor interno que representa "sem máximo". Zero é um limite válido.
+SEM_MAXIMO = -1
+
 
 def _minimum_stock_input():
     """Spin de estoque mínimo, capaz de representar AUSÊNCIA.
@@ -203,11 +206,10 @@ def _maximum_stock_input():
     """Spin de estoque máximo, inteiro não-negativo.
 
     Assim como o mínimo, o máximo pode estar "sem configurar" (None).
-    O valor exibido é sempre um número ≥ 0; "Sem máximo" indica que
-    não há limite definido.
+    Zero é um limite válido; -1 é o extremo reservado para "Sem máximo".
     """
     widget = _stock_input()
-    widget.setRange(0, 999999)
+    widget.setRange(SEM_MAXIMO, 999999)
     widget.setSpecialValueText("Sem máximo")
     widget.setToolTip(
         "Defina o estoque máximo para este produto. "

@@ -56,6 +56,7 @@ from stockflow.presentation.pages.vendas import VendasPage
 from stockflow.presentation.pages.products import ProductsPage
 from stockflow.presentation.pages.product_details import ProductDetailsPage
 from stockflow.presentation.pages.sale_details import SaleDetailsPage
+from stockflow.presentation.pages.movement_details import MovementDetailsPage
 from stockflow.application.services.supplier_service import SupplierService
 from stockflow.presentation.pages.suppliers import SuppliersPage
 
@@ -183,6 +184,7 @@ class MainWindow(QMainWindow):
         self.products_page = ProductsPage(self.products)
         self.product_details_page = ProductDetailsPage()
         self.sale_details_page = SaleDetailsPage()
+        self.movement_details_page = MovementDetailsPage()
 
         # Vendas e Usuários ficam como atributos: o botão de carrinho da
         # tabela de Usuários precisa alcançar o combo de clientes de Vendas.
@@ -288,6 +290,7 @@ class MainWindow(QMainWindow):
         pages.addWidget(self.editar_produto_page)
         pages.addWidget(self.product_details_page)
         pages.addWidget(self.sale_details_page)
+        pages.addWidget(self.movement_details_page)
 
         return pages
 
@@ -335,6 +338,9 @@ class MainWindow(QMainWindow):
         )
 
         self.movimentacoes_page.register_requested.connect(self._registrar_movimentacao)
+        self.movimentacoes_page.detail_requested.connect(
+            self._show_movement_details
+        )
         self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
         self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
         self.movimentacoes_page.adjust_requested.connect(self._aplicar_ajuste)
@@ -346,6 +352,9 @@ class MainWindow(QMainWindow):
         self.vendas_page.detalhes_requested.connect(self._show_sale_details)
         self.sale_details_page.back_button.clicked.connect(
             lambda: self.show_page("vendas")
+        )
+        self.movement_details_page.back_requested.connect(
+            lambda: self.show_page("movimentacoes")
         )
         self.sale_details_page.cancel_requested.connect(self._cancelar_venda)
         self.sale_details_page.return_requested.connect(self._devolver_venda)
@@ -599,6 +608,10 @@ class MainWindow(QMainWindow):
         self._load("movements", lambda: self.movement_service.list_movements(session),
                    self.movimentacoes_page.set_movements,
                    self.movimentacoes_page.show_load_error)
+
+    def _show_movement_details(self, movement):
+        self.movement_details_page.load_movement(movement)
+        self.pages.setCurrentWidget(self.movement_details_page)
 
     def _registrar_movimentacao(self, dados):
         """Registra e, se foi pedido, já confirma.

@@ -57,7 +57,9 @@ class MovementService:
             if supplier is None or not supplier.active:
                 raise ValueError("Selecione um fornecedor ativo.")
 
-        return self._repository.register(data)
+        return self._repository.register(
+            data, created_by=getattr(session, "user_id", None)
+        )
 
     def confirm(self, session, movement_id: str) -> None:
         """Confirma uma pendente. É esta transição que altera o saldo."""

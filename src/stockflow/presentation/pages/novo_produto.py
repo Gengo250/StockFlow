@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QBoxLayout, QFrame, QHBoxLayout, QLabel, QPushButt
 from stockflow.application.dto.product_input import ProductInput
 from stockflow.presentation.widgets.category_form import CategoryDialog
 from stockflow.domain.stock_level import to_min
-from stockflow.presentation.widgets.form_fields import SEM_MINIMO
+from stockflow.presentation.widgets.form_fields import SEM_MAXIMO, SEM_MINIMO
 from stockflow.presentation.widgets.product_form import (
     BasicInfoCard,
     BeforeRegisterCard,
@@ -318,9 +318,9 @@ class NovoProdutoPage(QWidget):
         return None if valor <= SEM_MINIMO else valor
 
     def _maximo_do_formulario(self):
-        """Valor do spin de máximo; zero representa o campo opcional vazio."""
+        """Valor do spin de máximo, traduzindo o extremo para ausência."""
         valor = self.maximum_stock_input.value()
-        return None if valor == 0 else valor
+        return None if valor <= SEM_MAXIMO else valor
 
     def _validate_stock_limits(self):
         minimo = self._minimo_do_formulario()
@@ -352,7 +352,7 @@ class NovoProdutoPage(QWidget):
         # todo produto cadastrado pela tela ganhar um limiar que ninguém
         # escolheu — na prática, nenhum produto ficava sem mínimo.
         self.minimum_stock_input.setValue(SEM_MINIMO)
-        self.maximum_stock_input.setValue(0)
+        self.maximum_stock_input.setValue(SEM_MAXIMO)
         self.location_input.clear()
         self.supplier_input.setCurrentIndex(0)
         self.low_stock_alert.setChecked(True)
@@ -428,6 +428,7 @@ class NovoProdutoPage(QWidget):
         """
         if isinstance(product, (tuple, list)):
             unit = cost = None
+            maximum = None
             if len(product) >= 8:
                 # Linha do modelo da tela de Estoque, que ganhou a coluna de
                 # mínimo entre estoque e preço:
@@ -477,7 +478,7 @@ class NovoProdutoPage(QWidget):
             SEM_MINIMO if to_min(minimum) is None else _para_inteiro(minimum)
         )
         self.maximum_stock_input.setValue(
-            0 if to_min(maximum) is None else _para_inteiro(maximum)
+            SEM_MAXIMO if to_min(maximum) is None else _para_inteiro(maximum)
         )
         self.product_status_toggle.setChecked(bool(active))
         supplier_id = getattr(product, "supplier_id", None)

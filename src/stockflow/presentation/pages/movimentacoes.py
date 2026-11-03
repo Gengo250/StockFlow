@@ -849,6 +849,7 @@ class MovimentacoesPage(QWidget):
         for widget in (
             self.search_input, self.status_filter,
             self.filtro_produto_combo, self.filtro_especie_combo,
+            self.filtro_usuario_combo,
             self.filtro_periodo_combo, self.filtro_data_inicio, self.filtro_data_fim,
         ):
             widget.blockSignals(True)
@@ -868,6 +869,7 @@ class MovimentacoesPage(QWidget):
         for widget in (
             self.search_input, self.status_filter,
             self.filtro_produto_combo, self.filtro_especie_combo,
+            self.filtro_usuario_combo,
             self.filtro_periodo_combo, self.filtro_data_inicio, self.filtro_data_fim,
         ):
             widget.blockSignals(False)
@@ -934,6 +936,7 @@ class MovimentacoesPage(QWidget):
             or self.status_filter.currentIndex() > 0
             or self.filtro_produto_combo.currentData() is not None
             or self.filtro_especie_combo.currentData() is not None
+            or self.filtro_usuario_combo.currentData() is not None
             or (self.filtro_periodo_combo.currentData() not in (None, "todos"))
         )
 
@@ -1231,4 +1234,3 @@ def _data_da_movimentacao(valor) -> date | None:
             pass
 
     return None
-

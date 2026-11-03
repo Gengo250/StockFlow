@@ -71,10 +71,12 @@ def movimentos_falsos(tabelas=None):
     tabelas["stock_movements"] = [
         {"id": MOV_ID, "company_id": COMPANY, "product_id": PRODUTO_ID,
          "kind": "ENTRADA", "quantity": 12, "status": "PENDENTE",
-         "note": "Compra NF 4821", "created_on": ONTEM, "confirmed_on": None},
+         "note": "Compra NF 4821", "created_on": ONTEM, "confirmed_on": None,
+         "created_by": "usuario-a"},
         {"id": "mov-2", "company_id": COMPANY, "product_id": OUTRO_PRODUTO_ID,
          "kind": "SAIDA", "quantity": 3, "status": "CONFIRMADA",
-         "note": None, "created_on": AGORA, "confirmed_on": AGORA},
+         "note": None, "created_on": AGORA, "confirmed_on": AGORA,
+         "created_by": "usuario-b"},
     ]
     return tabelas
 
@@ -126,9 +128,11 @@ def test_a_linha_do_banco_vira_a_tupla_que_a_tela_desenha():
         "Ontem, 18:30",
         VAZIO,                  # sem fornecedor: posição fixa, nunca ausente
         VAZIO,                  # sem motivo de ajuste: idem
+        "usuario-a",
     )
     assert recente[0] == "mov-2"
     assert recente[7] == "Hoje, 18:30"
+    assert recente[10] == "usuario-b"
 
 
 def test_produto_fora_do_alcance_vira_travessao_em_vez_de_erro():
@@ -487,6 +491,7 @@ def test_a_tupla_da_demonstracao_e_a_mesma_do_banco():
         "Hoje, 18:30",
         VAZIO,
         VAZIO,
+        VAZIO,
     ),)
 
 
@@ -533,17 +538,17 @@ def test_a_situacao_registrada_segue_o_enum_do_dominio():
     assert situacoes == [MovementStatus.CONFIRMADA.label, MovementStatus.PENDENTE.label]
 
 
-# -------------------------------------------------------- tupla de 10 campos
+# -------------------------------------------------------- tupla de 11 campos
 # A cauda da tupla era OPCIONAL: o fornecedor só era acrescentado quando
 # existia, e a tela lia `mov[8] if len(mov) > 8`. Pendurar o motivo do ajuste
 # nisso colocaria "Quebra / avaria" na coluna Fornecedor toda vez que o
 # produto não tivesse fornecedor — a maioria das saídas.
 
-CAMPOS = 10
+CAMPOS = 11
 I_FORNECEDOR, I_MOTIVO = 8, 9
 
 
-def test_movimentacao_sem_fornecedor_ainda_tem_dez_campos():
+def test_movimentacao_sem_fornecedor_ainda_tem_onze_campos():
     repo = DemoMovementRepository(
         {"P1": Product("P1", "Arroz", "Grãos", "UN", "10,00", "5,00", True, "42", "Normal")},
         agora=AGORA,
@@ -822,6 +827,7 @@ def test_a_tela_nao_busca_coluna_que_nao_consome():
     comentário do schema prevê.
     """
     assert "adjustment_reason" in MOVEMENT_COLUMNS
+    assert "created_by" in MOVEMENT_COLUMNS
     assert "counted_balance" not in MOVEMENT_COLUMNS
 
 

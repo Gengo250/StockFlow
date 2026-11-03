@@ -50,14 +50,14 @@ from stockflow.infrastructure.repositories.supabase_product_repository import (
 # coluna nova na tabela não comece a trafegar sozinha.
 #
 # `adjustment_reason` está aqui porque a tabela tem a coluna Motivo.
-# `counted_balance` NÃO está: a tupla do histórico tem dez posições e nenhuma
+# `counted_balance` NÃO está: a tupla do histórico tem onze posições e nenhuma
 # delas é o saldo contado, então trazê-lo seria exatamente a coluna que
 # trafega sozinha sem ninguém consumir. A coluna continua na tabela, para a
 # reconciliação que o comentário do schema prevê — só não é o que a TELA
 # busca.
 MOVEMENT_COLUMNS = (
     "id,product_id,supplier_id,kind,quantity,status,note,created_on,"
-    "confirmed_on,adjustment_reason"
+    "confirmed_on,adjustment_reason,created_by"
 )
 
 # Nome da função -> ação em português. Os rótulos são os MESMOS que
@@ -208,7 +208,7 @@ class SupabaseMovementRepository:
     # ESCRITA
     # ======================================================
 
-    def register(self, data: MovementInput) -> str:
+    def register(self, data: MovementInput, *, created_by=None) -> str:
         """Registra e devolve o uuid gerado pelo banco.
 
         O id vem do RETURNING da função, não de um valor inventado aqui:
