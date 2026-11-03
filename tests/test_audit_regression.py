@@ -285,8 +285,8 @@ def test_view_migration_preserves_existing_column_prefix(view):
     https://www.postgresql.org/docs/17/sql-createview.html
     """
     migrations = ROOT / 'database' / 'supabase' / 'migrations'
-    before = (migrations / '20261004150000_minimum_stock_optional.sql').read_text()
-    after = (migrations / '20261004160000_alert_view_carries_barcode.sql').read_text()
+    before = (migrations / '20261004150000_minimum_stock_optional.sql').read_text(encoding="utf-8")
+    after = (migrations / '20261004160000_alert_view_carries_barcode.sql').read_text(encoding="utf-8")
     def columns(sql):
         match = re.search(r'CREATE OR REPLACE VIEW public\.' + view + r'\s+.*?\bSELECT\b(.*?)\bFROM\b', sql, re.S | re.I)
         assert match, 'View não encontrada na migration'

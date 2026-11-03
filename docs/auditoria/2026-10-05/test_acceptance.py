@@ -67,6 +67,18 @@ def remote_window(qapp, monkeypatch):
             'name': 'Cliente Remoto', 'document': '', 'email': '',
             'phone': '', 'notes': '', 'active': True,
         }],
+        'fn_get_sale_discount_limits': {'SELLER': 10, 'ADMIN': None},
+        'fn_register_sale_with_discounts': {
+            'id': 'sale-remota',
+            'cliente': 'Cliente Remoto',
+            'total': '2499.90',
+            'created_on': '2026-10-13T12:00:00+00:00',
+            'items': [{
+                'product_name': 'Monitor LG UltraWide 34"',
+                'product_code': 'PRD-009',
+                'quantity': 1,
+            }],
+        },
     })
     monkeypatch.setenv('STOCKFLOW_BACKEND', 'supabase')
     monkeypatch.setattr(backend, '_client', lambda: client)
@@ -91,10 +103,12 @@ def test_remote_clients_use_persistent_repository(remote_window):
 
 def test_remote_sale_reaches_rpc(remote_window):
     w, client = remote_window
+    w.show_page("vendas")
+    w._estoque_recarregado((w.product_repository.fetch_catalog(), None, None))
     choose_sale(w.vendas_page)
     client.chamadas_rpc.clear()
     w.vendas_page._registrar_venda()
-    assert any(name == 'fn_register_sale' for name, _ in client.chamadas_rpc), 'Venda só altera historico_vendas em memória'
+    assert any(name == 'fn_register_sale_with_discounts' for name, _ in client.chamadas_rpc), 'Venda só altera historico_vendas em memória'
 
 
 def test_new_client_becomes_selectable_in_sales(window, qapp):
@@ -273,8 +287,8 @@ def test_view_migration_preserves_existing_column_prefix(view):
     https://www.postgresql.org/docs/17/sql-createview.html
     """
     migrations = ROOT / 'database' / 'supabase' / 'migrations'
-    before = (migrations / '20261004150000_minimum_stock_optional.sql').read_text()
-    after = (migrations / '20261004160000_alert_view_carries_barcode.sql').read_text()
+    before = (migrations / '20261004150000_minimum_stock_optional.sql').read_text(encoding="utf-8")
+    after = (migrations / '20261004160000_alert_view_carries_barcode.sql').read_text(encoding="utf-8")
     def columns(sql):
         match = re.search(r'CREATE OR REPLACE VIEW public\.' + view + r'\s+.*?\bSELECT\b(.*?)\bFROM\b', sql, re.S | re.I)
         assert match, 'View não encontrada na migration'

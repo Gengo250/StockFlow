@@ -153,13 +153,12 @@ def test_a_recusa_nomeia_a_area_que_foi_negada(janela, sem_dialogos, papel):
         )
 
 
-@pytest.mark.parametrize("papel", PAPEIS)
+@pytest.mark.parametrize("papel", SEM_PERMISSAO)
 def test_a_pagina_aberta_e_abandonada_quando_a_permissao_some(janela, sem_dialogos, papel):
     """Relogin não pode deixar o próximo usuário olhando a tela do anterior."""
     admin = janela(sessao(UserRole.ADMIN))
     restritas = [a for a in AREAS_DE_MENU if not pode_ver(papel, a)]
-    if not restritas:
-        pytest.skip(f"{papel.value} alcança todas as áreas de menu")
+    assert restritas, f"{papel.value} deve ter ao menos uma área de menu restrita"
 
     assert admin.show_page(restritas[0]) is True
     admin.apply_session(sessao(papel))

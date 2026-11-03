@@ -1,7 +1,6 @@
-"""Reproduções pendentes do remoto, preservadas para a próxima rodada.
+"""Regressões recuperadas do merge remoto.
 
 Executar explicitamente: pytest docs/auditoria/2026-10-19/test_pending_remote_merge.py
-Há quatro falhas conhecidas; este arquivo não faz parte da suíte de aceite.
 """
 import os
 
