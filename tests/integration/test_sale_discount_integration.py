@@ -65,7 +65,7 @@ def _register_discounted_sale(db_tx, company_id, client_id, product_code,
 
 
 def test_seller_limit_applies_to_fixed_discount_and_rejects_excess(
-    db_tx, create_company, create_product
+    db_tx, create_company, create_product, open_register_session
 ):
     company_id = create_company
     product_id = create_product(stock=10)
@@ -82,6 +82,11 @@ def test_seller_limit_applies_to_fixed_discount_and_rejects_excess(
     assert Decimal(str(receipt["discount"])) == Decimal("2.00")
     assert Decimal(str(receipt["total"])) == Decimal("18.00")
     assert receipt["discount_authorized_by"] is None
+    register_log_id = db_tx.execute(
+        "SELECT register_log_id FROM public.sales WHERE id=%s",
+        (receipt["id"],),
+    ).fetchone()[0]
+    assert str(register_log_id) == str(open_register_session)
 
     sales_before = db_tx.execute(
         "SELECT count(*) FROM public.sales WHERE company_id=%s", (company_id,)
@@ -98,7 +103,7 @@ def test_seller_limit_applies_to_fixed_discount_and_rejects_excess(
 
 
 def test_admin_approval_is_reauthenticated_and_audited(
-    db_tx, create_company, create_product
+    db_tx, create_company, create_product, open_register_session
 ):
     company_id = create_company
     product_id = create_product(stock=10)
@@ -131,3 +136,88 @@ def test_admin_approval_is_reauthenticated_and_audited(
     assert receipt["discount_authorized_by"] == str(admin_id)
     assert receipt["discount_authorized_by_name"]
     assert Decimal(str(receipt["discount"])) == Decimal("3.00")
+    register_log_id = db_tx.execute(
+        "SELECT register_log_id FROM public.sales WHERE id=%s",
+        (receipt["id"],),
+    ).fetchone()[0]
+    assert str(register_log_id) == str(open_register_session)
+
+
+def test_sale_without_open_register_is_rejected_without_partial_writes(
+    db_tx, create_company, create_product
+):
+    """Ausência de caixa continua sendo recusa, não uma exceção para testes."""
+    company_id = create_company
+    product_id = create_product(stock=10)
+    product_code = db_tx.execute(
+        "SELECT barcode FROM public.products WHERE id=%s", (product_id,)
+    ).fetchone()[0]
+    client_id = _client(db_tx, company_id)
+    seller_id, _ = _seller(db_tx, company_id)
+    sales_before = db_tx.execute(
+        "SELECT count(*) FROM public.sales WHERE company_id=%s", (company_id,)
+    ).fetchone()[0]
+    movements_before = db_tx.execute(
+        "SELECT count(*) FROM public.stock_movements WHERE product_id=%s", (product_id,)
+    ).fetchone()[0]
+
+    with pytest.raises(psycopg.errors.RaiseException, match=r"(?i)caixa abert[oa]"):
+        with db_tx.transaction():
+            _register_discounted_sale(
+                db_tx, company_id, client_id, product_code, Decimal("0"), seller_id
+            )
+
+    assert db_tx.execute(
+        "SELECT count(*) FROM public.sales WHERE company_id=%s", (company_id,)
+    ).fetchone()[0] == sales_before
+    assert db_tx.execute(
+        "SELECT count(*) FROM public.stock_movements WHERE product_id=%s", (product_id,)
+    ).fetchone()[0] == movements_before
+    assert db_tx.execute(
+        "SELECT stock FROM public.products WHERE id=%s", (product_id,)
+    ).fetchone()[0] == 10
+
+
+def test_close_register_rejects_offsetting_tender_mismatches_without_justification(
+    db_tx, create_company, create_product, open_register_session
+):
+    company_id = create_company
+    product_id = create_product(stock=10)
+    product_code = db_tx.execute(
+        "SELECT barcode FROM public.products WHERE id=%s", (product_id,)
+    ).fetchone()[0]
+    client_id = _client(db_tx, company_id)
+    seller_id, _ = _seller(db_tx, company_id)
+    receipt = _register_discounted_sale(
+        db_tx, company_id, client_id, product_code, Decimal("0"), seller_id
+    )
+    assert Decimal(str(receipt["total"])) == Decimal("20.00")
+
+    db_tx.execute("RESET ROLE")
+    admin_auth_id = db_tx.execute(
+        "SELECT ua.auth_user_id FROM public.user_accounts ua "
+        "JOIN public.company_users cu ON cu.user_account_id=ua.id "
+        "WHERE cu.company_id=%s AND cu.role='ADMIN' AND cu.active",
+        (company_id,),
+    ).fetchone()[0]
+    db_tx.execute("SET LOCAL ROLE authenticated")
+    db_tx.execute(
+        "SELECT set_config('request.jwt.claim.sub', %s, true)",
+        (str(admin_auth_id),),
+    )
+
+    with pytest.raises(
+        psycopg.errors.RaiseException, match="Divergência por forma de pagamento"
+    ):
+        with db_tx.transaction():
+            db_tx.execute(
+                "SELECT public.fn_close_register_session(%s, 0, 0, 0, 20, 0, 0)",
+                (open_register_session,),
+            )
+
+    result = db_tx.execute(
+        "SELECT public.fn_close_register_session(%s, 20, 0, 0, 0, 0, 0)",
+        (open_register_session,),
+    ).fetchone()[0]
+    assert result["status"] == "CLOSED"
+    assert Decimal(str(result["difference"])) == Decimal("0.00")

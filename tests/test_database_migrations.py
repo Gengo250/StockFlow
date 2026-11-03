@@ -107,7 +107,11 @@ def test_toda_tabela_referenciada_e_criada_em_migration_anterior():
     criada_em = {}
     for posicao, arquivo in enumerate(arquivos()):
         texto = arquivo.read_text(encoding="utf-8")
-        for tabela in re.findall(r"CREATE TABLE (?:public\.)?(\w+)", texto, re.I):
+        for tabela in re.findall(
+            r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?(\w+)",
+            texto,
+            re.I,
+        ):
             criada_em.setdefault(tabela.lower(), posicao)
 
     fora_de_ordem = []
@@ -125,6 +129,49 @@ def test_toda_tabela_referenciada_e_criada_em_migration_anterior():
                 )
 
     assert fora_de_ordem == [], f"dependências fora de ordem: {fora_de_ordem}"
+
+
+@pytest.mark.parametrize("criacao", [
+    "CREATE TABLE public.register_log (id uuid PRIMARY KEY);",
+    "CREATE TABLE register_log (id uuid PRIMARY KEY);",
+    "CREATE TABLE IF NOT EXISTS public.register_log (id uuid PRIMARY KEY);",
+    "create\ntable\tif not exists register_log (id uuid primary key);",
+])
+def test_parser_de_dependencias_reconhece_criacao_de_tabela(criacao, tmp_path, monkeypatch):
+    antes = tmp_path / "01_register_log.sql"
+    depois = tmp_path / "02_sales.sql"
+    antes.write_text(criacao, encoding="utf-8")
+    depois.write_text(
+        "CREATE TABLE public.sales (register_log_id uuid REFERENCES public.register_log(id));",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(globals(), "arquivos", lambda: [antes, depois])
+    test_toda_tabela_referenciada_e_criada_em_migration_anterior()
+
+
+@pytest.mark.parametrize("criar_depois,mensagem", [
+    (False, "nunca criada"),
+    (True, "criada só em"),
+])
+def test_parser_de_dependencias_mantem_recusa_de_fk_invalida(
+    criar_depois, mensagem, tmp_path, monkeypatch,
+):
+    referencia = tmp_path / "01_sales.sql"
+    referencia.write_text(
+        "CREATE TABLE public.sales (register_log_id uuid REFERENCES public.register_log(id));",
+        encoding="utf-8",
+    )
+    sequencia = [referencia]
+    if criar_depois:
+        criacao = tmp_path / "02_register_log.sql"
+        criacao.write_text(
+            "CREATE TABLE IF NOT EXISTS public.register_log (id uuid PRIMARY KEY);",
+            encoding="utf-8",
+        )
+        sequencia.append(criacao)
+    monkeypatch.setitem(globals(), "arquivos", lambda: sequencia)
+    with pytest.raises(AssertionError, match=mensagem):
+        test_toda_tabela_referenciada_e_criada_em_migration_anterior()
 
 
 def test_tipo_unit_enum_criado_antes_de_ser_usado():

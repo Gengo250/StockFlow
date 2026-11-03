@@ -2,7 +2,7 @@ from uuid import uuid4
 
 
 def test_history_lists_final_sales_by_default_and_pending_when_filtered(
-    db_tx, create_company
+    db_tx, create_company, open_register_session
 ):
     client_id = uuid4()
     db_tx.execute("RESET ROLE")
@@ -15,13 +15,14 @@ def test_history_lists_final_sales_by_default_and_pending_when_filtered(
         # `created_by` vem de fn_current_user_id(), que é a MESMA origem que a
         # aplicação usa para carimbar o autor da venda. Informar aqui não é
         # detalhe de teste: a coluna é obrigatória, e omiti-la montava uma
-        # venda que nenhum caminho real produz.
+        # venda que nenhum caminho real produz. US23 também exige o vínculo
+        # de caixa; a fixture abre a sessão antes de inserir o histórico.
         db_tx.execute(
             "INSERT INTO public.sales "
-            "(id, company_id, client_id, client_name, total, status, created_by) "
+            "(id, company_id, client_id, client_name, total, status, created_by, register_log_id) "
             "VALUES (%s, %s, %s, 'Cliente de teste', 10, %s::public.sale_status, "
-            "public.fn_current_user_id())",
-            (uuid4(), create_company, client_id, status),
+            "public.fn_current_user_id(), %s)",
+            (uuid4(), create_company, client_id, status, open_register_session),
         )
     db_tx.execute("SET LOCAL ROLE authenticated")
 

@@ -23,11 +23,36 @@ def stock_database(request):
         for role in ("anon", "authenticated", "service_role"):
             if not control.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
                 control.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(role)))
+        login_role = control.execute("SELECT current_user").fetchone()[0]
+        previous_set_options = {}
+        for role in ("anon", "authenticated"):
+            can_set_role = control.execute(
+                """
+                SELECT bool_or(membership.set_option)
+                FROM pg_auth_members membership
+                JOIN pg_roles granted_role ON granted_role.oid = membership.roleid
+                JOIN pg_roles member_role ON member_role.oid = membership.member
+                WHERE granted_role.rolname = %s
+                  AND member_role.rolname = %s
+                """,
+                (role, login_role),
+            ).fetchone()[0]
+            previous_set_options[role] = can_set_role
+            if can_set_role is not True:
+                control.execute(
+                    sql.SQL("GRANT {} TO {} WITH SET TRUE").format(
+                        sql.Identifier(role),
+                        sql.Identifier(login_role),
+                    )
+                )
         control.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
         target = make_conninfo(dsn, dbname=name)
         try:
             with psycopg.connect(target, autocommit=True) as setup:
                 setup.execute("""
+                    CREATE SCHEMA extensions;
+                    GRANT USAGE ON SCHEMA extensions TO PUBLIC;
+                    CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
                     CREATE SCHEMA auth;
                     CREATE TABLE auth.users(id uuid PRIMARY KEY, email varchar(255),
                         raw_user_meta_data jsonb DEFAULT '{}', last_sign_in_at timestamptz);
@@ -51,6 +76,21 @@ def stock_database(request):
             yield target
         finally:
             control.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+            for role, previous_set_option in previous_set_options.items():
+                if previous_set_option is None:
+                    control.execute(
+                        sql.SQL("REVOKE {} FROM {}").format(
+                            sql.Identifier(role),
+                            sql.Identifier(login_role),
+                        )
+                    )
+                elif previous_set_option is not True:
+                    control.execute(
+                        sql.SQL("GRANT {} TO {} WITH SET FALSE").format(
+                            sql.Identifier(role),
+                            sql.Identifier(login_role),
+                        )
+                    )
 
 
 @pytest.fixture
@@ -70,6 +110,28 @@ def create_company(db_tx):
     db_tx.execute("SET LOCAL ROLE authenticated")
     db_tx.execute("SELECT set_config('request.jwt.claim.sub', %s, true)", (str(auth),))
     return company
+
+
+@pytest.fixture
+def open_register_session(db_tx, create_company):
+    """Pré-condição US23 real: ADMIN abre um caixa antes do checkout.
+
+    Somente o terminal é preparado como owner. A sessão é aberta pela RPC
+    autenticada, sem INSERT direto em register_log nem desativação de triggers.
+    Ambos os modos (schema/migrations) devem disponibilizar o mesmo contrato.
+    """
+    register_id = uuid4()
+    db_tx.execute("RESET ROLE")
+    db_tx.execute("INSERT INTO public.register(id) VALUES (%s)", (register_id,))
+    db_tx.execute("SET LOCAL ROLE authenticated")
+    operator_id = db_tx.execute("SELECT public.fn_current_user_id()").fetchone()[0]
+    assert operator_id is not None, "A fixture de empresa deve autenticar o ADMIN"
+    register_log_id = db_tx.execute(
+        "SELECT public.fn_open_register_session(%s,%s,%s,NULL,0::numeric)",
+        (create_company, register_id, operator_id),
+    ).fetchone()[0]
+    assert register_log_id is not None, "A abertura deve devolver a sessão de caixa persistida"
+    return register_log_id
 
 
 @pytest.fixture
