@@ -9,7 +9,7 @@ tabela densa onde ela ficaria a um clique de distância da linha errada.
 from html import escape
 
 import qtawesome as qta
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -125,6 +125,7 @@ class SaleDetailsPage(QWidget):
         conteudo_layout.addWidget(self._criar_reversao())
         conteudo_layout.addStretch()
         corpo.setWidget(conteudo)
+        self.sale_scroll = corpo
         layout.addWidget(corpo, 1)
 
         layout.addLayout(self._criar_acoes())
@@ -277,6 +278,17 @@ class SaleDetailsPage(QWidget):
         self._desenhar_itens(venda)
         self._desenhar_reversao(venda)
         self._aplicar_alcada(venda, session)
+        self._ensure_reversal_visible()
+        QTimer.singleShot(0, self._ensure_reversal_visible)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._ensure_reversal_visible()
+        QTimer.singleShot(0, self._ensure_reversal_visible)
+
+    def _ensure_reversal_visible(self):
+        if self.reversao_card.isVisible():
+            self.sale_scroll.ensureWidgetVisible(self.reversao_label, 0, 0)
 
     def resumo_text(self) -> str:
         """Texto do resumo, cliente e pagamento, para teste e leitor de tela."""
@@ -378,11 +390,12 @@ class SaleDetailsPage(QWidget):
             self.reversao_card.setVisible(False)
             return
         rotulo = SaleReversalKind.from_value(especie).label
-        autor = venda.get("reversal_by") or "—"
-        quando = venda.get("reversal_on") or "—"
+        autor = escape(str(venda.get("reversal_by") or "—"))
+        quando = escape(str(venda.get("reversal_on") or "—"))
+        motivo = escape(str(venda.get("reversal_reason") or "—"))
         self.reversao_label.setText(
             f"<b>Operação:</b> {rotulo}<br>"
-            f"<b>Motivo:</b> {venda.get('reversal_reason') or '—'}<br>"
+            f"<b>Motivo:</b> {motivo}<br>"
             f"<b>Responsável:</b> {autor}<br>"
             f"<b>Quando:</b> {quando}"
         )

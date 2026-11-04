@@ -19,10 +19,47 @@ def stock_database(request):
     if conninfo_to_dict(dsn).get("host") not in {"127.0.0.1", "localhost", "::1"}:
         pytest.fail("Integração aceita somente um servidor PostgreSQL local descartável")
     name = "stockflow_test_" + uuid4().hex[:12]
+    granted_roles = []
+    restore_set_option = []
     with psycopg.connect(dsn, autocommit=True) as control:
+        runner = control.execute("SELECT current_user").fetchone()[0]
+        server_version = control.info.server_version
         for role in ("anon", "authenticated", "service_role"):
             if not control.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
                 control.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(sql.Identifier(role)))
+            if server_version >= 160000:
+                membership = control.execute(
+                    """
+                    SELECT set_option
+                      FROM pg_auth_members
+                     WHERE roleid = %s::regrole
+                       AND member = (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                    """,
+                    (role,),
+                ).fetchone()
+                if membership is None:
+                    control.execute(
+                        sql.SQL("GRANT {} TO {} WITH SET TRUE").format(
+                            sql.Identifier(role), sql.Identifier(runner),
+                        )
+                    )
+                    granted_roles.append(role)
+                elif not membership[0]:
+                    control.execute(
+                        sql.SQL("GRANT {} TO {} WITH SET TRUE").format(
+                            sql.Identifier(role), sql.Identifier(runner),
+                        )
+                    )
+                    restore_set_option.append(role)
+            elif not control.execute(
+                "SELECT pg_has_role(current_user, %s, 'MEMBER')", (role,),
+            ).fetchone()[0]:
+                control.execute(
+                    sql.SQL("GRANT {} TO {}").format(
+                        sql.Identifier(role), sql.Identifier(runner),
+                    )
+                )
+                granted_roles.append(role)
         control.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
         target = make_conninfo(dsn, dbname=name)
         try:
@@ -36,6 +73,11 @@ def stock_database(request):
                     GRANT USAGE ON SCHEMA auth TO authenticated, anon;
                     GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated, anon;
                 """)
+                if request.param == "migrations":
+                    setup.execute("""
+                        CREATE SCHEMA extensions;
+                        CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
+                    """)
                 files = (
                     [path for group in ("tables", "procedures", "views", "triggers", "policies")
                      for path in sorted((ROOT / "database/code" / group).glob("*.sql"))]
@@ -51,6 +93,18 @@ def stock_database(request):
             yield target
         finally:
             control.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+            for role in granted_roles:
+                control.execute(
+                    sql.SQL("REVOKE {} FROM {}").format(
+                        sql.Identifier(role), sql.Identifier(runner),
+                    )
+                )
+            for role in restore_set_option:
+                control.execute(
+                    sql.SQL("GRANT {} TO {} WITH SET FALSE").format(
+                        sql.Identifier(role), sql.Identifier(runner),
+                    )
+                )
 
 
 @pytest.fixture

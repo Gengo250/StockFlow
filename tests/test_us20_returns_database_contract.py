@@ -1,6 +1,7 @@
 """Contratos SQL da US20 para o schema declarativo e suas migrations."""
 
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,19 +64,46 @@ def test_final_us20_migration_matches_declarative_return_rpc():
 def test_legacy_us17_product_locks_match_incremental_migration():
     source_path = CODE / "procedures" / "07_clients_sales.sql"
     mirror_path = ROOT / "database" / "supabase" / "schemas" / "procedures" / "07_clients_sales.sql"
-    migration_path = MIGRATIONS / "20261031125500_us17_us20_product_lock_order.sql"
     source = source_path.read_text(encoding="utf-8")
     mirror = mirror_path.read_text(encoding="utf-8")
-    migration = migration_path.read_text(encoding="utf-8")
 
     assert source_path.read_bytes() == mirror_path.read_bytes()
-    for function in ("fn_cancel_sale", "fn_return_sale"):
+    references = {
+        "fn_cancel_sale": "20261104120000_us15_cancel_pending_validation.sql",
+        "fn_return_sale": "20261031125500_us17_us20_product_lock_order.sql",
+    }
+    for function, filename in references.items():
+        migration = (MIGRATIONS / filename).read_text(encoding="utf-8")
         definition = _function_definition(source, function)
         assert definition == _function_definition(mirror, function)
         assert definition == _function_definition(migration, function)
         assert "ORDER BY p.barcode" in definition
         assert "FOR UPDATE" in definition
+        assert re.search(r"ORDER BY p\.barcode(?:, i\.id)?\s+FOR UPDATE", definition)
     assert "ORDER BY p.barcode, i.id" in _function_definition(source, "fn_return_sale")
+
+
+def test_us15_incremental_migration_preserves_signature_and_execution_grants():
+    migration = (
+        MIGRATIONS / "20261104120000_us15_cancel_pending_validation.sql"
+    ).read_text(encoding="utf-8")
+    definition = _function_definition(migration, "fn_cancel_sale")
+    assert "p_sale_id uuid" in definition
+    assert "p_reason  text" in definition
+    assert ") RETURNS jsonb" in definition
+    assert "SET search_path = pg_catalog, pg_temp" in definition
+    assert "jsonb_build_object('sale_id', p_sale_id, 'kind', 'CANCELAMENTO'" in definition
+    assert "'reason', v_reason, 'status', 'CANCELADA'" in definition
+    assert "BEGIN;" in migration
+    assert migration.rstrip().endswith("COMMIT;")
+    assert (
+        "REVOKE ALL ON FUNCTION public.fn_cancel_sale(uuid, text)\n"
+        "    FROM PUBLIC, anon, authenticated, app_backend;"
+    ) in migration
+    assert (
+        "GRANT EXECUTE ON FUNCTION public.fn_cancel_sale(uuid, text)\n"
+        "    TO app_backend, authenticated;"
+    ) in migration
 
 
 def test_us20_and_us22_lock_products_by_barcode_in_ascending_order():

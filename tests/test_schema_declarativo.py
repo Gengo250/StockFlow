@@ -846,8 +846,16 @@ def test_us17_reversao_resolve_a_empresa_pelo_dado_persistido(nome):
     corpo = corpo_da_funcao(nome)
     assert corpo, f"{nome} não declarada em database/code"
     assert "SECURITY DEFINER" in corpo
-    assert "SET search_path = public" in corpo
-    assert re.search(r"FROM public\.sales s\s+WHERE s\.id = p_sale_id FOR UPDATE", corpo)
+    if nome == "fn_cancel_sale":
+        assert "SET search_path = pg_catalog, pg_temp" in corpo
+        assert re.search(
+            r"FROM public\.sales s\s+WHERE s\.id = p_sale_id\s+"
+            r"AND public\.fn_has_role\(s\.company_id, ARRAY\['ADMIN'\]"
+            r"::public\.user_role\[\]\)\s+FOR UPDATE", corpo,
+        )
+    else:
+        assert "SET search_path = public" in corpo
+        assert re.search(r"FROM public\.sales s\s+WHERE s\.id = p_sale_id FOR UPDATE", corpo)
     assert "p_company_id" not in corpo
 
 
@@ -858,9 +866,50 @@ def test_us17_reversao_e_so_do_admin(nome):
     assert "fn_has_role(v_company, ARRAY['ADMIN']::public.user_role[])" in corpo
 
 
-@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
-def test_us17_reversao_so_aceita_venda_concluida(nome):
-    assert "v_status <> 'CONCLUIDA'" in corpo_da_funcao(nome)
+def test_us17_devolucao_so_aceita_venda_concluida():
+    assert "v_status <> 'CONCLUIDA'" in corpo_da_funcao("fn_return_sale")
+
+
+def test_us15_cancelamento_so_aceita_pendente_ou_concluida():
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    assert "v_status IS NULL OR v_status NOT IN ('PENDENTE', 'CONCLUIDA')" in corpo
+
+
+def test_us15_cancelamento_exige_identidade_e_justificativa_normalizada_limitada():
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    assert "v_actor IS NULL" in corpo
+    assert corpo.index("v_actor IS NULL") < corpo.index("FROM public.sales")
+    assert "regexp_replace(" in corpo
+    assert "'^[[:space:]]+|[[:space:]]+$'" in corpo
+    assert "char_length(v_reason) > 300" in corpo
+    assert "v_reason = ''" in corpo
+    assert "USING ERRCODE = 'insufficient_privilege'" in corpo
+    assert "USING ERRCODE = 'check_violation'" in corpo
+
+
+def test_us15_pendencia_valida_movimentos_sem_restituir_estoque():
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    pending_branch = re.search(
+        r"IF v_status = 'PENDENTE' THEN(.*?)\bELSE\b", corpo, re.S,
+    )
+    assert pending_branch
+    branch = pending_branch.group(1)
+    assert "IF EXISTS" in branch
+    assert "FROM public.stock_movements sm" in branch
+    assert "sm.sale_id = p_sale_id AND sm.status = 'CONFIRMADA'" in branch
+    assert "RAISE EXCEPTION" in branch
+    assert not re.search(r"\b(INSERT|UPDATE|DELETE)\b", branch)
+    updates = re.findall(
+        r"UPDATE public\.stock_movements\b.*?;", corpo, re.S,
+    )
+    assert len(updates) == 1
+    assert re.search(
+        r"IF v_status = 'CONCLUIDA' THEN\s+"
+        r"UPDATE public\.stock_movements.*?END IF;", corpo, re.S,
+    )
+    assert corpo.index("INSERT INTO public.sale_reversals") < corpo.index(
+        "UPDATE public.sales SET status = 'CANCELADA'"
+    )
 
 
 @pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])

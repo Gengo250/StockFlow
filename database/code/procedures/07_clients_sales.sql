@@ -700,10 +700,11 @@ BEGIN
 END;
 $$;
 
--- Cancelamento de venda (US17).
+-- Cancelamento de venda (US15, validações e pendências; base US17).
 --
--- A venda não deveria ter existido: as saídas dela passam a CANCELADA e o
--- trigger de recálculo devolve o saldo. É o mesmo contrato de
+-- PENDENTE não deu baixa: cancela sem tocar nas movimentações. Para CONCLUIDA
+-- permanece, nesta tarefa, a estratégia legada: as saídas passam a CANCELADA
+-- e o trigger de recálculo devolve o saldo. É o mesmo contrato de
 -- `fn_cancel_movement` -- "cancelar uma confirmada devolve o saldo" -- e a
 -- guarda de `trg_protect_confirmed_movement` aceita essa transição de
 -- propósito, porque só o status muda.
@@ -715,17 +716,29 @@ CREATE OR REPLACE FUNCTION public.fn_cancel_sale(
     p_reason  text
 ) RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
-SET search_path = public AS $$
+SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
     v_company uuid;
     v_status  public.sale_status;
     v_actor   uuid := public.fn_current_user_id();
-    v_reason  text := btrim(COALESCE(p_reason, ''));
+    v_reason  text := regexp_replace(
+        COALESCE(p_reason, ''), '^[[:space:]]+|[[:space:]]+$', '', 'g'
+    );
 BEGIN
+    IF v_actor IS NULL THEN
+        RAISE EXCEPTION 'Usuário responsável não identificado'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+
     -- A empresa sai da LINHA, nunca de parâmetro do chamador: é o padrão
     -- que `fn_update_products` estabeleceu nesta árvore.
+    -- Filtrar autorização antes de adquirir o bloqueio evita que um usuário
+    -- sem alçada bloqueie uma venda de outra empresa ou de outro perfil.
     SELECT s.company_id, s.status INTO v_company, v_status
-      FROM public.sales s WHERE s.id = p_sale_id FOR UPDATE;
+      FROM public.sales s
+     WHERE s.id = p_sale_id
+       AND public.fn_has_role(s.company_id, ARRAY['ADMIN']::public.user_role[])
+     FOR UPDATE;
 
     -- Venda inexistente e venda de outra empresa dão a MESMA recusa: separar
     -- as duas contaria ao chamador que o identificador existe.
@@ -739,33 +752,53 @@ BEGIN
         RAISE EXCEPTION 'Informe o motivo do cancelamento'
             USING ERRCODE = 'check_violation';
     END IF;
+    IF char_length(v_reason) > 300 THEN
+        RAISE EXCEPTION 'O motivo deve ter no máximo 300 caracteres'
+            USING ERRCODE = 'check_violation';
+    END IF;
 
-    IF v_status <> 'CONCLUIDA' THEN
+    IF v_status IS NULL OR v_status NOT IN ('PENDENTE', 'CONCLUIDA') THEN
         RAISE EXCEPTION
-            'Somente venda concluída pode ser cancelada (situação atual: %)',
+            'Somente venda pendente ou concluída pode ser cancelada (situação atual: %)',
             v_status USING ERRCODE = 'check_violation';
     END IF;
 
-    -- Mesma ordem do checkout e da US20: código de barras ascendente.
-    PERFORM p.id
-      FROM public.products p
-     WHERE p.company_id = v_company
-       AND p.id IN (
-           SELECT sm.product_id FROM public.stock_movements sm
-            WHERE sm.sale_id = p_sale_id AND sm.status = 'CONFIRMADA'
-              AND sm.product_id IS NOT NULL
-       )
-     ORDER BY p.barcode FOR UPDATE;
+    IF v_status = 'PENDENTE' THEN
+        -- Não corrigir silenciosamente uma pendência com estoque já afetado.
+        -- Só leitura: nenhum movimento ou saldo é alterado neste caminho.
+        IF EXISTS (
+            SELECT 1 FROM public.stock_movements sm
+             WHERE sm.sale_id = p_sale_id AND sm.status = 'CONFIRMADA'
+        ) THEN
+            RAISE EXCEPTION 'Venda pendente possui movimentação confirmada; revise a inconsistência antes de cancelar'
+                USING ERRCODE = 'check_violation';
+        END IF;
+    ELSE
+        -- Mesma ordem do checkout e da US20: código de barras ascendente.
+        PERFORM p.id
+          FROM public.products p
+         WHERE p.company_id = v_company
+           AND p.id IN (
+                SELECT sm.product_id FROM public.stock_movements sm
+                 WHERE sm.sale_id = p_sale_id AND sm.status = 'CONFIRMADA'
+                   AND sm.product_id IS NOT NULL
+            )
+          ORDER BY p.barcode FOR UPDATE;
+    END IF;
 
     -- O UNIQUE (sale_id) desta tabela é o que torna a reversão terminal; a
     -- conferência de status acima é a mensagem amigável para o caso comum.
     INSERT INTO public.sale_reversals (company_id, sale_id, kind, reason, created_by)
     VALUES (v_company, p_sale_id, 'CANCELAMENTO', v_reason, v_actor);
 
-    UPDATE public.stock_movements
-       SET status = 'CANCELADA'
-     WHERE sale_id = p_sale_id AND status = 'CONFIRMADA';
+    IF v_status = 'CONCLUIDA' THEN
+        UPDATE public.stock_movements
+           SET status = 'CANCELADA'
+         WHERE sale_id = p_sale_id AND status = 'CONFIRMADA';
+    END IF;
 
+    -- Os triggers existentes continuam validando caixa e devoluções. Uma
+    -- recusa neste UPDATE reverte também a auditoria e a reversão acima.
     UPDATE public.sales SET status = 'CANCELADA' WHERE id = p_sale_id;
 
     RETURN jsonb_build_object('sale_id', p_sale_id, 'kind', 'CANCELAMENTO',

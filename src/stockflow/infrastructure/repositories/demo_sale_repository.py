@@ -4,6 +4,7 @@ from decimal import Decimal
 from threading import RLock
 from uuid import uuid4
 
+from stockflow.domain.enums.sale_status import SaleStatus
 from stockflow.domain.permissions import ensure_can_return_sales
 from stockflow.domain.sale_return import (
     OriginalSaleItem,
@@ -362,20 +363,41 @@ class DemoSaleRepository:
         return self._reverter(sale_id, reason, "DEVOLUCAO", "DEVOLVIDA")
 
     def _reverter(self, sale_id, reason, kind, status):
-        """Devolve o saldo pelo repositório de MOVIMENTAÇÃO, nunca escrevendo
-        `Product.stock` direto — o mesmo contrato que o banco impõe."""
+        """Cancela pendências sem estoque; concluídas usam a reversão existente.
+
+        Nunca escreve `Product.stock` diretamente. Espelha a validação da
+        migration US15 de pendências; entradas compensatórias da US15 serão
+        implementadas separadamente. Aplicação da migration é etapa externa.
+        """
         with self._lock:
             linha = next(
                 (l for l in self.rows if str(l["id"]) == str(sale_id)), None
             )
             if linha is None:
                 raise ValueError("Venda não encontrada.")
-            atual = linha.get("status", "CONCLUIDA")
-            if atual != "CONCLUIDA":
-                # Mesma recusa de `fn_cancel_sale`: reversão é terminal.
-                rotulo = "cancelada" if atual == "CANCELADA" else "devolvida"
+            try:
+                atual = SaleStatus(linha.get("status"))
+            except ValueError:
+                raise ValueError("Situação de venda ausente ou inválida.") from None
+            if atual.revertida:
+                rotulo = "cancelada" if atual is SaleStatus.CANCELADA else "devolvida"
                 raise ValueError(f"Esta venda já foi {rotulo}.")
-            self.movements.reverse_sale(sale_id, linha.get("items", []), kind)
+            if kind == "CANCELAMENTO":
+                if not atual.cancelavel:
+                    raise ValueError("Somente venda pendente ou concluída pode ser cancelada.")
+            elif not atual.reversivel:
+                raise ValueError("Somente venda concluída pode ser devolvida.")
+            if atual is SaleStatus.PENDENTE and any(
+                str(movement.get("sale_id")) == str(sale_id)
+                and movement.get("status") == "CONFIRMADA"
+                for movement in self.movements._movements
+            ):
+                raise ValueError(
+                    "Venda pendente possui movimentação confirmada; "
+                    "revise a inconsistência antes de cancelar"
+                )
+            if atual is SaleStatus.CONCLUIDA:
+                self.movements.reverse_sale(sale_id, linha.get("items", []), kind)
             linha.update(
                 status=status,
                 reversal_kind=kind,
@@ -383,6 +405,9 @@ class DemoSaleRepository:
                 reversal_on=datetime.now().strftime("%d/%m/%Y %H:%M"),
                 reversal_by="Demonstração",
             )
+            snapshot = self._return_sales.get(str(sale_id))
+            if snapshot is not None:
+                snapshot["status"] = status
             return dict(linha)
 
     def register(self, client, product, total):

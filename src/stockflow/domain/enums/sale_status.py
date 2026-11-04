@@ -4,7 +4,7 @@ from enum import StrEnum
 
 
 class SaleStatus(StrEnum):
-    """`CONCLUIDA` é o único estado reversível (US17).
+    """Cancelamento e devolução têm elegibilidades distintas.
 
     `PENDENTE` é carrinho em montagem; `CANCELADA` diz que a venda não
     deveria ter existido; `DEVOLVIDA` diz que existiu e a mercadoria voltou.
@@ -32,8 +32,16 @@ class SaleStatus(StrEnum):
 
     @property
     def reversivel(self) -> bool:
-        """Mesma regra que `fn_cancel_sale` aplica no banco."""
+        """Somente a venda concluída admite devolução com restituição."""
         return self is SaleStatus.CONCLUIDA
+
+    @property
+    def cancelavel(self) -> bool:
+        """Elegibilidade por status; pendência não exige restituição (US15).
+
+        Permissões, caixa e devoluções anteriores são verificações adicionais.
+        """
+        return self in (SaleStatus.PENDENTE, SaleStatus.CONCLUIDA)
 
     @classmethod
     def from_value(cls, value):
