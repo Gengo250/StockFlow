@@ -28,7 +28,6 @@ TITULO_DE_REVERSAO = {
     SaleStatus.DEVOLVIDA: TITULO_DEVOLVIDO,
 }
 
-_BORDA = "#E2E8F0"
 _TEXTO = "#0F172A"
 _SUAVE = "#64748B"
 _ALERTA = "#B91C1C"
@@ -51,9 +50,9 @@ def formatar_documento(documento: str) -> str:
     return documento or ""
 
 
-def _linha(rotulo, valor):
-    return (f"<tr><td style='color:{_SUAVE};padding:2px 12px 2px 0'>{rotulo}</td>"
-            f"<td style='color:{_TEXTO}'>{valor}</td></tr>")
+def _linha(rotulo, valor, alinhamento='left'):
+    return (f"<tr><td valign='top' style='color:{_SUAVE}'>{rotulo}</td>"
+            f"<td valign='top' align='{alinhamento}' style='color:{_TEXTO}'>{valor}</td></tr>")
 
 
 def _cabecalho_da_empresa(receipt):
@@ -63,20 +62,21 @@ def _cabecalho_da_empresa(receipt):
         return ""
     documento = formatar_documento(receipt.company.document)
     linha_documento = (
-        f"<div style='color:{_SUAVE};font-size:11px'>CNPJ {escape(documento)}</div>"
+        f"<p style='color:{_SUAVE};font-size:10pt;margin-top:4px;margin-bottom:16px'>"
+        f"CNPJ {escape(documento)}</p>"
         if documento else ""
     )
-    return (f"<div style='font-size:16px;font-weight:bold;color:{_TEXTO}'>"
-            f"{escape(receipt.company.name)}</div>{linha_documento}")
+    return (f"<p style='font-size:18pt;font-weight:bold;color:{_TEXTO};margin:0'>"
+            f"{escape(receipt.company.name)}</p>{linha_documento}")
 
 
 def _titulo(receipt):
     if not receipt.cancelado:
-        return (f"<div style='font-size:14px;font-weight:bold;color:{_TEXTO};"
-                f"padding:10px 0'>{TITULO_VALIDO}</div>")
+        return (f"<p style='font-size:16pt;font-weight:bold;color:{_TEXTO};"
+                f"margin-top:16px;margin-bottom:14px'>{TITULO_VALIDO}</p>")
     rotulo = TITULO_DE_REVERSAO[receipt.status]
-    return (f"<div style='font-size:14px;font-weight:bold;color:{_ALERTA};"
-            f"border:2px solid {_ALERTA};padding:8px'>{rotulo}</div>")
+    return (f"<p style='font-size:16pt;font-weight:bold;color:{_ALERTA};"
+            f"margin-top:16px;margin-bottom:14px'>{rotulo}</p>")
 
 
 def _dados_da_operacao(receipt):
@@ -86,57 +86,57 @@ def _dados_da_operacao(receipt):
     if receipt.client:
         linhas.append(_linha("Cliente", escape(receipt.client)))
     linhas.append(_linha("Responsável", escape(receipt.seller or "—")))
-    return "<table>" + "".join(linhas) + "</table>"
+    return "<table cellpadding='5' cellspacing='0'>" + "".join(linhas) + "</table>"
 
 
 def _itens(receipt):
     cabecalho = "".join(
-        f"<th align='{alinhamento}' style='border-bottom:1px solid {_BORDA};"
-        f"color:{_SUAVE};font-weight:normal'>{titulo}</th>"
-        for titulo, alinhamento in (
-            ("Código", "left"), ("Produto", "left"), ("Qtd.", "right"),
-            ("Preço unit.", "right"), ("Subtotal", "right"),
-            ("Desconto", "right"), ("Total", "right"),
+        f"<th width='{largura}' align='{alinhamento}' valign='top' "
+        f"bgcolor='#F1F5F9' style='color:{_TEXTO};font-weight:bold'>{titulo}</th>"
+        for titulo, largura, alinhamento in (
+            ("Produto / código", "27%", "left"), ("Qtd.", "10%", "right"),
+            ("Preço unit.", "21%", "right"),
+            ("Desconto", "21%", "right"), ("Total", "21%", "right"),
         )
     )
     corpo = "".join(
-        "<tr>"
-        f"<td>{escape(item.code)}</td>"
-        f"<td>{escape(item.name)}</td>"
-        f"<td align='right'>{item.quantity}</td>"
-        f"<td align='right'>{formatar_moeda(item.unit_price)}</td>"
-        f"<td align='right'>{formatar_moeda(item.subtotal)}</td>"
-        f"<td align='right'>{formatar_moeda(item.discount)}</td>"
-        f"<td align='right'>{formatar_moeda(item.final_subtotal)}</td>"
+        f"<tr bgcolor='{'#FFFFFF' if index % 2 else '#F8FAFC'}'>"
+        f"<td valign='top'><b>{escape(item.name)}</b><br>"
+        f"<span style='font-size:10pt;color:{_SUAVE}'>{escape(item.code)}<br>"
+        f"Subtotal bruto: {formatar_moeda(item.subtotal)}</span></td>"
+        f"<td valign='top' align='right'>{item.quantity}</td>"
+        f"<td valign='top' align='right'>{formatar_moeda(item.unit_price)}</td>"
+        f"<td valign='top' align='right'>{formatar_moeda(item.discount)}</td>"
+        f"<td valign='top' align='right'>{formatar_moeda(item.final_subtotal)}</td>"
         "</tr>"
-        for item in receipt.items
+        for index, item in enumerate(receipt.items)
     )
-    return (f"<table width='100%' cellpadding='4' cellspacing='0'>"
-            f"<tr>{cabecalho}</tr>{corpo}</table>")
+    return (f"<table width='100%' cellpadding='8' cellspacing='0'>"
+            f"<thead><tr>{cabecalho}</tr></thead>{corpo}</table>")
 
 
 def _totais(receipt):
-    linhas = [_linha("Subtotal bruto", formatar_moeda(receipt.gross))]
+    linhas = [_linha("Subtotal bruto", formatar_moeda(receipt.gross), 'right')]
     # Os dois escopos de desconto (US22) só aparecem quando existem: linha
     # zerada ocupa espaço do papel afirmando que não houve desconto duas
     # vezes, e o total consolidado logo abaixo já diz isso.
     if receipt.item_discount:
         linhas.append(_linha("Descontos nos itens",
-                             formatar_moeda(receipt.item_discount)))
+                             formatar_moeda(receipt.item_discount), 'right'))
     if receipt.sale_discount:
         linhas.append(_linha("Desconto na venda",
-                             formatar_moeda(receipt.sale_discount)))
-    linhas.append(_linha("Desconto total", formatar_moeda(receipt.total_discount)))
+                             formatar_moeda(receipt.sale_discount), 'right'))
+    linhas.append(_linha("Desconto total", formatar_moeda(receipt.total_discount), 'right'))
     linhas.append(
-        f"<tr><td style='font-size:14px;font-weight:bold;padding-top:6px'>TOTAL</td>"
-        f"<td style='font-size:14px;font-weight:bold;padding-top:6px'>"
+        f"<tr bgcolor='#EFF6FF'><td style='font-size:15pt;font-weight:bold'>TOTAL</td>"
+        f"<td align='right' style='font-size:15pt;font-weight:bold'>"
         f"{formatar_moeda(receipt.net)}</td></tr>"
     )
-    return "<table>" + "".join(linhas) + "</table>"
+    return "<table width='100%' cellpadding='6' cellspacing='0'>" + "".join(linhas) + "</table>"
 
 
 def _pagamento(receipt):
-    return ("<table>"
+    return ("<table cellpadding='5' cellspacing='0'>"
             + _linha("Forma de pagamento", escape(receipt.payment.method or "—"))
             + _linha("Valor pago", formatar_moeda(receipt.payment.amount))
             + "</table>")
@@ -146,7 +146,7 @@ def _cancelamento(receipt):
     reversao = receipt.cancellation
     if reversao is None:
         return ""
-    return (f"<table style='color:{_ALERTA}'>"
+    return (f"<table cellpadding='5' cellspacing='0' style='color:{_ALERTA}'>"
             + _linha("Operação", escape(reversao.kind.label))
             + _linha("Motivo", escape(reversao.reason or "—"))
             + _linha("Quando", escape(reversao.when or "—"))
@@ -156,17 +156,21 @@ def _cancelamento(receipt):
 
 def render_receipt_html(receipt: SaleReceipt) -> str:
     """Documento completo, pronto para `QTextDocument.setHtml`."""
-    separador = f"<hr style='border:0;border-top:1px solid {_BORDA}'>"
+    def secao(titulo):
+        return (f"<p style='font-size:12pt;font-weight:bold;margin-top:18px;"
+                f"margin-bottom:8px'>{titulo}</p>")
+
     return (
-        f"<div style='font-family:sans-serif;font-size:12px;color:{_TEXTO}'>"
+        f"<html><body style='font-family:sans-serif;font-size:11pt;color:{_TEXTO};"
+        f"background-color:#FFFFFF'>"
         f"{_cabecalho_da_empresa(receipt)}"
         f"{_titulo(receipt)}"
-        f"{_dados_da_operacao(receipt)}{separador}"
-        f"{_itens(receipt)}{separador}"
-        f"{_totais(receipt)}{separador}"
-        f"{_pagamento(receipt)}"
+        f"{_dados_da_operacao(receipt)}"
+        f"{secao('Itens da venda')}{_itens(receipt)}"
+        f"{secao('Resumo')}{_totais(receipt)}"
+        f"{secao('Pagamento')}{_pagamento(receipt)}"
         f"{_cancelamento(receipt)}"
-        f"<div style='color:{_SUAVE};font-size:10px;padding-top:12px'>"
-        f"{AVISO_SEM_VALOR_FISCAL}</div>"
-        f"</div>"
+        f"<p style='color:{_SUAVE};font-size:10pt;margin-top:20px;line-height:130%'>"
+        f"{AVISO_SEM_VALOR_FISCAL}</p>"
+        f"</body></html>"
     )

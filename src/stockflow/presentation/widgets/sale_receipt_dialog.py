@@ -21,9 +21,6 @@ from PySide6.QtWidgets import (
 from stockflow.application.services.receipt_renderer import render_receipt_html
 from stockflow.presentation.styles import inventory
 
-MARGEM_MM = 12
-
-
 class SaleReceiptDialog(QDialog):
     def __init__(self, receipt, parent=None):
         super().__init__(parent)
@@ -100,11 +97,14 @@ class SaleReceiptDialog(QDialog):
             )
         try:
             writer = QPdfWriter(destino)
+            # O HTML contém espaçamentos em pixels. A resolução de layout
+            # deve corresponder à tela; o PDF continua contendo texto vetorial.
+            writer.setResolution(96)
             writer.setPageSize(QPageSize(QPageSize.A4))
-            writer.setPageMargins(
-                QMarginsF(MARGEM_MM, MARGEM_MM, MARGEM_MM, MARGEM_MM),
-                QPageLayout.Millimeter,
-            )
+            # print_ pagina o documento com 2 cm e numeração. Não somar outra
+            # margem no dispositivo nem forçar uma página já dimensionada:
+            # isso cortava/duplicava trechos das linhas nas quebras de página.
+            writer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Millimeter)
             documento = QTextDocument()
             documento.setHtml(self.html)
             documento.print_(writer)

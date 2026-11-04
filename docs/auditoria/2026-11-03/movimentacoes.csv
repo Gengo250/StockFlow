@@ -1,0 +1,18 @@
+﻿Movimentação;Código;Produto;Espécie;Quantidade;Situação;Observação;Quando;Fornecedor;Motivo
+MOV-017;PRD-009;"Monitor LG UltraWide 34""";Saída;1;Confirmada;SAIDA_VENDA - venda 581cdf03-45eb-423c-9ea8-9bebb5e5b652;Hoje, 07:51;—;—
+MOV-016;PRD-005;Webcam Full HD;Saída;1;Confirmada;Exemplo: correção após inventário;Hoje, 07:51;—;Erro de contagem
+MOV-015;PRD-005;Webcam Full HD;Entrada;1;Confirmada;Conferência de recebimento;Hoje, 07:51;Distribuidora Central;—
+MOV-014;PRD-005;Webcam Full HD;Saída;1;Cancelada;Reserva cancelada pelo cliente;Hoje, 07:51;—;—
+MOV-013;PRD-008;Teclado mecânico sem fio;Entrada;12;Pendente;Reposição aguardando conferência;Hoje, 07:51;Distribuidora Central;—
+MOV-012;PRD-008;Teclado mecânico sem fio;Saída;2;Confirmada;SAIDA_VENDA - venda 0a966bef-f53b-4e3e-9998-83f5ec4ca244;Hoje, 07:51;—;—
+MOV-011;PRD-009;"Monitor LG UltraWide 34""";Saída;1;Confirmada;SAIDA_VENDA - venda 0a966bef-f53b-4e3e-9998-83f5ec4ca244;Hoje, 07:51;—;—
+MOV-010;PRD-005;Webcam Full HD;Saída;2;Confirmada;SAIDA_VENDA - venda 1291794f-3af8-47e4-815e-e478ab59ec5c;Hoje, 07:51;—;—
+MOV-009;PRD-003;Cabo HDMI 2m;Saída;2;Confirmada;SAIDA_VENDA - venda d6b93e1e-a702-419e-9717-9ca4189a0547;Hoje, 07:51;—;—
+MOV-008;PRD-007;Mouse ergonômico;Saída;1;Cancelada;SAIDA_VENDA - venda b6a316c6-0d35-4f26-b4e9-3b94b02d1ebb;Hoje, 07:51;—;—
+MOV-007;PRD-009;"Monitor LG UltraWide 34""";Entrada;1;Confirmada;DEVOLUCAO_VENDA - venda 8d108cc1-76b1-422d-bb71-d09dfe71a764;Hoje, 07:51;—;—
+MOV-006;PRD-009;"Monitor LG UltraWide 34""";Saída;1;Confirmada;SAIDA_VENDA - venda 8d108cc1-76b1-422d-bb71-d09dfe71a764;Hoje, 07:51;—;—
+MOV-005;PRD-003;Cabo HDMI 2m;Entrada;5;Confirmada;Saldo de abertura da demonstração;Hoje, 07:51;Distribuidora Central;—
+MOV-004;PRD-005;Webcam Full HD;Entrada;13;Confirmada;Saldo de abertura da demonstração;Hoje, 07:51;Distribuidora Central;—
+MOV-003;PRD-007;Mouse ergonômico;Entrada;2;Confirmada;Saldo de abertura da demonstração;Hoje, 07:51;Distribuidora Central;—
+MOV-002;PRD-008;Teclado mecânico sem fio;Entrada;8;Confirmada;Saldo de abertura da demonstração;Hoje, 07:51;Distribuidora Central;—
+MOV-001;PRD-009;"Monitor LG UltraWide 34""";Entrada;19;Confirmada;Saldo de abertura da demonstração;Hoje, 07:51;Distribuidora Central;—

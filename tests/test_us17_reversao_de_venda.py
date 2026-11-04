@@ -6,7 +6,12 @@ próxima venda ser recusada por mercadoria que voltou para a prateleira.
 """
 
 import pytest
-from PySide6.QtWidgets import QInputDialog, QMessageBox
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QTextDocument
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import (
+    QApplication, QDialogButtonBox, QInputDialog, QLineEdit, QMessageBox,
+)
 
 from stockflow.domain.enums.user_role import UserRole
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
@@ -206,3 +211,59 @@ def test_reversao_atualiza_o_catalogo_que_as_outras_telas_leem(janela):
     janela._cancelar_venda(venda, "engano")
 
     assert int(janela.products[PRODUTO].stock) == baixado + 4
+
+
+@pytest.mark.parametrize("tamanho", [(1440, 900), (1024, 768)])
+def test_justificativa_digitada_fica_visivel_apos_confirmar(janela, qapp, tamanho):
+    venda = _vender(janela)
+    janela.resize(*tamanho)
+    janela.show()
+    janela._show_sale_details(venda)
+    qapp.processEvents()
+    motivo = "Minha justificativa: embalagem rasgada na entrega"
+
+    def preencher_dialogo():
+        dialogo = QApplication.activeModalWidget()
+        campo = dialogo.findChild(QLineEdit)
+        QTest.keyClicks(campo, motivo)
+        botoes = dialogo.findChild(QDialogButtonBox)
+        QTest.mouseClick(botoes.button(QDialogButtonBox.Ok), Qt.LeftButton)
+
+    QTimer.singleShot(0, preencher_dialogo)
+    janela.sale_details_page.return_button.click()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    gravado = janela.sale_service.get_sale(janela.session, venda)
+    assert gravado["reversal_reason"] == motivo
+    rotulo = janela.sale_details_page.reversao_label
+    assert motivo in rotulo.text()
+    assert rotulo.visibleRegion().boundingRect().contains(rotulo.rect())
+
+    janela.sale_details_page.back_button.click()
+    tabela = janela.vendas_page.table
+    linha = next(i for i in range(tabela.rowCount())
+                 if tabela.item(i, 0).text() == venda)
+    assert motivo in tabela.item(linha, 5).toolTip()
+    tabela.cellWidget(linha, 6).click()
+    qapp.processEvents()
+    qapp.processEvents()
+    assert janela.sale_details_page.venda["reversal_reason"] == motivo
+    assert motivo in rotulo.text()
+    assert rotulo.visibleRegion().boundingRect().contains(rotulo.rect())
+
+
+def test_justificativa_e_exibida_literalmente_apos_devolver(janela, monkeypatch):
+    venda = _vender(janela)
+    janela._show_sale_details(venda)
+    motivo = "Produto <avariado> & acessório ausente; etiqueta &amp; ilegível"
+    monkeypatch.setattr(
+        QInputDialog, "getText", staticmethod(lambda *a, **k: (motivo, True))
+    )
+
+    janela.sale_details_page.return_button.click()
+
+    assert janela.sale_service.get_sale(janela.session, venda)["reversal_reason"] == motivo
+    documento = QTextDocument()
+    documento.setHtml(janela.sale_details_page.reversao_label.text())
+    assert motivo in documento.toPlainText()

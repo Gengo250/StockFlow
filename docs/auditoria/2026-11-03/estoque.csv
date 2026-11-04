@@ -1,0 +1,8 @@
+﻿Código;Produto;Categoria;Saldo;Mínimo;Ativo
+PRD-009;"Monitor LG UltraWide 34""";Eletrônicos;17;10;Sim
+PRD-008;Teclado mecânico sem fio;Periféricos;6;10;Sim
+PRD-007;Mouse ergonômico;Periféricos;2;5;Sim
+PRD-006;Headset USB com microfone;Eletrônicos;0;10;Sim
+PRD-005;Webcam Full HD;Eletrônicos;11;10;Sim
+PRD-003;Cabo HDMI 2m;Eletrônicos;3;;Sim
+PRD-002;Pen drive 64GB;Eletrônicos;0;0;Sim

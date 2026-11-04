@@ -1,0 +1,195 @@
+{
+  "platform": "wayland",
+  "style": "fusion",
+  "states": [
+    {
+      "name": "01-abertura",
+      "size": [
+        640,
+        600
+      ],
+      "action": [
+        227,
+        536,
+        186,
+        40
+      ],
+      "status": "Caixa fechado · informe o saldo inicial para começar.",
+      "feedback": ""
+    },
+    {
+      "name": "02-aberto",
+      "size": [
+        640,
+        600
+      ],
+      "action": [
+        227,
+        536,
+        186,
+        40
+      ],
+      "status": "Caixa aberto · saldo inicial R$ 100,00",
+      "feedback": "Caixa iniciado. As novas vendas serão vinculadas a esta sessão."
+    },
+    {
+      "name": "03-divergencia",
+      "size": [
+        640,
+        600
+      ],
+      "action": [
+        227,
+        536,
+        186,
+        40
+      ],
+      "status": "Caixa aberto · saldo inicial R$ 100,00",
+      "feedback": "Divergência de valores. Informe uma justificativa."
+    },
+    {
+      "name": "04-fechado",
+      "size": [
+        640,
+        600
+      ],
+      "action": [
+        227,
+        536,
+        186,
+        40
+      ],
+      "status": "Caixa fechado · informe o saldo inicial para começar.",
+      "feedback": "Caixa fechado. Esperado: R$ 100,00 · Declarado: R$ 100,00 · Diferença: R$ 0,00"
+    },
+    {
+      "name": "05-reaberto",
+      "size": [
+        640,
+        600
+      ],
+      "action": [
+        227,
+        536,
+        186,
+        40
+      ],
+      "status": "Caixa aberto · saldo inicial R$ 100,00",
+      "feedback": "Caixa iniciado. As novas vendas serão vinculadas a esta sessão."
+    },
+    {
+      "name": "06-fonte-ampliada",
+      "size": [
+        520,
+        360
+      ],
+      "action": [
+        187,
+        296,
+        146,
+        40
+      ],
+      "status": "Caixa aberto · saldo inicial R$ 100,00",
+      "feedback": ""
+    },
+    {
+      "name": "07-ultimo-campo",
+      "size": [
+        520,
+        360
+      ],
+      "action": [
+        187,
+        296,
+        146,
+        40
+      ],
+      "status": "Caixa aberto · saldo inicial R$ 100,00",
+      "feedback": ""
+    },
+    {
+      "name": "08-erro-visivel",
+      "size": [
+        520,
+        360
+      ],
+      "action": [
+        187,
+        296,
+        146,
+        40
+      ],
+      "status": "Caixa aberto · saldo inicial R$ 100,00",
+      "feedback": "Divergência de valores. Informe uma justificativa."
+    },
+    {
+      "name": "09-acima-do-limite",
+      "size": [
+        520,
+        360
+      ],
+      "action": [
+        187,
+        296,
+        146,
+        40
+      ],
+      "status": "Caixa fechado · informe o saldo inicial para começar.",
+      "feedback": "O valor máximo permitido por campo é R$ 99.999.999,99."
+    },
+    {
+      "name": "10-valores-maximos",
+      "size": [
+        520,
+        360
+      ],
+      "action": [
+        187,
+        296,
+        146,
+        40
+      ],
+      "status": "Caixa aberto · saldo inicial R$ 99.999.999,99",
+      "feedback": "O valor máximo permitido por campo é R$ 99.999.999,99."
+    },
+    {
+      "name": "11-justificativa-longa",
+      "size": [
+        520,
+        360
+      ],
+      "action": [
+        187,
+        296,
+        146,
+        40
+      ],
+      "status": "Caixa aberto · saldo inicial R$ 99.999.999,99",
+      "feedback": "O valor máximo permitido por campo é R$ 99.999.999,99."
+    },
+    {
+      "name": "12-fechamento-valores-altos",
+      "size": [
+        520,
+        360
+      ],
+      "action": [
+        187,
+        296,
+        146,
+        40
+      ],
+      "status": "Caixa fechado · informe o saldo inicial para começar.",
+      "feedback": "Caixa fechado. Esperado: R$ 99.999.999,99 · Declarado: R$ 599.999.999,94 · Diferença: R$ 499.999.999,95"
+    }
+  ],
+  "high_amounts": {
+    "reason_length": 2000,
+    "total_expected": "99999999.99",
+    "total_declared": "599999999.94",
+    "difference": "499999999.95"
+  },
+  "passed": true,
+  "network_attempts": 0,
+  "supabase_imported": false
+}

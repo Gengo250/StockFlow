@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.040" timestamp="2026-11-03T07:55:34.825857-03:00" hostname="gengolinux"><testcase classname="docs.auditoria.2026-11-03.test_supabase_review" name="test_single_product_preserves_same_stock_limits_as_catalog" time="0.001"><failure message="assert (None, None) == (10, 20)&#10;  &#10;  At index 0 diff: None != 10&#10;  Use -v to get more diff">docs/auditoria/2026-11-03/test_supabase_review.py:46: in test_single_product_preserves_same_stock_limits_as_catalog
+    assert (product.minimum_stock, product.maximum_stock) == (10, 20)
+E   assert (None, None) == (10, 20)
+E     
+E     At index 0 diff: None != 10
+E     Use -v to get more diff</failure></testcase></testsuite></testsuites>

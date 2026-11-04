@@ -1,0 +1,88 @@
+FFFFFFFFF..                                                              [100%]
+=================================== FAILURES ===================================
+___________________ test_failed_multi_item_return_is_atomic ____________________
+docs/auditoria/2026-11-03/test_demo_review.py:68: in test_failed_multi_item_return_is_atomic
+    assert {code: p.stock for code, p in demo.products.items()} == stock_before
+E   AssertionError: assert {'PRD-009': '...06': '0', ...} == {'PRD-009': '...06': '0', ...}
+E     
+E     Omitting 6 identical items, use -vv to show
+E     Differing items:
+E     {'PRD-009': '18'} != {'PRD-009': '17'}
+E     Use -v to get more diff
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+________________ test_cancelled_sale_cannot_return_items_again _________________
+docs/auditoria/2026-11-03/test_demo_review.py:79: in test_cancelled_sale_cannot_return_items_again
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+_________________ test_closed_register_sale_cannot_be_changed __________________
+docs/auditoria/2026-11-03/test_demo_review.py:89: in test_closed_register_sale_cannot_be_changed
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+______________ test_created_product_stock_has_confirmed_movement _______________
+docs/auditoria/2026-11-03/test_demo_review.py:107: in test_created_product_stock_has_confirmed_movement
+    assert balance == 7, rows
+E   AssertionError: ()
+E   assert 0 == 7
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+________ test_product_edit_does_not_erase_a_sale_made_after_form_opened ________
+docs/auditoria/2026-11-03/test_demo_review.py:120: in test_product_edit_does_not_erase_a_sale_made_after_form_opened
+    assert demo.products[code].stock == stock_after_sale
+E   AssertionError: assert '18' == '17'
+E     
+E     - 17
+E     + 18
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+________________ test_edited_user_status_matches_authentication ________________
+docs/auditoria/2026-11-03/test_demo_review.py:130: in test_edited_user_status_matches_authentication
+    assert row[4] == 'Inativo'
+E   AssertionError: assert 'Ativo' == 'Inativo'
+E     
+E     - Inativo
+E     + Ativo
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+_____________________ test_last_admin_cannot_demote_itself _____________________
+docs/auditoria/2026-11-03/test_demo_review.py:135: in test_last_admin_cannot_demote_itself
+    with pytest.raises(ValueError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+__________________ test_same_day_history_uses_time_before_id ___________________
+docs/auditoria/2026-11-03/test_demo_review.py:147: in test_same_day_history_uses_time_before_id
+    assert page.rows[0]['data'] == '03/11/2026 17:30'
+E   AssertionError: assert '03/11/2026 08:30' == '03/11/2026 17:30'
+E     
+E     - 03/11/2026 17:30
+E     ?            ^^
+E     + 03/11/2026 08:30
+E     ?            ^^
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+_____________ test_receipt_rejects_total_that_disagrees_with_items _____________
+docs/auditoria/2026-11-03/test_demo_review.py:154: in test_receipt_rejects_total_that_disagrees_with_items
+    with pytest.raises(ReceiptNotAvailable):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ReceiptNotAvailable
+---------------------------- Captured stderr setup -----------------------------
+This plugin does not support propagateSizeHints()
+=========================== short test summary info ============================
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_failed_multi_item_return_is_atomic
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_cancelled_sale_cannot_return_items_again
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_closed_register_sale_cannot_be_changed
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_created_product_stock_has_confirmed_movement
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_product_edit_does_not_erase_a_sale_made_after_form_opened
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_edited_user_status_matches_authentication
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_last_admin_cannot_demote_itself
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_same_day_history_uses_time_before_id
+FAILED docs/auditoria/2026-11-03/test_demo_review.py::test_receipt_rejects_total_that_disagrees_with_items
+9 failed, 2 passed in 13.79s

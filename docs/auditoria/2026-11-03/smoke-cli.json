@@ -1,0 +1,29 @@
+{
+  "command": "uv run --offline --frozen stockflow --mock",
+  "passed": true,
+  "backend": "demo",
+  "pages": [
+    "dashboard",
+    "estoque",
+    "movimentacoes",
+    "fornecedores",
+    "clientes",
+    "vendas",
+    "produtos",
+    "historico_precos",
+    "relatorios",
+    "usuarios",
+    "configuracoes"
+  ],
+  "csv_rows": {
+    "estoque": 7,
+    "vendas": 8,
+    "movimentacoes": 17,
+    "auditoria": 3
+  },
+  "sold_quantity": 1,
+  "net": "2499.90",
+  "cash_difference": "0.00",
+  "network_attempts": 0,
+  "supabase_imported": false
+}

@@ -1,0 +1,12 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_single_product_preserves_same_stock_limits_as_catalog __________
+docs/auditoria/2026-11-03/test_supabase_review.py:46: in test_single_product_preserves_same_stock_limits_as_catalog
+    assert (product.minimum_stock, product.maximum_stock) == (10, 20)
+E   assert (None, None) == (10, 20)
+E     
+E     At index 0 diff: None != 10
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED docs/auditoria/2026-11-03/test_supabase_review.py::test_single_product_preserves_same_stock_limits_as_catalog
+1 failed in 0.04s

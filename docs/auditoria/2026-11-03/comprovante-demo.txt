@@ -1,0 +1,65 @@
+StockFlow Comércio LTDA (demonstração)
+CNPJ 11.222.333/0001-81
+
+COMPROVANTE DE VENDA
+581cdf03-45eb-423c-9ea8-9bebb5e5b652
+Venda
+
+03/11/2026 07:51
+Data
+
+Ana Ferreira
+Cliente
+
+Ana Ferreira
+Responsável
+
+Código
+
+Produto
+
+PRD-009
+
+Monitor LG UltraWide 34"
+
+Qtd.
+
+Preço unit.
+
+Subtotal
+
+Desconto
+
+Total
+
+1
+
+R$ 2.499,90
+
+R$ 2.499,90
+
+R$ 0,00
+
+R$ 2.499,90
+
+R$ 2.499,90
+Subtotal bruto
+
+R$ 0,00
+Desconto total
+
+TOTAL
+
+R$ 2.499,90
+
+PIX
+Forma de pagamento
+
+R$ 2.499,90
+Valor pago
+
+Documento de conferência emitido pelo StockFlow. Não tem valor ﬁscal.
+
+1
+
+

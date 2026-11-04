@@ -1,0 +1,2422 @@
+{
+  "files": [
+    {
+      "path": "src/stockflow/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/__init__.py",
+      "lines": 5,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/adjustment_input.py",
+      "lines": 35,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/client_input.py",
+      "lines": 14,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/movement_input.py",
+      "lines": 25,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/product_input.py",
+      "lines": 41,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/register_input.py",
+      "lines": 25,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/return_dto.py",
+      "lines": 66,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/application/dto/return_eligibility.py",
+      "lines": 53,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/application/dto/sale_filter.py",
+      "lines": 95,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "src/stockflow/application/dto/sale_item.py",
+      "lines": 98,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/application/dto/sale_register.py",
+      "lines": 27,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/stock_adjustment_input.py",
+      "lines": 15,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/dto/supplier_input.py",
+      "lines": 14,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/ports/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/ports/client_repository.py",
+      "lines": 35,
+      "syntax": "ok",
+      "functions": 9
+    },
+    {
+      "path": "src/stockflow/application/ports/company_profile_repository.py",
+      "lines": 22,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/application/ports/company_repository.py",
+      "lines": 14,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/application/ports/movement_repository.py",
+      "lines": 46,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "src/stockflow/application/ports/price_history_repository.py",
+      "lines": 23,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/application/ports/product_repository.py",
+      "lines": 80,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "src/stockflow/application/ports/register_repository.py",
+      "lines": 16,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/application/ports/sale_repository.py",
+      "lines": 69,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/application/ports/stock_adjustment_repository.py",
+      "lines": 11,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/application/ports/supplier_repository.py",
+      "lines": 24,
+      "syntax": "ok",
+      "functions": 9
+    },
+    {
+      "path": "src/stockflow/application/services/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/application/services/cash_register_service.py",
+      "lines": 40,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "src/stockflow/application/services/client_service.py",
+      "lines": 85,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/application/services/company_service.py",
+      "lines": 57,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/application/services/csv_exporter.py",
+      "lines": 18,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/application/services/movement_service.py",
+      "lines": 130,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/application/services/price_history_service.py",
+      "lines": 21,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/application/services/product_selection_service.py",
+      "lines": 44,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/application/services/product_service.py",
+      "lines": 85,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "src/stockflow/application/services/receipt_renderer.py",
+      "lines": 172,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "src/stockflow/application/services/receipt_service.py",
+      "lines": 36,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/application/services/register_service.py",
+      "lines": 17,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/application/services/return_service.py",
+      "lines": 44,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/application/services/sale_service.py",
+      "lines": 343,
+      "syntax": "ok",
+      "functions": 18
+    },
+    {
+      "path": "src/stockflow/application/services/stock_adjustment_service.py",
+      "lines": 56,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/application/services/supplier_service.py",
+      "lines": 80,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "src/stockflow/domain/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/domain/entities/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/domain/entities/client.py",
+      "lines": 26,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/domain/entities/session.py",
+      "lines": 27,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/entities/supplier.py",
+      "lines": 22,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/enums/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/domain/enums/adjustment_reason.py",
+      "lines": 51,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/domain/enums/movement_kind.py",
+      "lines": 41,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/domain/enums/movement_status.py",
+      "lines": 38,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/domain/enums/operation_kind.py",
+      "lines": 42,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/enums/price_edit_field.py",
+      "lines": 34,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/enums/product_unit.py",
+      "lines": 11,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/domain/enums/sale_reversal_kind.py",
+      "lines": 33,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/enums/sale_status.py",
+      "lines": 47,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/domain/enums/user_role.py",
+      "lines": 26,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/domain/exceptions/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/domain/exceptions/adjustment_errors.py",
+      "lines": 33,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/exceptions/inactive_product.py",
+      "lines": 22,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/domain/exceptions/permission_denied.py",
+      "lines": 13,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/domain/exceptions/product_not_found.py",
+      "lines": 15,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/domain/permissions.py",
+      "lines": 361,
+      "syntax": "ok",
+      "functions": 25
+    },
+    {
+      "path": "src/stockflow/domain/price_change.py",
+      "lines": 30,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/domain/product_status.py",
+      "lines": 67,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/domain/replenishment.py",
+      "lines": 52,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/domain/sale_discount.py",
+      "lines": 84,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/sale_receipt.py",
+      "lines": 204,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/domain/sale_return.py",
+      "lines": 171,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "src/stockflow/domain/stock_adjustment.py",
+      "lines": 52,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/stock_level.py",
+      "lines": 149,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "src/stockflow/domain/validators/__init__.py",
+      "lines": 1,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/domain/validators/br_document.py",
+      "lines": 31,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/domain/validators/client.py",
+      "lines": 64,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/domain/validators/product.py",
+      "lines": 96,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/domain/validators/supplier.py",
+      "lines": 41,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/infrastructure/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/infrastructure/auth/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/infrastructure/auth/supabase_auth.py",
+      "lines": 122,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/infrastructure/database/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/infrastructure/database/supabase_client.py",
+      "lines": 105,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "src/stockflow/infrastructure/fiscal/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/infrastructure/fiscal/nfe_client.py",
+      "lines": 54,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_cash_register_repository.py",
+      "lines": 39,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_client_repository.py",
+      "lines": 115,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_company_repository.py",
+      "lines": 16,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_movement_repository.py",
+      "lines": 472,
+      "syntax": "ok",
+      "functions": 16
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_price_history_repository.py",
+      "lines": 93,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_product_repository.py",
+      "lines": 270,
+      "syntax": "ok",
+      "functions": 19
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_sale_repository.py",
+      "lines": 560,
+      "syntax": "ok",
+      "functions": 26
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_stock_adjustment_repository.py",
+      "lines": 32,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/demo_supplier_repository.py",
+      "lines": 103,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/movement_mapper.py",
+      "lines": 220,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/product_mapper.py",
+      "lines": 171,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/return_mapper.py",
+      "lines": 30,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_cash_register_repository.py",
+      "lines": 32,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_client_repository.py",
+      "lines": 72,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_company_repository.py",
+      "lines": 44,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_movement_repository.py",
+      "lines": 282,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_price_history_repository.py",
+      "lines": 110,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_product_repository.py",
+      "lines": 508,
+      "syntax": "ok",
+      "functions": 33
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_register_repository.py",
+      "lines": 39,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_sale_repository.py",
+      "lines": 396,
+      "syntax": "ok",
+      "functions": 18
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_stock_adjustment_repository.py",
+      "lines": 82,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_supplier_repository.py",
+      "lines": 133,
+      "syntax": "ok",
+      "functions": 14
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/supabase_user_repository.py",
+      "lines": 88,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/infrastructure/repositories/user_mapper.py",
+      "lines": 134,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/presentation/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/app.py",
+      "lines": 84,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "src/stockflow/presentation/backend.py",
+      "lines": 434,
+      "syntax": "ok",
+      "functions": 20
+    },
+    {
+      "path": "src/stockflow/presentation/demo_accounts.py",
+      "lines": 107,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/presentation/demo_data.py",
+      "lines": 108,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/presentation/demo_products.py",
+      "lines": 93,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/demo_scenario.py",
+      "lines": 99,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/presentation/demo_status.py",
+      "lines": 17,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/presentation/demo_users.py",
+      "lines": 16,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/pages/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/pages/clientes.py",
+      "lines": 292,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "src/stockflow/presentation/pages/coming_soon.py",
+      "lines": 250,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/presentation/pages/dashboard.py",
+      "lines": 223,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "src/stockflow/presentation/pages/estoque.py",
+      "lines": 488,
+      "syntax": "ok",
+      "functions": 19
+    },
+    {
+      "path": "src/stockflow/presentation/pages/historico_precos.py",
+      "lines": 174,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "src/stockflow/presentation/pages/movement_details.py",
+      "lines": 152,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/presentation/pages/movimentacoes.py",
+      "lines": 1234,
+      "syntax": "ok",
+      "functions": 44
+    },
+    {
+      "path": "src/stockflow/presentation/pages/novo_produto.py",
+      "lines": 491,
+      "syntax": "ok",
+      "functions": 21
+    },
+    {
+      "path": "src/stockflow/presentation/pages/overview.py",
+      "lines": 170,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "src/stockflow/presentation/pages/product_details.py",
+      "lines": 97,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/presentation/pages/products.py",
+      "lines": 135,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "src/stockflow/presentation/pages/reports.py",
+      "lines": 628,
+      "syntax": "ok",
+      "functions": 23
+    },
+    {
+      "path": "src/stockflow/presentation/pages/sale_details.py",
+      "lines": 461,
+      "syntax": "ok",
+      "functions": 21
+    },
+    {
+      "path": "src/stockflow/presentation/pages/suppliers.py",
+      "lines": 313,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "src/stockflow/presentation/pages/users.py",
+      "lines": 158,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "src/stockflow/presentation/pages/vendas.py",
+      "lines": 1310,
+      "syntax": "ok",
+      "functions": 45
+    },
+    {
+      "path": "src/stockflow/presentation/roles.py",
+      "lines": 33,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/presentation/styles/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/styles/clients.py",
+      "lines": 3,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/styles/design_system.py",
+      "lines": 160,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "src/stockflow/presentation/styles/inventory.py",
+      "lines": 11,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/styles/login.py",
+      "lines": 31,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/styles/products.py",
+      "lines": 27,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/styles/suppliers.py",
+      "lines": 3,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/styles/theme.py",
+      "lines": 46,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/styles/users.py",
+      "lines": 3,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/user_directory_row.py",
+      "lines": 7,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/cash_register_dialog.py",
+      "lines": 149,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/category_form.py",
+      "lines": 121,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/client_inputs.py",
+      "lines": 121,
+      "syntax": "ok",
+      "functions": 9
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/form_fields.py",
+      "lines": 226,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/menu_button.py",
+      "lines": 25,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/page_stack.py",
+      "lines": 31,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/password_recovery.py",
+      "lines": 89,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/product_card.py",
+      "lines": 83,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/product_form.py",
+      "lines": 432,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/sale_receipt_dialog.py",
+      "lines": 155,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/sidebar.py",
+      "lines": 308,
+      "syntax": "ok",
+      "functions": 10
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/stock_table.py",
+      "lines": 210,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/top_bar.py",
+      "lines": 62,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/user_form.py",
+      "lines": 100,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/user_summary.py",
+      "lines": 83,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/user_table.py",
+      "lines": 257,
+      "syntax": "ok",
+      "functions": 16
+    },
+    {
+      "path": "src/stockflow/presentation/widgets/user_table_stable.py",
+      "lines": 348,
+      "syntax": "ok",
+      "functions": 16
+    },
+    {
+      "path": "src/stockflow/presentation/windows/__init__.py",
+      "lines": 0,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "src/stockflow/presentation/windows/login_window.py",
+      "lines": 278,
+      "syntax": "ok",
+      "functions": 14
+    },
+    {
+      "path": "src/stockflow/presentation/windows/main_window.py",
+      "lines": 1361,
+      "syntax": "ok",
+      "functions": 58
+    },
+    {
+      "path": "src/stockflow/presentation/workers.py",
+      "lines": 212,
+      "syntax": "ok",
+      "functions": 15
+    },
+    {
+      "path": "src/stockflow/services_fiscal_php/cli_emitir.php",
+      "lines": 63
+    },
+    {
+      "path": "src/stockflow/services_fiscal_php/index.php",
+      "lines": 84
+    },
+    {
+      "path": "tests/conftest.py",
+      "lines": 45,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "tests/integration/conftest.py",
+      "lines": 87,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "tests/integration/test_cash_register_ui_flow.py",
+      "lines": 104,
+      "syntax": "ok",
+      "functions": 9
+    },
+    {
+      "path": "tests/integration/test_sale_discount_integration.py",
+      "lines": 134,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "tests/integration/test_sales_history.py",
+      "lines": 46,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "tests/integration/test_stock_rules.py",
+      "lines": 99,
+      "syntax": "ok",
+      "functions": 13
+    },
+    {
+      "path": "tests/support/postgres_api.py",
+      "lines": 99,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "tests/test_adapter_schema_contract.py",
+      "lines": 177,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "tests/test_audit_regression.py",
+      "lines": 408,
+      "syntax": "ok",
+      "functions": 33
+    },
+    {
+      "path": "tests/test_cadastro_de_categoria.py",
+      "lines": 213,
+      "syntax": "ok",
+      "functions": 20
+    },
+    {
+      "path": "tests/test_cash_register_app.py",
+      "lines": 108,
+      "syntax": "ok",
+      "functions": 10
+    },
+    {
+      "path": "tests/test_cash_register_dialog.py",
+      "lines": 40,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "tests/test_client_input_masks.py",
+      "lines": 40,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "tests/test_clientes_database_contract.py",
+      "lines": 116,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "tests/test_clientes_us07.py",
+      "lines": 144,
+      "syntax": "ok",
+      "functions": 13
+    },
+    {
+      "path": "tests/test_consulta_de_alerta.py",
+      "lines": 287,
+      "syntax": "ok",
+      "functions": 22
+    },
+    {
+      "path": "tests/test_dashboard_replenishment.py",
+      "lines": 48,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "tests/test_database_migrations.py",
+      "lines": 682,
+      "syntax": "ok",
+      "functions": 54
+    },
+    {
+      "path": "tests/test_estoque_alerta_baixo.py",
+      "lines": 192,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "tests/test_estoque_busca_filtro.py",
+      "lines": 209,
+      "syntax": "ok",
+      "functions": 23
+    },
+    {
+      "path": "tests/test_estoque_estados_da_lista.py",
+      "lines": 165,
+      "syntax": "ok",
+      "functions": 13
+    },
+    {
+      "path": "tests/test_feature_ui.py",
+      "lines": 108,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "tests/test_fornecedores_database_contract.py",
+      "lines": 114,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "tests/test_fornecedores_us08.py",
+      "lines": 310,
+      "syntax": "ok",
+      "functions": 22
+    },
+    {
+      "path": "tests/test_h09_historico_de_precos.py",
+      "lines": 189,
+      "syntax": "ok",
+      "functions": 14
+    },
+    {
+      "path": "tests/test_h11_ajuste_manual.py",
+      "lines": 258,
+      "syntax": "ok",
+      "functions": 16
+    },
+    {
+      "path": "tests/test_h14_perfis_e_permissoes.py",
+      "lines": 304,
+      "syntax": "ok",
+      "functions": 19
+    },
+    {
+      "path": "tests/test_h14_service_access.py",
+      "lines": 43,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "tests/test_historico_paginado.py",
+      "lines": 444,
+      "syntax": "ok",
+      "functions": 22
+    },
+    {
+      "path": "tests/test_integracao_clientes_vendas.py",
+      "lines": 59,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "tests/test_janela_sobrevive_a_fonte_indisponivel.py",
+      "lines": 178,
+      "syntax": "ok",
+      "functions": 18
+    },
+    {
+      "path": "tests/test_login.py",
+      "lines": 78,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "tests/test_mock_application.py",
+      "lines": 149,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "tests/test_movimentacoes_estoque.py",
+      "lines": 204,
+      "syntax": "ok",
+      "functions": 15
+    },
+    {
+      "path": "tests/test_movimentacoes_na_tela.py",
+      "lines": 494,
+      "syntax": "ok",
+      "functions": 36
+    },
+    {
+      "path": "tests/test_operations_filters.py",
+      "lines": 67,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "tests/test_page_loading.py",
+      "lines": 199,
+      "syntax": "ok",
+      "functions": 10
+    },
+    {
+      "path": "tests/test_permissao_gerenciar_usuarios.py",
+      "lines": 224,
+      "syntax": "ok",
+      "functions": 15
+    },
+    {
+      "path": "tests/test_persistencia_reflete_na_tela.py",
+      "lines": 275,
+      "syntax": "ok",
+      "functions": 19
+    },
+    {
+      "path": "tests/test_product_details.py",
+      "lines": 65,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "tests/test_product_price_input.py",
+      "lines": 17,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "tests/test_register_cash_flow.py",
+      "lines": 92,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "tests/test_reports_ui.py",
+      "lines": 204,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "tests/test_sale_discount_settings.py",
+      "lines": 24,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "tests/test_sales_checkout_regression.py",
+      "lines": 219,
+      "syntax": "ok",
+      "functions": 24
+    },
+    {
+      "path": "tests/test_schema_declarativo.py",
+      "lines": 898,
+      "syntax": "ok",
+      "functions": 62
+    },
+    {
+      "path": "tests/test_supabase_compiler.py",
+      "lines": 158,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "tests/test_ui_content_bounds.py",
+      "lines": 153,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "tests/test_ui_regression.py",
+      "lines": 124,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "tests/test_us01_cadastro_edicao_produto.py",
+      "lines": 324,
+      "syntax": "ok",
+      "functions": 23
+    },
+    {
+      "path": "tests/test_us01_estoque_reflete_gravacao.py",
+      "lines": 218,
+      "syntax": "ok",
+      "functions": 15
+    },
+    {
+      "path": "tests/test_us01_permissao_produto.py",
+      "lines": 285,
+      "syntax": "ok",
+      "functions": 17
+    },
+    {
+      "path": "tests/test_us02_validacao_produto_ativo.py",
+      "lines": 323,
+      "syntax": "ok",
+      "functions": 31
+    },
+    {
+      "path": "tests/test_us05_sessao.py",
+      "lines": 205,
+      "syntax": "ok",
+      "functions": 17
+    },
+    {
+      "path": "tests/test_us09_us10_fiscal.py",
+      "lines": 320,
+      "syntax": "ok",
+      "functions": 19
+    },
+    {
+      "path": "tests/test_us10_venda_com_varios_itens.py",
+      "lines": 281,
+      "syntax": "ok",
+      "functions": 25
+    },
+    {
+      "path": "tests/test_us12_sales_database_contract.py",
+      "lines": 152,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "tests/test_us12_venda_multi_item.py",
+      "lines": 214,
+      "syntax": "ok",
+      "functions": 13
+    },
+    {
+      "path": "tests/test_us17_detalhe_da_venda.py",
+      "lines": 242,
+      "syntax": "ok",
+      "functions": 21
+    },
+    {
+      "path": "tests/test_us17_historico_de_vendas.py",
+      "lines": 267,
+      "syntax": "ok",
+      "functions": 31
+    },
+    {
+      "path": "tests/test_us17_reversao_de_venda.py",
+      "lines": 208,
+      "syntax": "ok",
+      "functions": 15
+    },
+    {
+      "path": "tests/test_us17_totais_ignoram_revertidas.py",
+      "lines": 93,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "tests/test_us19_comprovante_ui.py",
+      "lines": 303,
+      "syntax": "ok",
+      "functions": 28
+    },
+    {
+      "path": "tests/test_us20_returns_database_contract.py",
+      "lines": 105,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "tests/test_us22_sales_discounts.py",
+      "lines": 97,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "tests/test_usuarios_do_banco.py",
+      "lines": 360,
+      "syntax": "ok",
+      "functions": 21
+    },
+    {
+      "path": "tests/test_vendas_clientes.py",
+      "lines": 159,
+      "syntax": "ok",
+      "functions": 18
+    },
+    {
+      "path": "tests/test_window_viewport.py",
+      "lines": 37,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "tests/unit/test_backend_selection.py",
+      "lines": 148,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "tests/unit/test_company_profile_repositories.py",
+      "lines": 116,
+      "syntax": "ok",
+      "functions": 15
+    },
+    {
+      "path": "tests/unit/test_demo_return_movements.py",
+      "lines": 94,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "tests/unit/test_demo_return_repository.py",
+      "lines": 437,
+      "syntax": "ok",
+      "functions": 37
+    },
+    {
+      "path": "tests/unit/test_movement_repositories.py",
+      "lines": 938,
+      "syntax": "ok",
+      "functions": 63
+    },
+    {
+      "path": "tests/unit/test_movement_service_adjust.py",
+      "lines": 240,
+      "syntax": "ok",
+      "functions": 21
+    },
+    {
+      "path": "tests/unit/test_permission_matrix.py",
+      "lines": 273,
+      "syntax": "ok",
+      "functions": 18
+    },
+    {
+      "path": "tests/unit/test_permissions_authorization.py",
+      "lines": 45,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "tests/unit/test_price_history.py",
+      "lines": 377,
+      "syntax": "ok",
+      "functions": 29
+    },
+    {
+      "path": "tests/unit/test_product_active_policy.py",
+      "lines": 148,
+      "syntax": "ok",
+      "functions": 17
+    },
+    {
+      "path": "tests/unit/test_product_permissions.py",
+      "lines": 215,
+      "syntax": "ok",
+      "functions": 22
+    },
+    {
+      "path": "tests/unit/test_product_selection_service.py",
+      "lines": 145,
+      "syntax": "ok",
+      "functions": 16
+    },
+    {
+      "path": "tests/unit/test_product_validation.py",
+      "lines": 178,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "tests/unit/test_receipt_renderer.py",
+      "lines": 132,
+      "syntax": "ok",
+      "functions": 14
+    },
+    {
+      "path": "tests/unit/test_return_permissions.py",
+      "lines": 39,
+      "syntax": "ok",
+      "functions": 3
+    },
+    {
+      "path": "tests/unit/test_return_service.py",
+      "lines": 84,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "tests/unit/test_return_service_create.py",
+      "lines": 113,
+      "syntax": "ok",
+      "functions": 13
+    },
+    {
+      "path": "tests/unit/test_sale_discounts.py",
+      "lines": 121,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "tests/unit/test_sale_enums.py",
+      "lines": 61,
+      "syntax": "ok",
+      "functions": 8
+    },
+    {
+      "path": "tests/unit/test_sale_permissions.py",
+      "lines": 178,
+      "syntax": "ok",
+      "functions": 26
+    },
+    {
+      "path": "tests/unit/test_sale_receipt.py",
+      "lines": 275,
+      "syntax": "ok",
+      "functions": 26
+    },
+    {
+      "path": "tests/unit/test_sale_repositories.py",
+      "lines": 318,
+      "syntax": "ok",
+      "functions": 31
+    },
+    {
+      "path": "tests/unit/test_sale_return.py",
+      "lines": 205,
+      "syntax": "ok",
+      "functions": 21
+    },
+    {
+      "path": "tests/unit/test_sale_service_conciliation.py",
+      "lines": 188,
+      "syntax": "ok",
+      "functions": 25
+    },
+    {
+      "path": "tests/unit/test_stock_adjustment.py",
+      "lines": 113,
+      "syntax": "ok",
+      "functions": 12
+    },
+    {
+      "path": "tests/unit/test_stock_adjustment_repository.py",
+      "lines": 78,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "tests/unit/test_stock_maximum.py",
+      "lines": 32,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "tests/unit/test_sugestao_reposicao.py",
+      "lines": 22,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "tests/unit/test_supabase_auth.py",
+      "lines": 233,
+      "syntax": "ok",
+      "functions": 23
+    },
+    {
+      "path": "tests/unit/test_supabase_product_repository.py",
+      "lines": 408,
+      "syntax": "ok",
+      "functions": 44
+    },
+    {
+      "path": "tests/unit/test_supabase_return_repository.py",
+      "lines": 148,
+      "syntax": "ok",
+      "functions": 17
+    },
+    {
+      "path": "tests/unit/test_supabase_sale_conciliation.py",
+      "lines": 194,
+      "syntax": "ok",
+      "functions": 17
+    },
+    {
+      "path": "tests/unit/test_supabase_supplier_repository.py",
+      "lines": 113,
+      "syntax": "ok",
+      "functions": 5
+    },
+    {
+      "path": "tests/unit/test_user_directory.py",
+      "lines": 285,
+      "syntax": "ok",
+      "functions": 23
+    },
+    {
+      "path": "tests/unit/test_user_permissions.py",
+      "lines": 88,
+      "syntax": "ok",
+      "functions": 9
+    },
+    {
+      "path": "tests/unit/test_workers.py",
+      "lines": 127,
+      "syntax": "ok",
+      "functions": 11
+    },
+    {
+      "path": "scripts/build_desktop.py",
+      "lines": 193,
+      "syntax": "ok",
+      "functions": 6
+    },
+    {
+      "path": "scripts/check_visual.py",
+      "lines": 104,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "scripts/provisionar_usuario.sql",
+      "lines": 121
+    },
+    {
+      "path": "scripts/test_supabase_connection.py",
+      "lines": 123,
+      "syntax": "ok",
+      "functions": 2
+    },
+    {
+      "path": "scripts/us17_preflight.sql",
+      "lines": 139
+    },
+    {
+      "path": "scripts/verificar_login.py",
+      "lines": 142,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": "scripts/verificar_migrations.sql",
+      "lines": 105
+    },
+    {
+      "path": "scripts/verificar_procedures.py",
+      "lines": 149,
+      "syntax": "ok",
+      "functions": 4
+    },
+    {
+      "path": "scripts/verify_postgres.py",
+      "lines": 452,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "scripts/verify_sales.py",
+      "lines": 571,
+      "syntax": "ok",
+      "functions": 17
+    },
+    {
+      "path": "database/code/policies/01_security.sql",
+      "lines": 263
+    },
+    {
+      "path": "database/code/policies/02_returns_security.sql",
+      "lines": 19
+    },
+    {
+      "path": "database/code/procedures/01_identity.sql",
+      "lines": 33
+    },
+    {
+      "path": "database/code/procedures/02_authz.sql",
+      "lines": 65
+    },
+    {
+      "path": "database/code/procedures/03_users.sql",
+      "lines": 283
+    },
+    {
+      "path": "database/code/procedures/04_stock.sql",
+      "lines": 260
+    },
+    {
+      "path": "database/code/procedures/04a_movements.sql",
+      "lines": 335
+    },
+    {
+      "path": "database/code/procedures/05_catalog.sql",
+      "lines": 226
+    },
+    {
+      "path": "database/code/procedures/06_cash_register.sql",
+      "lines": 42
+    },
+    {
+      "path": "database/code/procedures/07_clients_sales.sql",
+      "lines": 854
+    },
+    {
+      "path": "database/code/procedures/08_return_partial.sql",
+      "lines": 283
+    },
+    {
+      "path": "database/code/procedures/08_suppliers.sql",
+      "lines": 234
+    },
+    {
+      "path": "database/code/procedures/09_get_returnable_items.sql",
+      "lines": 49
+    },
+    {
+      "path": "database/code/procedures/09_product_form.sql",
+      "lines": 59
+    },
+    {
+      "path": "database/code/procedures/10_company_members.sql",
+      "lines": 54
+    },
+    {
+      "path": "database/code/procedures/12_price_history.sql",
+      "lines": 56
+    },
+    {
+      "path": "database/code/procedures/13_sale_discounts.sql",
+      "lines": 386
+    },
+    {
+      "path": "database/code/procedures/20_register_sessions.sql",
+      "lines": 261
+    },
+    {
+      "path": "database/code/tables/00_roles.sql",
+      "lines": 38
+    },
+    {
+      "path": "database/code/tables/01_identity.sql",
+      "lines": 47
+    },
+    {
+      "path": "database/code/tables/02_cash_register.sql",
+      "lines": 18
+    },
+    {
+      "path": "database/code/tables/03_catalog.sql",
+      "lines": 52
+    },
+    {
+      "path": "database/code/tables/04_stock.sql",
+      "lines": 17
+    },
+    {
+      "path": "database/code/tables/05_movements.sql",
+      "lines": 75
+    },
+    {
+      "path": "database/code/tables/06_clients_sales.sql",
+      "lines": 294
+    },
+    {
+      "path": "database/code/tables/07_suppliers.sql",
+      "lines": 51
+    },
+    {
+      "path": "database/code/tables/08_role_change_log.sql",
+      "lines": 37
+    },
+    {
+      "path": "database/code/tables/09_price_edit_log.sql",
+      "lines": 33
+    },
+    {
+      "path": "database/code/tables/10_register_sessions.sql",
+      "lines": 67
+    },
+    {
+      "path": "database/code/tables/10_returns.sql",
+      "lines": 39
+    },
+    {
+      "path": "database/code/tables/11_return_items.sql",
+      "lines": 49
+    },
+    {
+      "path": "database/code/triggers/01_updated_on.sql",
+      "lines": 18
+    },
+    {
+      "path": "database/code/triggers/02_products_stock.sql",
+      "lines": 60
+    },
+    {
+      "path": "database/code/triggers/03_confirmed_movement_guard.sql",
+      "lines": 28
+    },
+    {
+      "path": "database/code/triggers/03_keep_admin.sql",
+      "lines": 35
+    },
+    {
+      "path": "database/code/triggers/04_stock_movements.sql",
+      "lines": 54
+    },
+    {
+      "path": "database/code/triggers/05_role_change_log.sql",
+      "lines": 49
+    },
+    {
+      "path": "database/code/triggers/06_sale_completion.sql",
+      "lines": 62
+    },
+    {
+      "path": "database/code/triggers/07_price_edit_log.sql",
+      "lines": 41
+    },
+    {
+      "path": "database/code/triggers/08_sale_discount_guard.sql",
+      "lines": 83
+    },
+    {
+      "path": "database/code/triggers/09_sale_return_guard.sql",
+      "lines": 33
+    },
+    {
+      "path": "database/code/views/01_stock_situation.sql",
+      "lines": 28
+    },
+    {
+      "path": "database/code/views/02_stock_alerts.sql",
+      "lines": 22
+    },
+    {
+      "path": "database/supabase/config.toml",
+      "lines": 423
+    },
+    {
+      "path": "database/supabase/migrations/20261001185716_01_users_admin.sql",
+      "lines": 28
+    },
+    {
+      "path": "database/supabase/migrations/20261001185717_tables_cash_register.sql",
+      "lines": 20
+    },
+    {
+      "path": "database/supabase/migrations/20261001185718_tables_products.sql",
+      "lines": 26
+    },
+    {
+      "path": "database/supabase/migrations/20261001185719_procedures_cash_register.sql",
+      "lines": 48
+    },
+    {
+      "path": "database/supabase/migrations/20261001185720_procedures_products.sql",
+      "lines": 105
+    },
+    {
+      "path": "database/supabase/migrations/20261001185721_triggers_cash_register.sql",
+      "lines": 3
+    },
+    {
+      "path": "database/supabase/migrations/20261001185722_triggers_products.sql",
+      "lines": 3
+    },
+    {
+      "path": "database/supabase/migrations/20261001185723_policies_cash_register.sql",
+      "lines": 3
+    },
+    {
+      "path": "database/supabase/migrations/20261001185724_policies_products.sql",
+      "lines": 3
+    },
+    {
+      "path": "database/supabase/migrations/20261001210403_02_stock_min_config.sql",
+      "lines": 7
+    },
+    {
+      "path": "database/supabase/migrations/20261001220550_fn_current_user_id.sql",
+      "lines": 6
+    },
+    {
+      "path": "database/supabase/migrations/20261001220645_fn_user_management.sql",
+      "lines": 42
+    },
+    {
+      "path": "database/supabase/migrations/20261001222037_fn_stock_state.sql",
+      "lines": 13
+    },
+    {
+      "path": "database/supabase/migrations/20261001222047_fn_set_min_stock.sql",
+      "lines": 30
+    },
+    {
+      "path": "database/supabase/migrations/20261001222418_vw_stock-situation.sql",
+      "lines": 12
+    },
+    {
+      "path": "database/supabase/migrations/20261001222432_fn_company_stock_state.sql",
+      "lines": 39
+    },
+    {
+      "path": "database/supabase/migrations/20261001222442_fn_stock_panel.sql",
+      "lines": 26
+    },
+    {
+      "path": "database/supabase/migrations/20261002213525_trg_update_users.sql",
+      "lines": 42
+    },
+    {
+      "path": "database/supabase/migrations/20261002214309_fn_add_update_user.sql",
+      "lines": 97
+    },
+    {
+      "path": "database/supabase/migrations/20261002214339_verify_user.sql",
+      "lines": 5
+    },
+    {
+      "path": "database/supabase/migrations/20261002214416_fn_users_in_company.sql",
+      "lines": 38
+    },
+    {
+      "path": "database/supabase/migrations/20261002214712_fn_company_id.sql",
+      "lines": 1
+    },
+    {
+      "path": "database/supabase/migrations/20261002221512_fn_login_get.sql",
+      "lines": 22
+    },
+    {
+      "path": "database/supabase/migrations/20261002221717_fn_register_company.sql",
+      "lines": 31
+    },
+    {
+      "path": "database/supabase/migrations/20261002222009_fn_set_own_pass.sql",
+      "lines": 16
+    },
+    {
+      "path": "database/supabase/migrations/20261002222253_fn_set_minimun_stock_batch.sql",
+      "lines": 21
+    },
+    {
+      "path": "database/supabase/migrations/20261003003120_fn_company_id.sql",
+      "lines": 10
+    },
+    {
+      "path": "database/supabase/migrations/20261003120000_fn_set_product_active.sql",
+      "lines": 33
+    },
+    {
+      "path": "database/supabase/migrations/20261003120050_restore_catalog_functions.sql",
+      "lines": 686
+    },
+    {
+      "path": "database/supabase/migrations/20261003120100_policies_security.sql",
+      "lines": 130
+    },
+    {
+      "path": "database/supabase/migrations/20261003120200_fn_update_products.sql",
+      "lines": 84
+    },
+    {
+      "path": "database/supabase/migrations/20261003180000_auth_jwt_identity.sql",
+      "lines": 178
+    },
+    {
+      "path": "database/supabase/migrations/20261004090000_user_directory.sql",
+      "lines": 151
+    },
+    {
+      "path": "database/supabase/migrations/20261004120000_revoke_public_execute.sql",
+      "lines": 115
+    },
+    {
+      "path": "database/supabase/migrations/20261004130000_fix_list_company_users_return.sql",
+      "lines": 100
+    },
+    {
+      "path": "database/supabase/migrations/20261004140000_stock_movements.sql",
+      "lines": 472
+    },
+    {
+      "path": "database/supabase/migrations/20261004150000_minimum_stock_optional.sql",
+      "lines": 200
+    },
+    {
+      "path": "database/supabase/migrations/20261004160000_alert_view_carries_barcode.sql",
+      "lines": 74
+    },
+    {
+      "path": "database/supabase/migrations/20261004170000_clients_sales.sql",
+      "lines": 514
+    },
+    {
+      "path": "database/supabase/migrations/20261004180000_supplier_management.sql",
+      "lines": 247
+    },
+    {
+      "path": "database/supabase/migrations/20261005120000_audit_fixes.sql",
+      "lines": 1189
+    },
+    {
+      "path": "database/supabase/migrations/20261010231122_fn_create_complete_sale.sql",
+      "lines": 79
+    },
+    {
+      "path": "database/supabase/migrations/20261010231229_fn_edit_product_stock.sql",
+      "lines": 51
+    },
+    {
+      "path": "database/supabase/migrations/20261010231302_customer_orders.sql",
+      "lines": 36
+    },
+    {
+      "path": "database/supabase/migrations/20261010231437_edit_product_table_updated_on.sql",
+      "lines": 4
+    },
+    {
+      "path": "database/supabase/migrations/20261010231529_log_successful_sales.sql",
+      "lines": 9
+    },
+    {
+      "path": "database/supabase/migrations/20261010231635_log_update_product_stock.sql",
+      "lines": 10
+    },
+    {
+      "path": "database/supabase/migrations/20261010231711_trg_create_log_stock_edit.sql",
+      "lines": 28
+    },
+    {
+      "path": "database/supabase/migrations/20261010231745_trg_detect_sale_successful.sql",
+      "lines": 40
+    },
+    {
+      "path": "database/supabase/migrations/20261012205138_update_sales_table.sql",
+      "lines": 12
+    },
+    {
+      "path": "database/supabase/migrations/20261012211431_cleanup_stock_log_and_use_stock_movements.sql",
+      "lines": 115
+    },
+    {
+      "path": "database/supabase/migrations/20261012223851_remove_redundant_stock_funcs.sql",
+      "lines": 4
+    },
+    {
+      "path": "database/supabase/migrations/20261012225300_update_fn_process_sale_completion.sql",
+      "lines": 48
+    },
+    {
+      "path": "database/supabase/migrations/20261012225907_cleaning_residual_trgs_sales.sql",
+      "lines": 4
+    },
+    {
+      "path": "database/supabase/migrations/20261012230316_sales_log_table.sql",
+      "lines": 6
+    },
+    {
+      "path": "database/supabase/migrations/20261013120000_h14_role_permissions_model.sql",
+      "lines": 268
+    },
+    {
+      "path": "database/supabase/migrations/20261013131814_create_new_log_for_edit_price_and_trigger.sql",
+      "lines": 42
+    },
+    {
+      "path": "database/supabase/migrations/20261013140000_us09_us10_sale_items_and_stock_link.sql",
+      "lines": 577
+    },
+    {
+      "path": "database/supabase/migrations/20261014120000_reconcile_sales_schema.sql",
+      "lines": 66
+    },
+    {
+      "path": "database/supabase/migrations/20261014165713_h11_manual_stock_adjustment.sql",
+      "lines": 164
+    },
+    {
+      "path": "database/supabase/migrations/20261015103000_h09_audit_cost_edits.sql",
+      "lines": 97
+    },
+    {
+      "path": "database/supabase/migrations/20261015143000_h09_price_history_query.sql",
+      "lines": 66
+    },
+    {
+      "path": "database/supabase/migrations/20261016120000_atomic_multi_item_sales.sql",
+      "lines": 219
+    },
+    {
+      "path": "database/supabase/migrations/20261018004901_alter_tables_stock.sql",
+      "lines": 12
+    },
+    {
+      "path": "database/supabase/migrations/20261018005557_fn_max_stock_adjustments.sql",
+      "lines": 102
+    },
+    {
+      "path": "database/supabase/migrations/20261018010117_fn_products_max_stock.sql",
+      "lines": 137
+    },
+    {
+      "path": "database/supabase/migrations/20261018010337_fn_movements_max_stock.sql",
+      "lines": 175
+    },
+    {
+      "path": "database/supabase/migrations/20261018010551_trg_max_value_verify.sql",
+      "lines": 103
+    },
+    {
+      "path": "database/supabase/migrations/20261018010911_vw_stock_situation_min.sql",
+      "lines": 0
+    },
+    {
+      "path": "database/supabase/migrations/20261018010924_vw_stock_situation_min_max.sql",
+      "lines": 19
+    },
+    {
+      "path": "database/supabase/migrations/20261018120000_max_stock_and_replenishment.sql",
+      "lines": 82
+    },
+    {
+      "path": "database/supabase/migrations/20261018130000_h13_protect_confirmed_movements.sql",
+      "lines": 71
+    },
+    {
+      "path": "database/supabase/migrations/20261018140000_fix_effective_max_stock.sql",
+      "lines": 20
+    },
+    {
+      "path": "database/supabase/migrations/20261018150000_atomic_product_stock_limits.sql",
+      "lines": 88
+    },
+    {
+      "path": "database/supabase/migrations/20261024120000_us17_sales_history.sql",
+      "lines": 316
+    },
+    {
+      "path": "database/supabase/migrations/20261024125000_us17_functions.sql",
+      "lines": 283
+    },
+    {
+      "path": "database/supabase/migrations/20261024130000_us17_revoke_public_execute.sql",
+      "lines": 68
+    },
+    {
+      "path": "database/supabase/migrations/20261029120000_us17_pending_sales_filter.sql",
+      "lines": 101
+    },
+    {
+      "path": "database/supabase/migrations/20261029130000_us22_sales_discounts.sql",
+      "lines": 666
+    },
+    {
+      "path": "database/supabase/migrations/20261030100000_us20_return_models.sql",
+      "lines": 65
+    },
+    {
+      "path": "database/supabase/migrations/20261030101000_us20_return_rpcs.sql",
+      "lines": 287
+    },
+    {
+      "path": "database/supabase/migrations/20261030102000_us20_return_guardrails.sql",
+      "lines": 22
+    },
+    {
+      "path": "database/supabase/migrations/20261030120000_us20_return_idempotency.sql",
+      "lines": 289
+    },
+    {
+      "path": "database/supabase/migrations/20261030130000_us20_discount_and_reversal_compat.sql",
+      "lines": 333
+    },
+    {
+      "path": "database/supabase/migrations/20261031125500_us17_us20_product_lock_order.sql",
+      "lines": 557
+    },
+    {
+      "path": "database/supabase/migrations/20261031140000_us20_sales_consistency.sql",
+      "lines": 140
+    },
+    {
+      "path": "database/supabase/migrations/20261101120000_align_declarative_and_deployed.sql",
+      "lines": 135
+    },
+    {
+      "path": "database/supabase/migrations/20261101160524_us23_open_close_register.sql",
+      "lines": 269
+    },
+    {
+      "path": "database/supabase/migrations/20261102180000_register_app_flow.sql",
+      "lines": 268
+    },
+    {
+      "path": "database/supabase/schemas/policies/01_security.sql",
+      "lines": 263
+    },
+    {
+      "path": "database/supabase/schemas/policies/02_returns_security.sql",
+      "lines": 19
+    },
+    {
+      "path": "database/supabase/schemas/procedures/01_identity.sql",
+      "lines": 33
+    },
+    {
+      "path": "database/supabase/schemas/procedures/02_authz.sql",
+      "lines": 65
+    },
+    {
+      "path": "database/supabase/schemas/procedures/03_users.sql",
+      "lines": 283
+    },
+    {
+      "path": "database/supabase/schemas/procedures/04_stock.sql",
+      "lines": 260
+    },
+    {
+      "path": "database/supabase/schemas/procedures/04a_movements.sql",
+      "lines": 335
+    },
+    {
+      "path": "database/supabase/schemas/procedures/05_catalog.sql",
+      "lines": 226
+    },
+    {
+      "path": "database/supabase/schemas/procedures/06_cash_register.sql",
+      "lines": 42
+    },
+    {
+      "path": "database/supabase/schemas/procedures/07_clients_sales.sql",
+      "lines": 854
+    },
+    {
+      "path": "database/supabase/schemas/procedures/08_return_partial.sql",
+      "lines": 283
+    },
+    {
+      "path": "database/supabase/schemas/procedures/08_suppliers.sql",
+      "lines": 234
+    },
+    {
+      "path": "database/supabase/schemas/procedures/09_get_returnable_items.sql",
+      "lines": 49
+    },
+    {
+      "path": "database/supabase/schemas/procedures/09_product_form.sql",
+      "lines": 59
+    },
+    {
+      "path": "database/supabase/schemas/procedures/10_company_members.sql",
+      "lines": 54
+    },
+    {
+      "path": "database/supabase/schemas/procedures/12_price_history.sql",
+      "lines": 56
+    },
+    {
+      "path": "database/supabase/schemas/procedures/13_sale_discounts.sql",
+      "lines": 386
+    },
+    {
+      "path": "database/supabase/schemas/procedures/20_register_sessions.sql",
+      "lines": 261
+    },
+    {
+      "path": "database/supabase/schemas/tables/00_roles.sql",
+      "lines": 38
+    },
+    {
+      "path": "database/supabase/schemas/tables/01_identity.sql",
+      "lines": 47
+    },
+    {
+      "path": "database/supabase/schemas/tables/02_cash_register.sql",
+      "lines": 18
+    },
+    {
+      "path": "database/supabase/schemas/tables/03_catalog.sql",
+      "lines": 52
+    },
+    {
+      "path": "database/supabase/schemas/tables/04_stock.sql",
+      "lines": 17
+    },
+    {
+      "path": "database/supabase/schemas/tables/05_movements.sql",
+      "lines": 75
+    },
+    {
+      "path": "database/supabase/schemas/tables/06_clients_sales.sql",
+      "lines": 294
+    },
+    {
+      "path": "database/supabase/schemas/tables/07_suppliers.sql",
+      "lines": 51
+    },
+    {
+      "path": "database/supabase/schemas/tables/08_role_change_log.sql",
+      "lines": 37
+    },
+    {
+      "path": "database/supabase/schemas/tables/09_price_edit_log.sql",
+      "lines": 33
+    },
+    {
+      "path": "database/supabase/schemas/tables/10_register_sessions.sql",
+      "lines": 67
+    },
+    {
+      "path": "database/supabase/schemas/tables/10_returns.sql",
+      "lines": 39
+    },
+    {
+      "path": "database/supabase/schemas/tables/11_return_items.sql",
+      "lines": 49
+    },
+    {
+      "path": "database/supabase/schemas/triggers/01_updated_on.sql",
+      "lines": 18
+    },
+    {
+      "path": "database/supabase/schemas/triggers/02_products_stock.sql",
+      "lines": 60
+    },
+    {
+      "path": "database/supabase/schemas/triggers/03_confirmed_movement_guard.sql",
+      "lines": 28
+    },
+    {
+      "path": "database/supabase/schemas/triggers/03_keep_admin.sql",
+      "lines": 35
+    },
+    {
+      "path": "database/supabase/schemas/triggers/04_stock_movements.sql",
+      "lines": 54
+    },
+    {
+      "path": "database/supabase/schemas/triggers/05_role_change_log.sql",
+      "lines": 49
+    },
+    {
+      "path": "database/supabase/schemas/triggers/06_sale_completion.sql",
+      "lines": 62
+    },
+    {
+      "path": "database/supabase/schemas/triggers/07_price_edit_log.sql",
+      "lines": 41
+    },
+    {
+      "path": "database/supabase/schemas/triggers/08_sale_discount_guard.sql",
+      "lines": 83
+    },
+    {
+      "path": "database/supabase/schemas/triggers/09_sale_return_guard.sql",
+      "lines": 33
+    },
+    {
+      "path": "database/supabase/schemas/views/01_stock_situation.sql",
+      "lines": 28
+    },
+    {
+      "path": "database/supabase/schemas/views/02_stock_alerts.sql",
+      "lines": 22
+    },
+    {
+      "path": "database/supabase_compiler.py",
+      "lines": 182,
+      "syntax": "ok",
+      "functions": 7
+    },
+    {
+      "path": "app/__main__.py",
+      "lines": 7,
+      "syntax": "ok",
+      "functions": 0
+    },
+    {
+      "path": "packaging/stockflow.spec",
+      "lines": 188,
+      "syntax": "ok",
+      "functions": 1
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "lines": 153
+    }
+  ],
+  "syntax_errors": [],
+  "schema_mirror_mismatches": [],
+  "fiscal_script_exists": false,
+  "fiscal_script_actual": "src/stockflow/services_fiscal_php/cli_emitir.php"
+}

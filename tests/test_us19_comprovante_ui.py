@@ -84,6 +84,86 @@ def test_exportar_pdf_grava_um_arquivo_legivel(dialogo, tmp_path):
     assert destino.read_bytes().startswith(b"%PDF")
 
 
+def test_exported_pdf_has_readable_physical_text_size(dialogo, tmp_path):
+    from PySide6.QtPdf import QPdfDocument
+
+    path = tmp_path / 'legivel.pdf'
+    dialogo.export_pdf(str(path))
+    pdf = QPdfDocument()
+    try:
+        assert pdf.load(str(path)) == QPdfDocument.Error.None_
+        assert pdf.pageCount() == 1
+        text = pdf.getAllText(0).text()
+        for sample, minimum_height in ((TITULO_VALIDO, 11), ('Ana Ferreira', 8), ('Teclado', 8)):
+            bounds = pdf.getSelectionAtIndex(0, text.index(sample), len(sample)).boundingRectangle()
+            assert bounds.height() >= minimum_height, (sample, bounds)
+            assert 30 <= bounds.left() < 150, (sample, bounds)
+    finally:
+        pdf.close()
+
+
+def test_pdf_paginates_long_items_without_losing_or_duplicating_codes(qapp, tmp_path):
+    from PySide6.QtPdf import QPdfDocument
+
+    items = [dict(product_code=f'ITEM-{i:03}',
+                  product_name=f'Produto {i:03} com descricao longa para conferir a quebra de linhas e a paginacao',
+                  quantity=1, unit_price='30.00', subtotal='30.00',
+                  discount_amount='0.00', final_subtotal='30.00') for i in range(1, 36)]
+    sale = VENDA | dict(items=items, original_total='1050.00', total='1050.00', discount='0.00')
+    dialog = SaleReceiptDialog(build_sale_receipt(sale, EMPRESA))
+    pdf = QPdfDocument()
+    try:
+        path = tmp_path / 'varias-paginas.pdf'
+        dialog.export_pdf(str(path))
+        assert pdf.load(str(path)) == QPdfDocument.Error.None_
+        assert pdf.pageCount() > 1
+        pages = [pdf.getAllText(i).text() for i in range(pdf.pageCount())]
+        text = '\n'.join(pages)
+        for item in items:
+            code = item['product_code']
+            assert text.count(code) == 1, code
+            page = next(i for i, value in enumerate(pages) if code in value)
+            bounds = pdf.getSelectionAtIndex(page, pages[page].index(code), len(code)).boundingRectangle()
+            assert 50 <= bounds.top() and bounds.bottom() <= 800, (code, bounds)
+        for page in pages:
+            if 'ITEM-' in page:
+                # PDFium pode devolver os cabeçalhos repetidos como glifos
+                # separados por quebras, embora estejam alinhados no papel.
+                compact = ''.join(page.split())
+                assert 'Preçounit.' in compact and 'Desconto' in compact
+        assert '1.050,00' in pages[-1]
+        assert 'Não tem valor fiscal' in pages[-1]
+    finally:
+        pdf.close()
+        dialog.close()
+
+
+def test_pdf_keeps_large_amounts_and_cents_on_the_same_line(qapp, tmp_path):
+    import re
+    from PySide6.QtPdf import QPdfDocument
+
+    amount = '99999999.99'
+    sale = VENDA | dict(original_total=amount, total=amount, discount='0.00', items=[
+        dict(product_code='MAX-001', product_name='Produto com valor alto', quantity=1,
+             unit_price=amount, subtotal=amount, discount_amount='0.00', final_subtotal=amount)])
+    dialog = SaleReceiptDialog(build_sale_receipt(sale, EMPRESA))
+    pdf = QPdfDocument()
+    try:
+        path = tmp_path / 'valores-altos.pdf'
+        dialog.export_pdf(str(path))
+        assert pdf.load(str(path)) == QPdfDocument.Error.None_
+        text = pdf.getAllText(0).text()
+        matches = list(re.finditer(re.escape('99.999.999,99'), text))
+        assert len(matches) == 6, text
+        for match in matches:
+            bounds = pdf.getSelectionAtIndex(0, match.start(), len(match.group())).boundingRectangle()
+            assert bounds.height() <= 18, bounds
+            assert bounds.left() >= 50 and bounds.right() <= 550, bounds
+    finally:
+        pdf.close()
+        dialog.close()
+
+
 def test_falha_na_gravacao_vira_aviso_na_janela_e_nao_derruba_o_dialogo(
     dialogo, tmp_path
 ):
