@@ -41,6 +41,7 @@ continuam salvas no dispositivo. A faixa azul identifica a demonstração.
 | Parte da aplicação | Exemplos disponíveis |
 |---|---|
 | Dashboard | Indicadores, valor das vendas e sugestões de reposição |
+| Indicadores | Faturamento, quantidade de vendas, ticket médio, ranking de produtos e estoque baixo, por período (só Administrador) |
 | Estoque e Produtos | 7 produtos com saldo normal, baixo, crítico, atenção e mínimo não configurado |
 | Movimentações | Saldo de abertura, entradas, saídas de vendas, reposição pendente, cancelamento e ajuste de inventário |
 | Fornecedores | Cadastros ativo e inativo, com contatos |
