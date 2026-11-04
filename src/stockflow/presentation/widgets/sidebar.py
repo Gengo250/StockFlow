@@ -4,6 +4,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QWidget,
     QHBoxLayout,
+    QScrollArea,
     QVBoxLayout,
     QLabel,
     QPushButton,
@@ -18,6 +19,10 @@ from stockflow.presentation.widgets.menu_button import create_menu_button
 
 MENU_ITEMS = [
     ("dashboard", "Dashboard", "fa5s.home"),
+    # Logo abaixo do Dashboard: as duas respondem "como estamos", mas em
+    # alçadas diferentes — a Visão geral é dos três papéis e olha o agora;
+    # Indicadores é de gestão (só ADMIN) e olha um período.
+    ("indicadores", "Indicadores", "fa5s.chart-pie"),
     ("estoque", "Estoque", "fa5s.cube"),
     # Logo abaixo de Estoque: é o saldo daquela tela que estas entradas e
     # saídas compõem, e quem abre uma costuma querer a outra.
@@ -68,27 +73,7 @@ class Sidebar(QFrame):
         layout.addWidget(self._create_divider())
         layout.addSpacing(10)
 
-        layout.addWidget(self._create_section_title("MENU PRINCIPAL"))
-        layout.addSpacing(4)
-
-        for key, label, icon in MENU_ITEMS:
-            layout.addWidget(
-                self._create_item(key, label, icon)
-            )
-
-        layout.addSpacing(8)
-        layout.addWidget(self._create_divider())
-        layout.addSpacing(10)
-
-        layout.addWidget(self._create_section_title("SISTEMA"))
-        layout.addSpacing(4)
-
-        for key, label, icon in SYSTEM_ITEMS:
-            layout.addWidget(
-                self._create_item(key, label, icon)
-            )
-
-        layout.addStretch()
+        layout.addWidget(self._create_menu_area(), 1)
 
         layout.addWidget(self._create_divider())
         layout.addSpacing(10)
@@ -98,6 +83,54 @@ class Sidebar(QFrame):
     # ======================================================
     # ITENS DO MENU
     # ======================================================
+
+    def _create_menu_area(self):
+        """Os itens de menu numa área ROLÁVEL, e não empilhados no layout.
+
+        Empilhados, cada área nova somava ~40px à altura mínima da sidebar,
+        e essa altura virava a altura mínima da JANELA. Com nove itens a
+        soma já era 767px; o décimo (Indicadores, US16) passou de 768 e a
+        janela deixou de caber em 1366x768 — em todas as telas, não só na
+        nova. Rolar o menu quebra esse acoplamento de uma vez: a próxima
+        área entra sem reabrir a questão.
+
+        Logo e rodapé ficam FORA da rolagem: a identificação do usuário e o
+        botão de sair precisam estar sempre à vista.
+        """
+        content = QWidget()
+        content.setObjectName("sidebarMenu")
+
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.setSpacing(6)
+
+        inner.addWidget(self._create_section_title("MENU PRINCIPAL"))
+        inner.addSpacing(4)
+
+        for key, label, icon in MENU_ITEMS:
+            inner.addWidget(self._create_item(key, label, icon))
+
+        inner.addSpacing(8)
+        inner.addWidget(self._create_divider())
+        inner.addSpacing(10)
+
+        inner.addWidget(self._create_section_title("SISTEMA"))
+        inner.addSpacing(4)
+
+        for key, label, icon in SYSTEM_ITEMS:
+            inner.addWidget(self._create_item(key, label, icon))
+
+        inner.addStretch()
+
+        area = QScrollArea()
+        area.setWidget(content)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        # Barra horizontal nunca: a largura da sidebar é fixa, então uma
+        # barra embaixo só roubaria altura para rolar o que já cabe.
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        area.setStyleSheet(theme.SIDEBAR_MENU_QSS)
+        return area
 
     def _create_item(self, key, label, icon):
 

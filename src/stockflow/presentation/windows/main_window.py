@@ -53,6 +53,7 @@ from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.historico_precos import HistoricoPrecosPage
+from stockflow.presentation.pages.indicadores import IndicadoresPage
 from stockflow.presentation.pages.users import UsersPage
 from stockflow.presentation.pages.vendas import VendasPage
 from stockflow.presentation.pages.products import ProductsPage
@@ -273,6 +274,16 @@ class MainWindow(QMainWindow):
             movement_service=self.movement_service,
             price_history_service=self.price_history_service,
         )
+        # Indicadores (US16). Recebe o MESMO `sale_service` da tela de Vendas
+        # e o mesmo repositório de catálogo das demais: consultar indicadores
+        # é resumir o histórico que já existe, não um segundo caminho de
+        # leitura que pudesse divergir do que o usuário vê em Vendas.
+        from stockflow.application.services.indicators_service import IndicatorsService
+
+        self.indicators_service = IndicatorsService(
+            self.sale_service, self.product_repository
+        )
+        self.indicadores_page = IndicadoresPage(self.indicators_service, self.session)
         self.settings_page = SettingsPage(self.session)
         self.settings_page.discount_limits_save_requested.connect(
             self._save_sale_discount_limit
@@ -281,11 +292,18 @@ class MainWindow(QMainWindow):
             if hasattr(type(self.product_repository), "list_snapshot"):
                 self.dashboard_page.read_products = self.product_repository.list_snapshot
                 self.reports_page.read_products = self.product_repository.list_snapshot
-            for page in (self.dashboard_page, self.reports_page, self.clientes_page, self.suppliers_page):
+                # Indicadores é tela de leitura: `list_snapshot` consulta sem
+                # reescrever a foto do catálogo que as outras telas seguram.
+                self.indicators_service.read_products = (
+                    self.product_repository.list_snapshot
+                )
+            for page in (self.dashboard_page, self.reports_page, self.clientes_page,
+                         self.suppliers_page, self.indicadores_page):
                 page.loader.execute = self._execute
         # A ordem de insercao reproduz os indices originais de main.py
         self.page_widgets = {
             "dashboard": self.dashboard_page,
+            "indicadores": self.indicadores_page,
             "estoque": self.estoque_page,
             "movimentacoes": self.movimentacoes_page,
             "fornecedores": self.suppliers_page,
@@ -435,6 +453,11 @@ class MainWindow(QMainWindow):
             self.dashboard_page.refresh()
         if key == "relatorios":
             self.reports_page.refresh()
+        if key == "indicadores":
+            # A sessão pode ter trocado desde a montagem (relogin): sem
+            # reaplicá-la, a consulta iria com a alçada do usuário anterior.
+            self.indicadores_page.session = self.session
+            self.indicadores_page.refresh()
         if key in {"clientes", "vendas"}:
             try:
                 if key == "clientes":

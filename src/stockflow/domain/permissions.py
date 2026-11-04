@@ -139,6 +139,29 @@ PERMISSION_MATRIX: dict[str, Area] = {
         fonte_ver="fn_list_price_edits",
         fonte_gravar="",
     ),
+    # Indicadores de vendas e estoque (US16). Leitura de gestão: faturamento,
+    # ticket médio e ranking do período, mais os produtos abaixo do mínimo.
+    #
+    # `fonte_ver` VAZIO, e isso é uma decisão declarada, não um esquecimento:
+    # nenhuma função SQL restringe esta consulta hoje. Os indicadores saem de
+    # `fn_list_sales`, que usa `fn_is_member` e deixaria os três papéis lerem,
+    # e do catálogo, cuja policy `products_select` também libera os três. A
+    # aplicação é deliberadamente MAIS ESTRITA que o banco aqui, como já
+    # acontece em `movimentacoes` — e mais estrito é o lado seguro de divergir:
+    # o Postgres continua recusando o que recusava, e a aplicação recusa
+    # também o que ele permitiria.
+    #
+    # ADMIN e não ADMIN+STOCK: o StockFlow não tem papel GERENTE (o enum
+    # `public.user_role` só tem ADMIN, STOCK e SELLER), e ADMIN já é o perfil
+    # de gestão de toda a matriz — usuários, histórico de preços, devoluções e
+    # reversão de venda são dele. Faturamento e ticket médio seguem a mesma
+    # alçada.
+    "indicadores": Area(
+        ver=_ADMIN,
+        gravar=_NINGUEM,
+        fonte_ver="",
+        fonte_gravar="",
+    ),
     # Áreas sem gate. `gravar` vazio significa que nada ali grava pela tela —
     # não que a gravação seja livre.
     "dashboard": Area(
@@ -315,6 +338,27 @@ def ensure_can_view_price_history(
 ) -> None:
     """Levanta `PermissionDeniedError` se a sessão não puder abrir o histórico."""
     exigir_ver(session, "historico_precos", action)
+
+
+def can_view_indicators(role_or_session) -> bool:
+    """Quem pode consultar os indicadores de vendas e estoque (US16).
+
+    Gate de LEITURA, como o do histórico de preços: não há o que gravar
+    numa tela de indicadores, então `pode_gravar` não responderia nada.
+    """
+    return pode_ver(role_or_session, "indicadores")
+
+
+def ensure_can_view_indicators(
+    session, action: str = "consultar os indicadores"
+) -> None:
+    """Levanta `PermissionDeniedError` se a sessão não puder ver indicadores.
+
+    Negação fechada: sessão ausente também cai aqui. A tela esconde o item
+    do menu, mas esconder é controle visual e controle visual se burla — a
+    recusa que vale é esta, no caminho que consulta os dados.
+    """
+    exigir_ver(session, "indicadores", action)
 
 
 def can_manage_suppliers(role_or_session) -> bool:

@@ -31,6 +31,15 @@ SIDEBAR_QSS = qss("""
     QPushButton:focus { border-color: #6C91E0; }
     QPushButton#activeButton { background: #284783; color: white; font-weight: 600; }
 """)
+SIDEBAR_MENU_QSS = qss("""
+    QScrollArea { background: transparent; border: none; }
+    QWidget#sidebarMenu { background: transparent; }
+    QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
+    QScrollBar::handle:vertical { background: #284783; border-radius: 3px; min-height: 24px; }
+    QScrollBar::handle:vertical:hover { background: #3A5FA8; }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+""")
 DIVIDER_QSS = "background: #284174; border: none;"
 LOGO_ICON_QSS = "background: #284C9C; border-radius: 10px;"
 APP_NAME_QSS = "color: white; background: transparent; font-size: 18px; font-weight: 700;"
