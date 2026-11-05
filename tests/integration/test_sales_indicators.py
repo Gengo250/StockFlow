@@ -9,6 +9,17 @@ teste de domínio ficar vermelho.
 
 from uuid import uuid4
 
+import pytest
+
+
+@pytest.fixture
+def caixa_aberto(db_tx, create_company):
+    """Pré-condição dos snapshots de venda; não altera as fixtures globais."""
+    db_tx.execute(
+        "SELECT public.fn_start_my_register(%s, 0)",
+        (create_company,),
+    )
+
 
 def _venda(db_tx, company, *, status, total, quando, itens=()):
     sale_id = uuid4()
@@ -39,7 +50,9 @@ def _confirmadas(db_tx, company, inicio=None, fim=None):
     ).fetchall()
 
 
-def test_somente_vendas_concluidas_entram_no_faturamento(db_tx, create_company):
+def test_somente_vendas_concluidas_entram_no_faturamento(
+    db_tx, create_company, caixa_aberto
+):
     for status in ("CONCLUIDA", "CANCELADA", "DEVOLVIDA", "PENDENTE"):
         _venda(db_tx, create_company, status=status, total=10,
                quando="2026-05-10 12:00+00")
@@ -49,7 +62,9 @@ def test_somente_vendas_concluidas_entram_no_faturamento(db_tx, create_company):
     assert [linha[0] for linha in linhas] == [10]
 
 
-def test_o_periodo_recorta_pelo_instante_da_venda(db_tx, create_company):
+def test_o_periodo_recorta_pelo_instante_da_venda(
+    db_tx, create_company, caixa_aberto
+):
     """O limite superior é EXCLUSIVO: o adaptador manda o dia seguinte.
 
     É essa conversão que faz "até dia 10" incluir o dia 10 inteiro. Sem ela
@@ -68,7 +83,9 @@ def test_o_periodo_recorta_pelo_instante_da_venda(db_tx, create_company):
     assert [linha[0] for linha in linhas] == [20]
 
 
-def test_venda_com_varios_itens_continua_sendo_uma_linha(db_tx, create_company):
+def test_venda_com_varios_itens_continua_sendo_uma_linha(
+    db_tx, create_company, caixa_aberto
+):
     """Sem isso, a junção com `sale_items` multiplicaria a venda no total."""
     _venda(db_tx, create_company, status="CONCLUIDA", total=90,
            quando="2026-05-10 12:00+00",
@@ -81,7 +98,9 @@ def test_venda_com_varios_itens_continua_sendo_uma_linha(db_tx, create_company):
     assert len(linhas[0][2]) == 2
 
 
-def test_periodo_sem_vendas_devolve_nenhuma_linha(db_tx, create_company):
+def test_periodo_sem_vendas_devolve_nenhuma_linha(
+    db_tx, create_company, caixa_aberto
+):
     _venda(db_tx, create_company, status="CONCLUIDA", total=10,
            quando="2026-05-10 12:00+00")
 
