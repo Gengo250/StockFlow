@@ -4,6 +4,7 @@ Os repositórios isolados mantêm suas fixtures pequenas. Aqui os exemplos de
 venda passam pelas mesmas operações de estoque usadas durante a sessão.
 """
 
+from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -20,16 +21,34 @@ from stockflow.presentation.demo_accounts import conta_admin
 
 
 def populate_demo_operations(products, clients, sales, movements):
-    """Adiciona exemplos com vínculo venda/movimento e preserva o saldo inicial.
+    """Carrega exemplos por contexto administrativo Demo isolado.
 
-    As entradas de abertura incluem as quantidades vendidas nos exemplos.
-    Assim, os saldos finais continuam cobrindo os estados de alerta do catálogo.
-    Cada janela tem seu próprio catálogo e seus próprios repositórios.
+    Cada janela mantém seu próprio catálogo e seus próprios repositórios.
     """
     # Fontes injetadas (inclusive indisponíveis) não recebem gravações de
     # exemplo. Só os adaptadores locais concretos pertencem a esta montagem.
     if not isinstance(sales, DemoSaleRepository) or not isinstance(movements, DemoMovementRepository):
         return
+    scenario_products = dict(products)
+    scenario_movements = DemoMovementRepository(scenario_products)
+    scenario_sales = DemoSaleRepository(
+        scenario_products, scenario_movements, session=conta_admin().session()
+    )
+    _populate_demo_operations(
+        scenario_products, clients, scenario_sales, scenario_movements
+    )
+    _transfer_demo_operations(
+        products, sales, movements,
+        scenario_products, scenario_sales, scenario_movements,
+    )
+
+
+def _populate_demo_operations(products, clients, sales, movements):
+    """Adiciona exemplos com vínculo venda/movimento e preserva o saldo inicial.
+
+    As entradas de abertura incluem as quantidades vendidas nos exemplos.
+    Assim, os saldos finais continuam cobrindo os estados de alerta do catálogo.
+    """
     now = datetime.now()
     seller = conta_admin()
     examples = (
@@ -97,3 +116,27 @@ def populate_demo_operations(products, clients, sales, movements):
             reason=AdjustmentReason.CONTAGEM,
             detail="Exemplo: correção após inventário", expected_balance=balance + 1,
         ))
+
+
+def _transfer_demo_operations(
+    products, sales, movements,
+    scenario_products, scenario_sales, scenario_movements,
+):
+    """Publica o estado gerado sem trocar a sessão dos repositórios da janela."""
+    existing_ids = {str(row["id"]) for row in sales.rows}
+    new_sales = [
+        deepcopy(row) for row in scenario_sales.rows
+        if str(row["id"]) not in existing_ids
+    ]
+    new_ids = {str(row["id"]) for row in new_sales}
+
+    with movements.lock:
+        products.update(scenario_products)
+        movements._movements.extend(deepcopy(scenario_movements._movements))
+        sales.rows[:0] = new_sales
+        sales._return_sales.update(deepcopy({
+            sale_id: snapshot
+            for sale_id, snapshot in scenario_sales._return_sales.items()
+            if sale_id in new_ids
+        }))
+        sales._product_ids.update(deepcopy(scenario_sales._product_ids))
