@@ -28,15 +28,15 @@ def test_status_revertido_identifica_cancelada_e_devolvida():
 
 
 def test_so_a_concluida_e_reversivel():
-    """Cancelar pendência não deve torná-la elegível à devolução."""
+    """Cancelamento e devolução só operam sobre vendas concluídas."""
     assert SaleStatus.CONCLUIDA.reversivel
     for outro in (SaleStatus.PENDENTE, SaleStatus.CANCELADA, SaleStatus.DEVOLVIDA):
         assert not outro.reversivel
 
 
 @pytest.mark.parametrize("status", list(SaleStatus))
-def test_cancelamento_aceita_pendente_ou_concluida(status):
-    assert status.cancelavel is (status in (SaleStatus.PENDENTE, SaleStatus.CONCLUIDA))
+def test_cancelamento_aceita_somente_concluida(status):
+    assert status.cancelavel is (status is SaleStatus.CONCLUIDA)
 
 
 def test_status_tem_rotulo_em_portugues():

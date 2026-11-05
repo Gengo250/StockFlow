@@ -392,6 +392,9 @@ def can_reverse_sales(role_or_session) -> bool:
 def ensure_can_reverse_sales(session, action="cancelar ou devolver vendas") -> None:
     """Negação fechada: sessão ausente e papel sem alçada caem aqui."""
     exigir_gravar(session, "vendas_reversao", action)
+    if any(not isinstance(getattr(session, field, None), str)
+           or not getattr(session, field).strip() for field in ("user_id", "company_id")):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
 
 
 def can_return_sales(role_or_session) -> bool:

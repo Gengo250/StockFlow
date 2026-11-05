@@ -4,7 +4,7 @@ from enum import StrEnum
 
 
 class SaleStatus(StrEnum):
-    """Cancelamento e devolução têm elegibilidades distintas.
+    """Situação comercial e elegibilidade para cancelamento e devolução.
 
     `PENDENTE` é carrinho em montagem; `CANCELADA` diz que a venda não
     deveria ter existido; `DEVOLVIDA` diz que existiu e a mercadoria voltou.
@@ -37,11 +37,11 @@ class SaleStatus(StrEnum):
 
     @property
     def cancelavel(self) -> bool:
-        """Elegibilidade por status; pendência não exige restituição (US15).
+        """Somente venda concluída admite cancelamento integral (US15).
 
-        Permissões, caixa e devoluções anteriores são verificações adicionais.
+        Autorização, vínculos de estoque e devoluções são revalidados na operação.
         """
-        return self in (SaleStatus.PENDENTE, SaleStatus.CONCLUIDA)
+        return self is SaleStatus.CONCLUIDA
 
     @classmethod
     def from_value(cls, value):

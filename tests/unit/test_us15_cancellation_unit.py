@@ -233,45 +233,26 @@ def test_demo_rejects_missing_status_without_changing_state(demo_sale):
     assert demo_state(repository) == before
 
 
-def test_pending_cancellation_changes_only_sale_without_touching_stock(
-    pending_sale, monkeypatch,
-):
+def test_pending_cancellation_is_rejected_without_stock_changes(pending_sale, monkeypatch):
     repository, row = pending_sale
-    original_row = deepcopy(row)
     before = demo_state(repository)
-    assert not any(
-        str(movement.get("sale_id")) == row["id"]
-        for movement in repository.movements._movements
-    )
 
     def unexpected_reversal(*args, **kwargs):
         raise AssertionError("Pendência não pode chamar a reversão de estoque.")
 
     monkeypatch.setattr(repository.movements, "reverse_sale", unexpected_reversal)
     service = SaleService(repository, clients=None, products=None)
-
-    result = service.cancel_sale(session(), row["id"], "  Cliente desistiu  ")
-
-    assert result["status"] == "CANCELADA"
-    assert result["reversal_kind"] == "CANCELAMENTO"
-    assert result["reversal_reason"] == "Cliente desistiu"
-    assert result["reversal_on"]
-    assert result["reversal_by"]
-    assert row["id"] == original_row["id"]
-    assert row["items"] == original_row["items"]
-    assert row["total"] == original_row["total"]
-    assert demo_state(repository)[1:] == before[1:]
-    assert repository.get(row["id"])["status"] == "CANCELADA"
+    with pytest.raises(ValueError, match="concluída"):
+        service.cancel_sale(session(), row["id"], "Cliente desistiu")
+    assert demo_state(repository) == before
 
 
-def test_pending_cancellation_cannot_be_repeated(pending_sale):
+def test_repeated_pending_cancellation_remains_rejected(pending_sale):
     repository, row = pending_sale
-    repository.cancel(row["id"], "Cliente desistiu")
     before = demo_state(repository)
-
-    with pytest.raises(ValueError, match="já foi cancelada"):
-        repository.cancel(row["id"], "Segunda tentativa")
-
+    for reason in ("Primeira tentativa", "Segunda tentativa"):
+        with pytest.raises(ValueError, match="concluída"):
+            repository.cancel(row["id"], reason)
     assert demo_state(repository) == before
 
 
@@ -292,14 +273,14 @@ def test_pending_with_confirmed_movement_is_rejected_without_changes(
     monkeypatch.setattr(repository.movements, "reverse_sale", unexpected_reversal)
     service = SaleService(repository, clients=None, products=None)
 
-    with pytest.raises(ValueError, match="pendente possui movimentação confirmada"):
+    with pytest.raises(ValueError, match="concluída"):
         service.cancel_sale(session(), row["id"], "Cliente desistiu")
 
     assert demo_state(repository) == before
 
 
 @pytest.mark.parametrize("movement_status", ["PENDENTE", "CANCELADA", "OUTRA_VENDA"])
-def test_pending_without_linked_confirmed_movement_can_cancel(
+def test_pending_without_linked_confirmed_movement_is_also_rejected(
     pending_sale, movement_status,
 ):
     repository, row = pending_sale
@@ -313,10 +294,10 @@ def test_pending_without_linked_confirmed_movement_can_cancel(
     )
     before = demo_state(repository)
 
-    repository.cancel(row["id"], "Cliente desistiu")
+    with pytest.raises(ValueError, match="concluída"):
+        repository.cancel(row["id"], "Cliente desistiu")
 
-    assert row["status"] == "CANCELADA"
-    assert demo_state(repository)[1:] == before[1:]
+    assert demo_state(repository) == before
 
 
 def test_pending_sale_cannot_be_returned(pending_sale):

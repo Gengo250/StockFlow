@@ -6,6 +6,7 @@ banco não tem. Este arquivo existe para que a divergência fique vermelha
 aqui, e não na primeira gravação real.
 """
 
+from copy import deepcopy
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -40,7 +41,7 @@ def linha(i):
 
 @pytest.fixture
 def repositorio():
-    repo = DemoSaleRepository()
+    repo = DemoSaleRepository(session=SimpleNamespace(role="ADMIN", user_id="admin-test", company_id="company-test"))
     repo.rows = [linha(i) for i in range(120)]
     return repo
 
@@ -135,7 +136,7 @@ def test_get_devolve_none_para_venda_inexistente(repositorio):
 
 
 def test_cancelar_marca_a_venda_e_devolve_o_saldo():
-    repo = DemoSaleRepository()
+    repo = DemoSaleRepository(session=SimpleNamespace(role="ADMIN", user_id="admin-test", company_id="company-test"))
     antes = int(repo._products["PRD-009"].stock)
     venda = repo.register_multiple(
         cliente_falso(), (SaleItemInput("PRD-009", 2),), Decimal("20.00")
@@ -149,7 +150,7 @@ def test_cancelar_marca_a_venda_e_devolve_o_saldo():
 
 
 def test_devolver_marca_a_venda_e_devolve_o_saldo():
-    repo = DemoSaleRepository()
+    repo = DemoSaleRepository(session=SimpleNamespace(role="ADMIN", user_id="admin-test", company_id="company-test"))
     antes = int(repo._products["PRD-009"].stock)
     venda = repo.register_multiple(
         cliente_falso(), (SaleItemInput("PRD-009", 3),), Decimal("30.00")
@@ -163,26 +164,28 @@ def test_devolver_marca_a_venda_e_devolve_o_saldo():
     assert int(repo._products["PRD-009"].stock) == antes
 
 
-def test_cancelamento_anula_a_saida_enquanto_devolucao_grava_entrada():
-    """A diferença entre as duas espécies tem que sobreviver no histórico."""
-    repo = DemoSaleRepository()
+def test_cancelamento_e_devolucao_preservam_saidas_e_identificam_a_origem():
+    repo = DemoSaleRepository(session=SimpleNamespace(role="ADMIN", user_id="admin-test", company_id="company-test"))
     cancelada = repo.register_multiple(
         cliente_falso(), (SaleItemInput("PRD-009", 1),), Decimal("10.00")
     )
     devolvida = repo.register_multiple(
         cliente_falso(), (SaleItemInput("PRD-009", 1),), Decimal("10.00")
     )
+    originals = deepcopy(repo.movements._movements)
     repo.cancel(cancelada["id"], "engano")
     repo.revert(devolvida["id"], "defeito")
-
-    movimentos = repo.movements.list_movements()
-    da_cancelada = [m for m in movimentos if str(m[0]) and cancelada["id"] in str(m)]
-    assert any("Cancelada" in str(m) for m in da_cancelada)
-    assert any("DEVOLUCAO_VENDA" in str(m) for m in movimentos)
+    assert repo.movements._movements[:len(originals)] == originals
+    entries = repo.movements._movements[len(originals):]
+    assert len(entries) == 2
+    assert all(row["kind"] == "ENTRADA" and row["status"] == "CONFIRMADA" for row in entries)
+    assert entries[0]["cancellation_id"] == repo.get(cancelada["id"])["reversal_id"]
+    assert entries[1]["cancellation_id"] is None
+    assert "DEVOLUCAO_VENDA" in entries[1]["note"]
 
 
 def test_venda_revertida_nao_reverte_de_novo():
-    repo = DemoSaleRepository()
+    repo = DemoSaleRepository(session=SimpleNamespace(role="ADMIN", user_id="admin-test", company_id="company-test"))
     venda = repo.register_multiple(
         cliente_falso(), (SaleItemInput("PRD-009", 1),), Decimal("10.00")
     )
@@ -192,7 +195,7 @@ def test_venda_revertida_nao_reverte_de_novo():
 
 
 def test_reverter_venda_inexistente_e_recusado():
-    repo = DemoSaleRepository()
+    repo = DemoSaleRepository(session=SimpleNamespace(role="ADMIN", user_id="admin-test", company_id="company-test"))
     with pytest.raises(ValueError, match="não encontrada"):
         repo.cancel("NAO-EXISTE", "tentativa")
 

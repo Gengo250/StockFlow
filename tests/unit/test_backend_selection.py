@@ -125,7 +125,8 @@ def test_supabase_sem_empresa_na_sessao_falha_alto(monkeypatch):
     causa aparecesse em lugar nenhum.
     """
     monkeypatch.setenv(backend.BACKEND_VAR, "supabase")
-    sessao = conta_admin().session()          # demo: nasce sem company_id
+    from dataclasses import replace
+    sessao = replace(conta_admin().session(), company_id=None)
     assert sessao.company_id is None
 
     with pytest.raises(RuntimeError, match="empresa"):
@@ -146,3 +147,23 @@ def test_catalogo_remoto_pode_ser_construido_sem_consultar_rede(monkeypatch):
     assert calls == []
     assert catalog == {}
     assert repository._catalog is catalog
+
+
+def test_demo_login_provides_context_for_audited_cancellation():
+    from types import SimpleNamespace
+    from stockflow.application.dto.sale_item import SaleItemInput
+    from stockflow.application.services.sale_service import SaleService, parse_price
+    from stockflow.presentation.demo_accounts import DEMO_COMPANY_ID
+
+    account = conta_admin()
+    session = backend.authenticate(account.email, account.password)
+    assert session.company_id == DEMO_COMPANY_ID
+    catalog, _ = backend.build_catalog(session)
+    repository = backend.build_sale_repository(session, catalog)
+    original_stock = int(catalog["PRD-009"].stock)
+    row = repository.register_multiple(SimpleNamespace(name="Cliente"), (SaleItemInput("PRD-009", 1),), parse_price(catalog["PRD-009"].sale_price))
+    SaleService(repository, clients=None, products=None).cancel_sale(session, row["id"], "Registro incorreto")
+    assert int(catalog["PRD-009"].stock) == original_stock
+    entry = repository.movements._movements[-1]
+    assert entry["cancellation_id"] and entry["company_id"] == session.company_id
+    assert entry["created_by"] == session.user_id

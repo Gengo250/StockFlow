@@ -40,6 +40,7 @@ ALTER TABLE public.stock_movements
     ADD CONSTRAINT ck_stock_movements_return CHECK (
         return_id IS NULL OR (
             sale_id IS NOT NULL AND sale_item_id IS NOT NULL
+            AND cancellation_id IS NULL
             AND kind = 'ENTRADA' AND status = 'CONFIRMADA'
             AND created_by IS NOT NULL AND confirmed_on IS NOT NULL
             AND adjustment_reason IS NULL AND counted_balance IS NULL

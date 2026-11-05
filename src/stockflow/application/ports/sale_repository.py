@@ -40,11 +40,11 @@ class SaleRepository(Protocol):
         ...
 
     def cancel(self, sale_id: str, reason: str) -> dict:
-        """Cancela pendência sem movimentar estoque ou restitui venda concluída.
+        """Cancela uma venda concluída e restitui todos os itens atomicamente.
 
-        Exige autorização e motivo; status ausente/inválido ou terminal é
-        recusado. O adaptador deve validar o estado dentro da operação.
-        O suporte a pendências na RPC depende da adaptação do banco (US15).
+        Exige ADMIN identificado, motivo e saídas originais vinculadas aos itens.
+        Recusa pendências, status terminais e vendas com devolução anterior.
+        Preserva as saídas e grava entradas vinculadas ao cancelamento.
         """
         ...
 
