@@ -1,21 +1,19 @@
-"""Consulta cronológica das alterações de preço e custo (H09).
-
-A tela é deliberadamente burra: não consulta nem ordena. Quem decide a ordem
-é `fn_list_price_edits`, e reordenar aqui colocaria a mesma regra em dois
-lugares — com o agravante de que o desempate do banco (pelo id da linha) não
-é reproduzível fora dele.
-"""
+"""Consulta e detalhes somente leitura da auditoria de preços e custos."""
 
 from stockflow.presentation.styles import design_system as ds
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QDate
 from PySide6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QTableWidget,
+    QCheckBox, QDateEdit, QPushButton, QComboBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
 from stockflow.infrastructure.repositories.product_mapper import money_to_label
 from stockflow.presentation.styles import inventory
+
+from stockflow.domain.enums.price_edit_field import PriceEditField
+from stockflow.domain.permissions import pode_ver
+from stockflow.presentation.dialogs.audit_event_dialog import AuditEventDialog
 
 COLUNAS = ("Quando", "Produto", "Campo", "De", "Para", "Por")
 
@@ -30,6 +28,10 @@ class HistoricoPrecosPage(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.session = None
+        self._mudancas = ()
+        self._visiveis = ()
+        self.detail_dialog = None
         self.setObjectName("historicoPrecosPage")
         self.setStyleSheet(ds.page_qss("historicoPrecosPage") + ds.field_qss() + ds.surface_qss("QFrame#historyFilter, QFrame#historyTableCard"))
         layout = QVBoxLayout(self)
@@ -56,13 +58,57 @@ class HistoricoPrecosPage(QWidget):
 
         self.filter_card = QFrame()
         self.filter_card.setObjectName("historyFilter")
-        filtro = QHBoxLayout(self.filter_card)
+        filtros = QVBoxLayout(self.filter_card)
+        filtro = QHBoxLayout()
+        filtros.addLayout(filtro)
         filtro.setContentsMargins(16, 12, 16, 12)
         filtro.setSpacing(12)
         filtro_label = QLabel("Filtrar por produto")
         filtro_label.setStyleSheet("font-weight: 600; color: #475569;")
         filtro.addWidget(filtro_label)
         filtro.addWidget(self.produto_combo, 1)
+
+        self.usuario_combo = QComboBox()
+        self.usuario_combo.addItem("Todos os usuários", None)
+        self.acao_combo = QComboBox()
+        self.acao_combo.addItem("Todas as ações", None)
+        self.acao_combo.addItem("Alteração de preço de venda", PriceEditField.SELL_PRICE)
+        self.acao_combo.addItem("Alteração de custo", PriceEditField.BUY_PRICE)
+        self.entidade_combo = QComboBox()
+        self.entidade_combo.addItem("Todas as entidades", None)
+        self.entidade_combo.addItem("Produto", "produto")
+        row = QHBoxLayout()
+        for title, combo in (("Usuário", self.usuario_combo), ("Ação", self.acao_combo),
+                             ("Entidade", self.entidade_combo)):
+            field = QVBoxLayout()
+            field.addWidget(QLabel(title))
+            field.addWidget(combo)
+            combo.setAccessibleName(title)
+            combo.setFixedHeight(ds.CONTROL_HEIGHT)
+            combo.currentIndexChanged.connect(self._aplicar_filtros)
+            row.addLayout(field, 1)
+        filtros.addLayout(row)
+        period = QHBoxLayout()
+        self.periodo_check = QCheckBox("Filtrar período")
+        period.addWidget(self.periodo_check)
+        self.data_inicio = QDateEdit(QDate.currentDate())
+        self.data_fim = QDateEdit(QDate.currentDate())
+        for title, date in (("De", self.data_inicio), ("Até", self.data_fim)):
+            period.addWidget(QLabel(title))
+            date.setAccessibleName("Data inicial" if title == "De" else "Data final")
+            date.setCalendarPopup(True)
+            date.setDisplayFormat("dd/MM/yyyy")
+            date.setFixedHeight(ds.CONTROL_HEIGHT)
+            date.setEnabled(False)
+            date.dateChanged.connect(self._aplicar_filtros)
+            period.addWidget(date, 1)
+        self.periodo_check.toggled.connect(self._aplicar_filtros)
+        clear = QPushButton("Limpar filtros")
+        clear.setStyleSheet(inventory.FILTER_QSS)
+        clear.setFixedHeight(ds.CONTROL_HEIGHT)
+        clear.clicked.connect(self.limpar_filtros)
+        period.addWidget(clear)
+        filtros.addLayout(period)
 
         self.table_card = QFrame()
         self.table_card.setObjectName("historyTableCard")
@@ -96,6 +142,7 @@ class HistoricoPrecosPage(QWidget):
         self.aviso_label = QLabel("")
         self.aviso_label.setObjectName("warningLabel")
         self.aviso_label.setWordWrap(True)
+        self.aviso_label.setTextFormat(Qt.PlainText)
         self.aviso_label.hide()
 
         layout.addWidget(titulo)
@@ -103,6 +150,18 @@ class HistoricoPrecosPage(QWidget):
         layout.addWidget(self.filter_card)
         layout.addWidget(self.aviso_label)
         layout.addWidget(self.table_card, 1)
+        footer = QHBoxLayout()
+        self.result_count = QLabel()
+        footer.addWidget(self.result_count, 1)
+        self.details_button = QPushButton("Ver detalhes do evento")
+        self.details_button.setStyleSheet(inventory.NEW_BUTTON_QSS)
+        self.details_button.setFixedHeight(ds.CONTROL_HEIGHT)
+        self.details_button.setEnabled(False)
+        self.details_button.clicked.connect(self.abrir_detalhes)
+        self.table.itemSelectionChanged.connect(self._selecao_alterada)
+        self.table.cellDoubleClicked.connect(lambda *_: self.abrir_detalhes())
+        footer.addWidget(self.details_button)
+        layout.addLayout(footer)
 
     # ------------------------------------------------------------ entrada
 
@@ -123,18 +182,95 @@ class HistoricoPrecosPage(QWidget):
         self.produto_combo.setCurrentIndex(max(indice, 0))
         self.produto_combo.blockSignals(False)
 
+    def apply_session(self, session):
+        self.session = session
+        if self.detail_dialog is not None:
+            self.detail_dialog.close()
+            self.detail_dialog.deleteLater()
+            self.detail_dialog = None
+        self._mudancas = ()
+        self.usuario_combo.blockSignals(True)
+        self.usuario_combo.clear()
+        self.usuario_combo.addItem("Todos os usuários", None)
+        self.usuario_combo.blockSignals(False)
+        self.preencher_produtos(())
+        self.limpar_filtros()
+
+    def limpar_filtros(self):
+        self.usuario_combo.setCurrentIndex(0)
+        self.acao_combo.setCurrentIndex(0)
+        self.entidade_combo.setCurrentIndex(0)
+        self.periodo_check.setChecked(False)
+        self.produto_combo.setCurrentIndex(0)
+        self._aplicar_filtros()
+
     def carregar(self, mudancas) -> None:
+        self._mudancas = tuple(mudancas) if pode_ver(self.session, "historico_precos") else ()
+        escolhido = self.usuario_combo.currentData()
+        self.usuario_combo.blockSignals(True)
+        self.usuario_combo.clear()
+        self.usuario_combo.addItem("Todos os usuários", None)
+        usuarios = {m.changed_by for m in self._mudancas}
+        if escolhido is not None and pode_ver(self.session, "historico_precos"):
+            usuarios.add(escolhido)
+        for user in sorted(usuarios):
+            self.usuario_combo.addItem(user or "Não informado", user)
+        self.usuario_combo.setCurrentIndex(max(0, self.usuario_combo.findData(escolhido)))
+        self.usuario_combo.blockSignals(False)
+        self._aplicar_filtros()
+
+    def _aplicar_filtros(self):
         self.aviso_label.hide()
-        mudancas = tuple(mudancas)
-        self.table.setRowCount(len(mudancas))
-        self.empty_label.setVisible(not mudancas)
-        for linha, mudanca in enumerate(mudancas):
+        period = self.periodo_check.isChecked()
+        self.data_inicio.setEnabled(period)
+        self.data_fim.setEnabled(period)
+        start, end = self.data_inicio.date().toPython(), self.data_fim.date().toPython()
+        invalid = period and start > end
+        user, action = self.usuario_combo.currentData(), self.acao_combo.currentData()
+        rows = []
+        if not invalid and pode_ver(self.session, "historico_precos"):
+            for change in self._mudancas:
+                if user is not None and change.changed_by != user:
+                    continue
+                if action is not None and change.field != action:
+                    continue
+                if period and (change.changed_on is None or not
+                               start <= change.changed_on.astimezone().date() <= end):
+                    continue
+                rows.append(change)
+        # Stable sorting preserves the repository's tie order; undated events go last.
+        rows.sort(key=lambda m: m.changed_on.timestamp() if m.changed_on else float('-inf'),
+                  reverse=True)
+        self._visiveis = tuple(rows)
+        self.table.setRowCount(0)
+        self.table.setRowCount(len(rows))
+        self.empty_label.setVisible(not rows and not invalid)
+        self.result_count.setText(f"{len(rows)} evento(s) · Mais recentes primeiro")
+        for linha, mudanca in enumerate(rows):
             for coluna, texto in enumerate(_celulas(mudanca)):
                 item = QTableWidgetItem(texto)
                 item.setTextAlignment(
                     Qt.AlignVCenter | (Qt.AlignRight if coluna in (3, 4) else Qt.AlignLeft)
                 )
                 self.table.setItem(linha, coluna, item)
+        if invalid:
+            self.aviso_label.setText("A data inicial deve ser anterior ou igual à data final.")
+            self.aviso_label.show()
+        self._selecao_alterada()
+
+    def _selecao_alterada(self):
+        self.details_button.setEnabled(pode_ver(self.session, "historico_precos") and
+                                       0 <= self.table.currentRow() < len(self._visiveis))
+
+    def abrir_detalhes(self):
+        row = self.table.currentRow()
+        if not pode_ver(self.session, "historico_precos") or not 0 <= row < len(self._visiveis):
+            return
+        if self.detail_dialog is not None:
+            self.detail_dialog.close()
+            self.detail_dialog.deleteLater()
+        self.detail_dialog = AuditEventDialog(self._visiveis[row], self.session, self)
+        self.detail_dialog.show()
 
     def mostrar_recusa(self, erro) -> None:
         """Recusa aparece NA tela, e não num diálogo que some.
@@ -142,7 +278,7 @@ class HistoricoPrecosPage(QWidget):
         Mesma escolha do card de ajuste: a mensagem fica ao lado do que o
         usuário tentou consultar.
         """
-        self.table.setRowCount(0)
+        self.carregar(())
         self.empty_label.hide()
         self.aviso_label.setText(str(erro))
         self.aviso_label.show()

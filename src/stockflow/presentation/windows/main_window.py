@@ -701,10 +701,14 @@ class MainWindow(QMainWindow):
         session, code = self.session, page.produto_combo.currentData()
 
         def loaded(rows):
+            if self.session is not session or not pode_ver(self.session, "historico_precos"):
+                return
             self.last_history_error = None
             page.carregar(rows)
 
         def failed(error):
+            if self.session is not session:
+                return
             self.last_history_error = error
             page.mostrar_recusa(error)
 
@@ -1090,6 +1094,7 @@ class MainWindow(QMainWindow):
         self.clientes_page.apply_session(self.session, reload=not using_supabase())
         self.vendas_page.apply_session(self.session)
         self.settings_page.apply_session(self.session)
+        self.historico_precos_page.apply_session(self.session)
         # Escrita: cada área habilita os widgets que ela controla. As alçadas
         # continuam SEPARADAS de propósito — administrar usuário é só do
         # ADMIN, como `fn_is_admin`, e reaproveitar a permissão de produto
