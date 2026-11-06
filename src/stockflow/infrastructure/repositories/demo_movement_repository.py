@@ -205,42 +205,83 @@ class DemoMovementRepository:
         linha["status"] = MovementStatus.CANCELADA.value
 
     @_sob_o_lock
-    def reverse_sale(self, sale_id, itens, kind: str) -> None:
-        """Desfaz o estoque de uma venda, pelo mecanismo da espécie (US17).
+    def reverse_sale(self, sale_id, itens, kind: str, *, created_by, company_id,
+                     cancellation_id=None, publish=None) -> None:
+        """Preserva saídas e publica entradas/auditoria como uma única operação.
 
-        Espelha `fn_cancel_sale` e `fn_return_sale`, e a diferença entre as
-        duas não é cosmética:
-
-        - `CANCELAMENTO` anula as saídas da venda. A venda não deveria ter
-          existido, então o histórico de estoque passa a dizer isso.
-        - `DEVOLUCAO` grava ENTRADA compensatória e DEIXA a saída original
-          confirmada. A venda aconteceu; a mercadoria voltou depois.
-
-        `cancel()` não serve aqui de propósito: ela recusa saída vinculada a
-        venda, porque desfazer meia venda não é operação legítima. Esta é a
-        porta que a venda inteira usa, e é a única.
+        O cancelamento usa cancellation_id. A devolução integral legada mantém
+        sua nota; a US20 publica entradas com return_id em register_return.
+        Nenhum vínculo de saída histórica é inferido pelo código do produto.
         """
-        alvo = str(sale_id)
+        if kind not in ("CANCELAMENTO", "DEVOLUCAO"):
+            raise ValueError("Espécie de reversão inválida.")
+        if (not isinstance(created_by, str) or not created_by.strip()
+                or not isinstance(company_id, str) or not company_id.strip()):
+            raise ValueError("Restituição exige responsável e empresa.")
         if kind == "CANCELAMENTO":
-            for linha in self._movements:
-                if (str(linha.get("sale_id") or "") == alvo
-                        and linha["status"] == MovementStatus.CONFIRMADA.value):
-                    self._aplicar_no_saldo(linha, sentido=-1)
-                    linha["status"] = MovementStatus.CANCELADA.value
-            return
-
+            cancellation_id = return_identifier(cancellation_id)
+        if not isinstance(itens, (list, tuple)) or not itens:
+            raise ValueError("Venda concluída sem itens; restituição recusada.")
+        alvo = str(sale_id)
+        expected = {}
+        quantities = {}
         for item in itens:
+            item_id = return_identifier(item["id"])
+            quantity = return_quantity(item["quantity"])
             code = item["product_code"]
-            if code not in self._products:
-                # Produto saiu do catálogo depois da venda. A entrada não
-                # tem onde pousar, e inventar o produto de volta seria pior
-                # que não devolver o saldo de algo que não se vende mais.
-                continue
-            movement_id = self.register(MovementInput(
-                code, MovementKind.ENTRADA, int(item["quantity"]),
-                note=f"DEVOLUCAO_VENDA - venda {alvo}", confirm=True,
-            ))
-            self._linha(movement_id)["sale_id"] = alvo
+            if item_id in expected:
+                raise ValueError("Item de venda repetido; restituição recusada.")
+            expected[item_id] = (code, quantity)
+            quantities[code] = quantities.get(code, 0) + quantity
+        originals = [row for row in self._movements if str(row.get("sale_id") or "") == alvo]
+        if len(originals) != len(expected):
+            raise ValueError("Inconsistência entre itens e saídas confirmadas da venda.")
+        seen = set()
+        for row in originals:
+            item_id = row.get("sale_item_id")
+            if (item_id not in expected or item_id in seen
+                    or row.get("company_id") != company_id
+                    or (row["product_code"], row["quantity"]) != expected[item_id]
+                    or row["kind"] != "SAIDA" or row["status"] != "CONFIRMADA"
+                    or row.get("confirmed_on") is None
+                    or row.get("return_id") is not None or row.get("cancellation_id") is not None
+                    or row.get("adjustment_reason") is not None or row.get("counted_balance") is not None):
+                raise ValueError("Inconsistência entre itens e saídas confirmadas da venda.")
+            seen.add(item_id)
+        for code, quantity in quantities.items():
+            product = self._products.get(code)
+            if product is None:
+                raise ValueError("Produto da venda não encontrado; restituição recusada.")
+            validate_return_stock(
+                int(product.stock), quantity, getattr(product, "maximum_stock", None),
+                self.company_max_stock_limit,
+            )
+        stock_before = {code: self._products[code] for code in quantities}
+        movements_before = list(self._movements)
+        committed = False
+        try:
+            for item_id, (code, quantity) in expected.items():
+                now = self._agora or datetime.now()
+                note = (f"CANCELAMENTO_VENDA - venda {alvo} - cancelamento {cancellation_id}"
+                        if kind == "CANCELAMENTO" else f"DEVOLUCAO_VENDA - venda {alvo}")
+                entry = {
+                    "id": self._proximo_id(), "product_code": code,
+                    "kind": "ENTRADA", "quantity": quantity, "status": "CONFIRMADA",
+                    "company_id": company_id, "created_by": created_by,
+                    "sale_id": alvo, "sale_item_id": item_id,
+                    "cancellation_id": cancellation_id, "return_id": None,
+                    "note": note, "supplier_id": None,
+                    "created_on": now, "confirmed_on": now,
+                }
+                self._aplicar_no_saldo(entry, sentido=1)
+                self._movements.append(entry)
+            if publish is not None:
+                publish()
+            committed = True
+        finally:
+            if not committed:
+                self._products.update(stock_before)
+                self._movements[:] = movements_before
 
     @_sob_o_lock
     def adjust(self, data) -> str:
@@ -344,12 +385,16 @@ class DemoMovementRepository:
                             f"Estoque insuficiente para {produto.name} "
                             f"(disponível: {produto.stock}, vendido: {quantity})."
                         )
-                for code, quantity in quantidades.items():
+                for item in itens:
+                    code, quantity = item["product"].code, item["quantity"]
                     movement_id = self.register(MovementInput(
                         code, MovementKind.SAIDA, quantity,
                         note=f"SAIDA_VENDA - venda {sale_id}", confirm=True,
                     ))
-                    self._linha(movement_id)["sale_id"] = str(sale_id)
+                    self._linha(movement_id).update(
+                        sale_id=str(sale_id), sale_item_id=item.get("sale_item_id"),
+                        company_id=item.get("company_id"), created_by=item.get("created_by"),
+                    )
             except Exception:
                 self._products.update(stock_before)
                 self._movements[:] = movements_before

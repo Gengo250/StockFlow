@@ -40,7 +40,12 @@ class SaleRepository(Protocol):
         ...
 
     def cancel(self, sale_id: str, reason: str) -> dict:
-        """Anula a venda e devolve o saldo. Só para venda concluída."""
+        """Cancela uma venda concluída e restitui todos os itens atomicamente.
+
+        Exige ADMIN identificado, motivo e saídas originais vinculadas aos itens.
+        Recusa pendências, status terminais e vendas com devolução anterior.
+        Preserva as saídas e grava entradas vinculadas ao cancelamento.
+        """
         ...
 
     def revert(self, sale_id: str, reason: str) -> dict:

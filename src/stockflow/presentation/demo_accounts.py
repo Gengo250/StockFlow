@@ -20,6 +20,10 @@ from stockflow.presentation.demo_status import (
 )
 
 
+# Empresa fictícia comum às contas offline; nunca usada na autenticação Supabase.
+DEMO_COMPANY_ID = "00000000-0000-4000-8000-000000000001"
+
+
 @dataclass(frozen=True)
 class DemoAccount:
     user_id: str
@@ -34,6 +38,7 @@ class DemoAccount:
             name=self.name,
             email=self.email,
             role=self.role,
+            company_id=DEMO_COMPANY_ID,
         )
 
 

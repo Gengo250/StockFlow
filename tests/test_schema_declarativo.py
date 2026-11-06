@@ -846,8 +846,16 @@ def test_us17_reversao_resolve_a_empresa_pelo_dado_persistido(nome):
     corpo = corpo_da_funcao(nome)
     assert corpo, f"{nome} não declarada em database/code"
     assert "SECURITY DEFINER" in corpo
-    assert "SET search_path = public" in corpo
-    assert re.search(r"FROM public\.sales s\s+WHERE s\.id = p_sale_id FOR UPDATE", corpo)
+    if nome == "fn_cancel_sale":
+        assert "SET search_path = pg_catalog, pg_temp" in corpo
+        assert re.search(
+            r"FROM public\.sales s\s+WHERE s\.id = p_sale_id\s+"
+            r"AND public\.fn_has_role\(s\.company_id, ARRAY\['ADMIN'\]"
+            r"::public\.user_role\[\]\)\s+FOR UPDATE", corpo,
+        )
+    else:
+        assert "SET search_path = public" in corpo
+        assert re.search(r"FROM public\.sales s\s+WHERE s\.id = p_sale_id FOR UPDATE", corpo)
     assert "p_company_id" not in corpo
 
 
@@ -858,9 +866,39 @@ def test_us17_reversao_e_so_do_admin(nome):
     assert "fn_has_role(v_company, ARRAY['ADMIN']::public.user_role[])" in corpo
 
 
-@pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
-def test_us17_reversao_so_aceita_venda_concluida(nome):
-    assert "v_status <> 'CONCLUIDA'" in corpo_da_funcao(nome)
+def test_us17_devolucao_so_aceita_venda_concluida():
+    assert "v_status <> 'CONCLUIDA'" in corpo_da_funcao("fn_return_sale")
+
+
+def test_us15_cancelamento_so_aceita_concluida():
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    assert "v_status IS DISTINCT FROM 'CONCLUIDA'" in corpo
+
+
+def test_us15_cancelamento_exige_identidade_e_justificativa_normalizada_limitada():
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    assert "v_actor IS NULL" in corpo
+    assert corpo.index("v_actor IS NULL") < corpo.index("FROM public.sales")
+    assert "regexp_replace(" in corpo
+    assert "'^[[:space:]]+|[[:space:]]+$'" in corpo
+    assert "char_length(v_reason) > 300" in corpo
+    assert "v_reason = ''" in corpo
+    assert "USING ERRCODE = 'insufficient_privilege'" in corpo
+    assert "USING ERRCODE = 'check_violation'" in corpo
+
+
+def test_us15_recusa_pendencia_antes_de_qualquer_escrita():
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    guard = corpo.index("v_status IS DISTINCT FROM 'CONCLUIDA'")
+    assert guard < corpo.index("INSERT INTO public.sale_reversals")
+    assert guard < corpo.index("INSERT INTO public.stock_movements")
+    assert "IF v_status = 'PENDENTE'" not in corpo
+    assert not re.search(r"\bUPDATE\s+public\.stock_movements\b", corpo)
+    assert (
+        corpo.index("INSERT INTO public.sale_reversals")
+        < corpo.index("INSERT INTO public.stock_movements")
+        < corpo.index("UPDATE public.sales SET status = 'CANCELADA'")
+    )
 
 
 @pytest.mark.parametrize("nome", ["fn_cancel_sale", "fn_return_sale"])
@@ -868,12 +906,35 @@ def test_us17_reversao_exige_motivo(nome):
     assert "v_reason = ''" in corpo_da_funcao(nome)
 
 
-def test_us17_cancelamento_anula_a_saida_da_venda():
-    """Cancelar devolve o saldo pelo recálculo, que é o padrão do projeto."""
+def test_us15_cancelamento_preserva_saidas_e_grava_entradas_vinculadas():
+    """Compensar e anular simultaneamente restituiria o estoque duas vezes."""
     corpo = corpo_da_funcao("fn_cancel_sale")
-    assert "UPDATE public.stock_movements" in corpo
-    assert "SET status = 'CANCELADA'" in corpo
-    assert "INSERT INTO public.stock_movements" not in corpo
+    assert "INSERT INTO public.stock_movements" in corpo
+    assert re.search(
+        r"company_id, product_id, sale_id, sale_item_id, cancellation_id,\s+"
+        r"kind, quantity, status, note, created_by, confirmed_on", corpo,
+    )
+    assert "'ENTRADA', v_item.quantity, 'CONFIRMADA'" in corpo
+    assert "RETURNING id INTO v_cancellation" in corpo
+    assert "v_company, v_item.product_id, p_sale_id, v_item.id, v_cancellation" in corpo
+    assert not re.search(
+        r"\b(?:UPDATE\s+public\.stock_movements|DELETE\s+FROM\s+public\.stock_movements)\b",
+        corpo,
+    )
+
+
+def test_us15_cancelamento_reconcilia_itens_e_recusa_devolucao_antes_da_auditoria():
+    corpo = corpo_da_funcao("fn_cancel_sale")
+    assert corpo.index("r.status = 'COMPLETED'") < corpo.index(
+        "INSERT INTO public.sale_reversals"
+    )
+    assert "SELECT count(*) FROM public.stock_movements sm" in corpo
+    assert "sm.sale_id = p_sale_id AND sm.sale_item_id = i.id" in corpo
+    assert "sm.product_id IS DISTINCT FROM i.product_id" in corpo
+    assert "sm.quantity <> i.quantity" in corpo
+    assert "sm.kind <> 'SAIDA' OR sm.status <> 'CONFIRMADA'" in corpo
+    assert "sm.return_id IS NOT NULL OR sm.cancellation_id IS NOT NULL" in corpo
+    assert "cancelamento recusado sem inferir vínculos" in corpo
 
 
 def test_us17_devolucao_grava_entrada_compensatoria():
