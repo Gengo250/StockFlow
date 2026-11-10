@@ -225,7 +225,8 @@ DECLARE
     -- Cancelamento e devolução de venda (US17). Só o ADMIN; a função
     -- repete essa alçada, e o teste de espelhamento da matriz compara.
     'fn_cancel_sale', 'fn_return_sale',
-    'fn_list_price_edits','fn_set_company_max_stock_limit','fn_set_max_stock','fn_get_effective_max_stock'
+    'fn_list_price_edits', 'fn_list_audit_events',
+    'fn_set_company_max_stock_limit','fn_set_max_stock','fn_get_effective_max_stock'
   ];
   v_name    text;
   v_sig     regprocedure;
