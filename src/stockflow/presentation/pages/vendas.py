@@ -362,6 +362,15 @@ class VendasPage(QWidget):
         discount_editor_layout.addWidget(self.desconto_tipo_combo)
         discount_editor_layout.addWidget(self.desconto_input, 1)
 
+        self.valor_pago_input = QLineEdit()
+        self.valor_pago_input.setPlaceholderText("Ex: 50,00")
+        self.valor_pago_input.setFixedHeight(ds.CONTROL_HEIGHT)
+        self.valor_pago_campo = campo("Valor recebido (R$)", self.valor_pago_input)
+
+        self.troco_label = QLabel("")
+        self.troco_label.setStyleSheet("color: #15803D; font-size: 13px; font-weight: 600;")
+        self.troco_campo = campo("Troco", self.troco_label)
+
         self.remove_button = btn_remover = QPushButton(" Remover último item")
         btn_remover.setFixedHeight(ds.CONTROL_HEIGHT)
         btn_remover.setStyleSheet(inventory.FILTER_QSS)
@@ -374,6 +383,8 @@ class VendasPage(QWidget):
 
         fecho.addWidget(campo("Forma de pagamento", self.pagamento_combo), 1)
         fecho.addWidget(campo("Desconto total", discount_editor), 1)
+        fecho.addWidget(self.valor_pago_campo, 1)
+        fecho.addWidget(self.troco_campo, 1)
         self.fecho_widget = QWidget()
         self.fecho_widget.setLayout(fecho)
         form_layout.addWidget(self.fecho_widget)
@@ -385,6 +396,9 @@ class VendasPage(QWidget):
         self.desconto_input.textChanged.connect(self._atualizar_total)
         self.desconto_tipo_combo.currentIndexChanged.connect(self._atualizar_total)
         self.qtd_input.textChanged.connect(self._atualizar_total)
+        self.pagamento_combo.currentIndexChanged.connect(self._forma_pagamento_mudou)
+        self.valor_pago_input.textChanged.connect(self._calcular_troco)
+        self._forma_pagamento_mudou()
 
         form_scroll = QScrollArea()
         form_scroll.setWidgetResizable(True)
@@ -1105,12 +1119,93 @@ class VendasPage(QWidget):
             return
         total = bruto - desconto_itens - desconto
         self.total_label.setText(f"Total: {_em_reais(total)}")
+        self._calcular_troco()
+
+    def _forma_pagamento_mudou(self):
+        forma = self.pagamento_combo.currentData()
+        em_dinheiro = (forma == "DINHEIRO")
+        self.valor_pago_campo.setVisible(em_dinheiro)
+        self.troco_campo.setVisible(em_dinheiro)
+        if not em_dinheiro:
+            self.valor_pago_input.clear()
+            self.troco_label.setText("")
+        else:
+            self._calcular_troco()
+
+    def _obter_total_venda(self) -> Decimal:
+        """Calcula o total numérico corrente da venda com base nos itens e descontos."""
+        bruto = Decimal("0")
+        desconto_itens = Decimal("0")
+        for row, item in enumerate(self.itens):
+            preco = parse_price(item["preco"])
+            subtotal = preco * item["quantidade"]
+            try:
+                discount_value = parse_total(item.get("discount_value", "0") or "0")
+            except ValueError:
+                discount_value = Decimal("0.00")
+            try:
+                discount = calculate_discount(
+                    subtotal,
+                    item.get("discount_type", DiscountKind.FIXED.value),
+                    discount_value,
+                )
+            except ValueError:
+                return Decimal("0.00")
+            bruto += subtotal
+            desconto_itens += discount
+
+        escolhido = self.produto_combo.currentData()
+        if escolhido:
+            produto = self.products.get(escolhido["codigo"])
+            try:
+                if produto:
+                    bruto += parse_price(produto.sale_price) * parse_quantity(self.qtd_input.text() or "1")
+            except ValueError:
+                pass
+
+        try:
+            valor_desconto = parse_total(self.desconto_input.text().strip() or "0")
+        except ValueError:
+            valor_desconto = Decimal("0.00")
+        try:
+            desconto = calculate_discount(
+                bruto - desconto_itens,
+                self.desconto_tipo_combo.currentData(),
+                valor_desconto,
+            )
+        except ValueError:
+            return Decimal("0.00")
+        return max(Decimal("0.00"), bruto - desconto_itens - desconto)
+
+    def _calcular_troco(self):
+        if self.pagamento_combo.currentData() != "DINHEIRO":
+            return
+        total = self._obter_total_venda()
+        texto_pago = self.valor_pago_input.text().strip()
+        if not texto_pago:
+            self.troco_label.setText("")
+            return
+        try:
+            pago = parse_total(texto_pago)
+            if pago < total:
+                diferenca = total - pago
+                self.troco_label.setStyleSheet("color: #DC2626; font-size: 13px; font-weight: 600;")
+                self.troco_label.setText(f"Falta: {_em_reais(diferenca)}")
+            else:
+                troco = pago - total
+                self.troco_label.setStyleSheet("color: #15803D; font-size: 13px; font-weight: 600;")
+                self.troco_label.setText(f"Troco: {_em_reais(troco)}")
+        except ValueError:
+            self.troco_label.setStyleSheet("color: #DC2626; font-size: 13px; font-weight: 600;")
+            self.troco_label.setText("Valor inválido")
 
     def _limpar_venda(self):
         self.itens = []
         self.val_input.clear()
         self.qtd_input.clear()
         self.desconto_input.clear()
+        self.valor_pago_input.clear()
+        self.troco_label.setText("")
         self.desconto_tipo_combo.setCurrentIndex(0)
         self.cliente_combo.setCurrentIndex(0)
         self.produto_combo.setCurrentIndex(0)
@@ -1149,8 +1244,8 @@ class VendasPage(QWidget):
         self._saving = saving
         for widget in (self.cliente_combo, self.produto_combo, self.qtd_input,
                        self.pagamento_combo, self.desconto_tipo_combo,
-                       self.desconto_input, self.itens_table, self.remove_button,
-                       self.retry_button):
+                       self.desconto_input, self.valor_pago_input, self.itens_table,
+                       self.remove_button, self.retry_button):
             widget.setEnabled(not saving)
         self.save_button.setText("Gravando…" if saving else " Finalizar Venda")
         self.apply_session(self.session)
@@ -1173,6 +1268,20 @@ class VendasPage(QWidget):
         if not self.itens:
             self.warning_label.setText(SEM_ITENS)
             return
+
+        payment = self.pagamento_combo.currentData()
+        if payment == "DINHEIRO":
+            total_venda = self._obter_total_venda()
+            texto_pago = self.valor_pago_input.text().strip()
+            if texto_pago:
+                try:
+                    pago = parse_total(texto_pago)
+                    if pago < total_venda:
+                        self.warning_label.setText(f"Valor recebido é menor que o total da venda ({_em_reais(total_venda)}).")
+                        return
+                except ValueError:
+                    self.warning_label.setText("Valor pago inválido. Informe um número válido.")
+                    return
         itens = [
             {
                 "codigo": item["codigo"],

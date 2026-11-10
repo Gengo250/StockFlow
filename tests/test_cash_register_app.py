@@ -18,7 +18,7 @@ def test_open_close_includes_sales_and_initial_balance():
     service, sales = make_service()
     opened = service.open(Decimal('100'))
     sales.rows.append(dict(register_log_id=opened['id'], status='CONCLUIDA', total='20', payment_method='PIX'))
-    result = service.close({'dinheiro': Decimal('100'), 'pix': Decimal('20')}, '')
+    result = service.close({'DINHEIRO': Decimal('100'), 'PIX': Decimal('20')}, '')
     assert result['total_expected'] == 120
     assert result['difference'] == 0
     assert service.current() is None
@@ -87,7 +87,7 @@ def test_demo_sale_is_counted_only_in_its_register(qapp):
     code = next(code for code, product in window.products.items() if product.active and int(product.stock) > 0)
     row = window.sale_service.register_multiple(window.session, client.client_id, (SaleItemInput(code, 1),), payment_method='PIX')
     assert row['register_log_id'] == opened['id']
-    result = window.cash_register_service.close({'dinheiro': Decimal('50'), 'pix': Decimal(row['total'])}, '')
+    result = window.cash_register_service.close({'DINHEIRO': Decimal('50'), 'PIX': Decimal(row['total'])}, '')
     assert result['difference'] == 0
     assert result['total_sales'] == Decimal(row['total'])
     window.close()
@@ -106,3 +106,39 @@ def test_remote_close_uses_displayed_id_without_selecting_another_session():
     name, payload = client.rpc.call_args.args
     assert name == 'fn_close_register_session'
     assert payload['p_register_log_id'] == displayed
+
+
+def test_summary_totals_each_payment_method_and_grand_total():
+    service, sales = make_service()
+    opened = service.open(Decimal('50'))
+    for method, total, status in (('DINHEIRO', '10.50', 'CONCLUIDA'), ('DINHEIRO', '4.50', 'CONCLUIDA'),
+                                  ('PIX', '20', 'CONCLUIDA'), ('CREDITO', '30', 'CONCLUIDA'),
+                                  ('DEBITO', '99', 'CANCELADA'), ('VALE', '7', 'PENDENTE')):
+        sales.rows.append(dict(register_log_id=opened['id'], status=status, total=total, payment_method=method))
+    summary = service.summary()
+    assert summary['totals'] == {'DINHEIRO': Decimal('15.00'), 'DEBITO': 0, 'CREDITO': Decimal('30.00'),
+                                 'PIX': Decimal('20.00'), 'VALE': 0, 'OUTRO': 0}
+    assert summary['total_sales'] == Decimal('65.00')
+    assert summary['expected_dinheiro'] == Decimal('65.00')
+    assert summary['total_expected'] == Decimal('115.00')
+    result = service.close({'DINHEIRO': Decimal('65'), 'CREDITO': Decimal('30'), 'PIX': Decimal('20')}, '')
+    assert result['totals'] == summary['totals']
+    assert result['total_sales'] == Decimal('65.00')
+    assert result['difference'] == 0
+    assert service.summary(register_log_id=opened['id'])['status'] == 'CLOSED'
+
+
+def test_supabase_summary_normalizes_uppercase_keys():
+    from unittest.mock import Mock
+    from stockflow.infrastructure.repositories.supabase_cash_register_repository import SupabaseCashRegisterRepository
+    client = Mock()
+    client.rpc.return_value.execute.return_value.data = {
+        'register_log_id': 'x', 'status': 'OPEN', 'initial_balance': 10, 'total_sales': 3.5,
+        'expected_dinheiro': 11, 'total_expected': 13.5,
+        'totals': {'DINHEIRO': 1, 'DEBITO': 0, 'CREDITO': 0, 'PIX': 2.5, 'VALE': 0, 'OUTRO': 0},
+    }
+    service = CashRegisterService(SupabaseCashRegisterRepository(client, 'c'), conta_admin().session())
+    summary = service.summary(register_log_id='x')
+    client.rpc.assert_called_with('fn_register_session_summary', {'p_register_log_id': 'x'})
+    assert summary['totals']['PIX'] == Decimal('2.50')
+    assert summary['total_sales'] == Decimal('3.50')

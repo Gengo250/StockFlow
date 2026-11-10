@@ -14,3 +14,8 @@ class RegisterRepository(ABC):
     @abstractmethod
     def close_session(self, input_dto: CloseRegisterInput) -> dict:
         pass
+
+    @abstractmethod
+    def get_summary(self, register_log_id: UUID) -> dict:
+        """Totais por forma de pagamento e total dos totais da sessão."""
+        pass

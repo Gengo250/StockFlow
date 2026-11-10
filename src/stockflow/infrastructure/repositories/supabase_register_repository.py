@@ -37,3 +37,10 @@ class SupabaseRegisterRepository(RegisterRepository):
         }
         response = self._supabase.rpc("fn_close_register_session", payload).execute()
         return response.data
+
+    def get_summary(self, register_log_id: UUID) -> dict:
+        response = self._supabase.rpc(
+            "fn_register_session_summary",
+            {"p_register_log_id": str(register_log_id)},
+        ).execute()
+        return response.data
