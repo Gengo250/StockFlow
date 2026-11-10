@@ -15,3 +15,6 @@ class RegisterService:
 
     def close_register(self, data: CloseRegisterInput) -> dict:
         return self._repository.close_session(data)
+
+    def register_summary(self, register_log_id: UUID) -> dict:
+        return self._repository.get_summary(register_log_id)

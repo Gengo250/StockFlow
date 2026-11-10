@@ -98,7 +98,7 @@ def invalid_count():
     assert 'justificativa' in dialog.feedback.text()
     assert flow.main.cash_register_service.current()
     capture('03-divergencia')
-    dialog.declared['dinheiro'].setValue(100)
+    dialog.declared['DINHEIRO'].setValue(100)
     dialog.action_button.click()
     QTimer.singleShot(200, closed)
 
@@ -140,7 +140,7 @@ def compact_ready():
             QRect(0, 0, label.width(), 10000), Qt.TextWordWrap, label.text()
         )
         assert label.width() >= needed.width() and label.height() >= needed.height(), label.text()
-    dialog.declared['dinheiro'].setFocus(Qt.TabFocusReason)
+    dialog.declared['DINHEIRO'].setFocus(Qt.TabFocusReason)
     for field in (*dialog.declared.values(), dialog.justification):
         app.processEvents()
         assert app.focusWidget() is field
@@ -183,18 +183,18 @@ def high_limit():
         field.selectAll()
         QTest.keyClicks(field, '99999999,99')
     # O excesso em qualquer pagamento também deve ser recusado com justificativa.
-    dialog.declared['pix'].selectAll()
-    QTest.keyClicks(dialog.declared['pix'], '100000000,00')
+    dialog.declared['PIX'].selectAll()
+    QTest.keyClicks(dialog.declared['PIX'], '100000000,00')
     dialog.justification.setText('Conferencia dos valores altos.')
     dialog.action_button.click()
     assert flow.main.cash_register_service.current()
     assert '99.999.999,99' in dialog.feedback.text()
-    dialog.declared['pix'].selectAll()
-    QTest.keyClicks(dialog.declared['pix'], '99999999,99')
+    dialog.declared['PIX'].selectAll()
+    QTest.keyClicks(dialog.declared['PIX'], '99999999,99')
     reason = ('Conferencia manual dos valores altos e comprovantes de cada pagamento. ' * 40)[:1999] + '.'
     dialog.justification.setText(reason)
     dialog.justification.setCursorPosition(0)
-    dialog.scroll.ensureWidgetVisible(dialog.declared['dinheiro'])
+    dialog.scroll.ensureWidgetVisible(dialog.declared['DINHEIRO'])
     QTimer.singleShot(200, high_fields)
 
 

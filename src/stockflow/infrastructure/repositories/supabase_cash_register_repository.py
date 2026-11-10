@@ -19,14 +19,22 @@ class SupabaseCashRegisterRepository:
             'p_initial_balance': float(balance),
         }).execute().data
 
-    def close(self, declared, justification, *, register_log_id=None):
+    def _resolve_log_id(self, register_log_id):
         if register_log_id is None:
             current = self.current()
             if not current:
                 raise ValueError('Não há caixa aberto.')
             register_log_id = current['id']
+        return register_log_id
+
+    def summary(self, *, register_log_id=None):
+        return SupabaseRegisterRepository(self.client).get_summary(self._resolve_log_id(register_log_id))
+
+    def close(self, declared, justification, *, register_log_id=None):
+        register_log_id = self._resolve_log_id(register_log_id)
         data = CloseRegisterInput(
             register_log_id=register_log_id, justification=justification,
-            **{f'declared_{key}': value for key, value in declared.items()},
+            # Chaves do enum (DINHEIRO, ...) viram os campos declared_* do DTO.
+            **{f'declared_{key.lower()}': value for key, value in declared.items()},
         )
         return SupabaseRegisterRepository(self.client).close_session(data)

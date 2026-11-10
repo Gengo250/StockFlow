@@ -102,3 +102,31 @@ def test_sale_cannot_enter_closed_register(db_tx, create_company):
     with pytest.raises(psycopg.Error, match='caixa fechado'), db_tx.transaction():
         db_tx.execute("""INSERT INTO sales(company_id, total, created_by, payment_method, status, client_name, register_log_id)
             VALUES (%s,20,fn_current_user_id(),'PIX','CONCLUIDA','Teste',%s)""", (create_company,opened['id']))
+
+
+def test_closing_totals_by_payment_method(db_tx, create_company):
+    opened = db_tx.execute('SELECT fn_start_my_register(%s,50)', (create_company,)).fetchone()[0]
+    db_tx.execute('RESET ROLE')
+    for method, total, status in (('DINHEIRO', 10, 'CONCLUIDA'), ('DINHEIRO', 5, 'CONCLUIDA'),
+                                  ('PIX', 20, 'CONCLUIDA'), ('CREDITO', 30, 'CONCLUIDA'),
+                                  ('DEBITO', 99, 'CANCELADA')):
+        db_tx.execute("""INSERT INTO sales(company_id,total,created_by,payment_method,status,client_name)
+            VALUES (%s,%s,fn_current_user_id(),%s,%s,'Cliente')""", (create_company, total, method, status))
+    db_tx.execute('SET LOCAL ROLE authenticated')
+    summary = db_tx.execute('SELECT fn_register_session_summary(%s)', (opened['id'],)).fetchone()[0]
+    assert summary['totals'] == {'DINHEIRO': 15, 'DEBITO': 0, 'CREDITO': 30, 'PIX': 20, 'VALE': 0, 'OUTRO': 0}
+    assert summary['total_sales'] == 65
+    assert summary['expected_dinheiro'] == 65
+    assert summary['total_expected'] == 115
+    result = db_tx.execute('SELECT fn_close_register_session(%s,65,0,30,20)', (opened['id'],)).fetchone()[0]
+    assert result['totals'] == summary['totals']
+    assert result['difference'] == 0
+    closed = db_tx.execute('SELECT fn_register_session_summary(%s)', (opened['id'],)).fetchone()[0]
+    assert closed['status'] == 'CLOSED' and closed['total_sales'] == 65
+    assert closed['declared']['DINHEIRO'] == 65
+
+
+def test_payment_totals_helper_is_not_exposed(db_tx, create_company):
+    opened = db_tx.execute('SELECT fn_start_my_register(%s,0)', (create_company,)).fetchone()[0]
+    with pytest.raises(psycopg.errors.InsufficientPrivilege), db_tx.transaction():
+        db_tx.execute('SELECT * FROM fn_register_payment_totals(%s)', (opened['id'],))

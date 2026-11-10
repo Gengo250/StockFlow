@@ -74,6 +74,119 @@ BEGIN
 END;
 $$;
 
+-- Fechamento automatizado: soma as vendas CONCLUIDAS da sessão por forma de
+-- pagamento e, em seguida, soma esses subtotais (total geral das vendas).
+-- Fonte única do cálculo, usada pela prévia e pelo fechamento.
+CREATE OR REPLACE FUNCTION public.fn_register_payment_totals(p_register_log_id uuid)
+RETURNS TABLE (
+    total_dinheiro numeric(10,2),
+    total_debito numeric(10,2),
+    total_credito numeric(10,2),
+    total_pix numeric(10,2),
+    total_vale numeric(10,2),
+    total_outro numeric(10,2),
+    total_sales numeric(10,2)
+)
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT dinheiro, debito, credito, pix, vale, outro,
+           -- Total dos totais: soma dos subtotais de cada forma de pagamento.
+           (dinheiro + debito + credito + pix + vale + outro)::numeric(10,2)
+    FROM (
+        SELECT
+            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'DINHEIRO'), 0)::numeric(10,2) AS dinheiro,
+            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'DEBITO'),   0)::numeric(10,2) AS debito,
+            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'CREDITO'),  0)::numeric(10,2) AS credito,
+            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'PIX'),      0)::numeric(10,2) AS pix,
+            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'VALE'),     0)::numeric(10,2) AS vale,
+            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'OUTRO'),    0)::numeric(10,2) AS outro
+        FROM public.sales s
+        WHERE s.register_log_id = p_register_log_id
+          AND s.status = 'CONCLUIDA'::public.sale_status
+    ) AS subtotais;
+$$;
+
+-- Prévia do fechamento: permite à aplicação exibir os totais calculados antes
+-- da conferência. Sessão fechada devolve o retrato gravado no fechamento.
+CREATE OR REPLACE FUNCTION public.fn_register_session_summary(p_register_log_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_log public.register_log%ROWTYPE;
+    v_totals record;
+    v_result jsonb;
+BEGIN
+    SELECT * INTO v_log FROM public.register_log WHERE id = p_register_log_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Sessão de caixa não encontrada.';
+    END IF;
+
+    -- O próprio operador consulta sua sessão; o ADMIN consulta qualquer sessão da empresa.
+    IF public.fn_current_user_id() IS NULL
+       OR NOT (
+           (v_log.operator_id = public.fn_current_user_id()
+            AND public.fn_has_role(v_log.company_id, ARRAY['ADMIN','SELLER']::public.user_role[]))
+           OR public.fn_has_role(v_log.company_id, ARRAY['ADMIN']::public.user_role[])
+       ) THEN
+        RAISE EXCEPTION 'Sem permissão para consultar este caixa.' USING ERRCODE = '42501';
+    END IF;
+
+    IF v_log.status = 'CLOSED' THEN
+        SELECT v_log.total_dinheiro AS total_dinheiro, v_log.total_debito AS total_debito,
+               v_log.total_credito AS total_credito, v_log.total_pix AS total_pix,
+               v_log.total_vale AS total_vale, v_log.total_outro AS total_outro,
+               v_log.total_sales AS total_sales
+        INTO v_totals;
+    ELSE
+        SELECT * INTO v_totals FROM public.fn_register_payment_totals(p_register_log_id);
+    END IF;
+
+    v_result := jsonb_build_object(
+        'register_log_id', v_log.id,
+        'status', v_log.status,
+        'opened_at', v_log.opened_at,
+        'closed_at', v_log.closed_at,
+        'initial_balance', v_log.initial_balance,
+        'totals', jsonb_build_object(
+            'DINHEIRO', v_totals.total_dinheiro,
+            'DEBITO', v_totals.total_debito,
+            'CREDITO', v_totals.total_credito,
+            'PIX', v_totals.total_pix,
+            'VALE', v_totals.total_vale,
+            'OUTRO', v_totals.total_outro
+        ),
+        'total_sales', v_totals.total_sales,
+        -- O troco inicial fica na gaveta junto com o dinheiro das vendas.
+        'expected_dinheiro', v_log.initial_balance + v_totals.total_dinheiro,
+        'total_expected', v_log.initial_balance + v_totals.total_sales
+    );
+
+    IF v_log.status = 'CLOSED' THEN
+        v_result := v_result || jsonb_build_object(
+            'declared', jsonb_build_object(
+                'DINHEIRO', v_log.declared_dinheiro,
+                'DEBITO', v_log.declared_debito,
+                'CREDITO', v_log.declared_credito,
+                'PIX', v_log.declared_pix,
+                'VALE', v_log.declared_vale,
+                'OUTRO', v_log.declared_outro
+            ),
+            'total_declared', v_log.total_declared,
+            'difference', v_log.difference,
+            'justification', v_log.justification
+        );
+    END IF;
+
+    RETURN v_result;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.fn_close_register_session(
     p_register_log_id uuid,
     p_declared_dinheiro numeric DEFAULT 0.00,
@@ -91,13 +204,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_log public.register_log%ROWTYPE;
-    v_dinheiro numeric(10,2) := 0.00;
-    v_debito numeric(10,2) := 0.00;
-    v_credito numeric(10,2) := 0.00;
-    v_pix numeric(10,2) := 0.00;
-    v_vale numeric(10,2) := 0.00;
-    v_outro numeric(10,2) := 0.00;
-    v_total_sales numeric(10,2) := 0.00;
+    v_totals record;
     v_total_declared numeric(10,2) := 0.00;
     v_total_expected numeric(10,2) := 0.00;
     v_diff numeric(10,2) := 0.00;
@@ -126,28 +233,14 @@ BEGIN
         RAISE EXCEPTION 'Esta sessão de caixa já se encontra fechada.';
     END IF;
 
-    -- Agregação dos valores das vendas CONCLUIDAS no caixa
-    SELECT 
-        COALESCE(SUM(CASE WHEN payment_method = 'DINHEIRO' THEN total ELSE 0 END), 0.00),
-        COALESCE(SUM(CASE WHEN payment_method = 'DEBITO' THEN total ELSE 0 END), 0.00),
-        COALESCE(SUM(CASE WHEN payment_method = 'CREDITO' THEN total ELSE 0 END), 0.00),
-        COALESCE(SUM(CASE WHEN payment_method = 'PIX' THEN total ELSE 0 END), 0.00),
-        COALESCE(SUM(CASE WHEN payment_method = 'VALE' THEN total ELSE 0 END), 0.00),
-        COALESCE(SUM(CASE WHEN payment_method = 'OUTRO' THEN total ELSE 0 END), 0.00)
-    INTO v_dinheiro, v_debito, v_credito, v_pix, v_vale, v_outro
-    FROM public.sales
-    WHERE register_log_id = p_register_log_id 
-      AND status = 'CONCLUIDA'::sale_status;
+    -- Totais automáticos por forma de pagamento e total dos totais.
+    -- O FOR UPDATE acima serializa com o trigger de vendas: nenhuma venda
+    -- entra na sessão entre este cálculo e o fechamento.
+    SELECT * INTO v_totals FROM public.fn_register_payment_totals(p_register_log_id);
 
-    v_total_sales := v_dinheiro + v_debito + v_credito + v_pix + v_vale + v_outro;
-    v_total_expected := v_log.initial_balance + v_total_sales;
-    v_total_declared := COALESCE(p_declared_dinheiro, 0) + 
-                        COALESCE(p_declared_debito, 0) + 
-                        COALESCE(p_declared_credito, 0) + 
-                        COALESCE(p_declared_pix, 0) + 
-                        COALESCE(p_declared_vale, 0) + 
-                        COALESCE(p_declared_outro, 0);
-
+    v_total_expected := v_log.initial_balance + v_totals.total_sales;
+    v_total_declared := p_declared_dinheiro + p_declared_debito + p_declared_credito
+                      + p_declared_pix + p_declared_vale + p_declared_outro;
     v_diff := v_total_declared - v_total_expected;
 
     IF v_diff <> 0.00 AND (p_justification IS NULL OR trim(p_justification) = '') THEN
@@ -157,13 +250,13 @@ BEGIN
     UPDATE public.register_log
     SET status = 'CLOSED',
         closed_at = now(),
-        total_dinheiro = v_dinheiro,
-        total_debito = v_debito,
-        total_credito = v_credito,
-        total_pix = v_pix,
-        total_vale = v_vale,
-        total_outro = v_outro,
-        total_sales = v_total_sales,
+        total_dinheiro = v_totals.total_dinheiro,
+        total_debito = v_totals.total_debito,
+        total_credito = v_totals.total_credito,
+        total_pix = v_totals.total_pix,
+        total_vale = v_totals.total_vale,
+        total_outro = v_totals.total_outro,
+        total_sales = v_totals.total_sales,
         declared_dinheiro = p_declared_dinheiro,
         declared_debito = p_declared_debito,
         declared_credito = p_declared_credito,
@@ -184,8 +277,25 @@ BEGIN
         'register_log_id', p_register_log_id,
         'status', 'CLOSED',
         'initial_balance', v_log.initial_balance,
-        'total_sales', v_total_sales,
+        'totals', jsonb_build_object(
+            'DINHEIRO', v_totals.total_dinheiro,
+            'DEBITO', v_totals.total_debito,
+            'CREDITO', v_totals.total_credito,
+            'PIX', v_totals.total_pix,
+            'VALE', v_totals.total_vale,
+            'OUTRO', v_totals.total_outro
+        ),
+        'total_sales', v_totals.total_sales,
+        'expected_dinheiro', v_log.initial_balance + v_totals.total_dinheiro,
         'total_expected', v_total_expected,
+        'declared', jsonb_build_object(
+            'DINHEIRO', p_declared_dinheiro,
+            'DEBITO', p_declared_debito,
+            'CREDITO', p_declared_credito,
+            'PIX', p_declared_pix,
+            'VALE', p_declared_vale,
+            'OUTRO', p_declared_outro
+        ),
         'total_declared', v_total_declared,
         'difference', v_diff
     );
@@ -255,7 +365,10 @@ REVOKE ALL ON FUNCTION public.fn_open_register_session(uuid,uuid,uuid,uuid,numer
 REVOKE ALL ON FUNCTION public.fn_close_register_session(uuid,numeric,numeric,numeric,numeric,numeric,numeric,text) FROM PUBLIC,anon;
 REVOKE ALL ON FUNCTION public.fn_current_register_session(uuid) FROM PUBLIC,anon;
 REVOKE ALL ON FUNCTION public.fn_start_my_register(uuid,numeric) FROM PUBLIC,anon;
+REVOKE ALL ON FUNCTION public.fn_register_payment_totals(uuid) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION public.fn_register_session_summary(uuid) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.fn_open_register_session(uuid,uuid,uuid,uuid,numeric) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_close_register_session(uuid,numeric,numeric,numeric,numeric,numeric,numeric,text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_current_register_session(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_start_my_register(uuid,numeric) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_register_session_summary(uuid) TO authenticated;
