@@ -111,10 +111,10 @@ CREATE INDEX idx_clients_company_name
 -- e a venda guarda o que foi vendido.
 
 -- `DEVOLVIDA` entra na US17, junto com o cancelamento de venda. Os dois
--- estados são TERMINAIS e chegam por portas diferentes: cancelar anula as
--- saídas da venda; devolver grava entradas compensatórias e deixa a saída
--- original de pé. Quem distingue um do outro no registro é `sale_reversals`,
--- no fim deste arquivo.
+-- estados são TERMINAIS e chegam por portas diferentes. A US15 preserva as
+-- saídas e registra entradas vinculadas ao cancelamento; a US20 registra
+-- devoluções por itens sem cancelar a venda. Reversões legadas permanecem
+-- intactas em sale_reversals, sem conversão automática do histórico.
 CREATE TYPE public.sale_status AS ENUM (
     'PENDENTE', 'CONCLUIDA', 'CANCELADA', 'DEVOLVIDA'
 );
@@ -289,6 +289,30 @@ CREATE TABLE public.sale_reversals (
     -- Reversão é TERMINAL: venda cancelada não vira devolvida depois, nem
     -- acumula reversões. As funções conferem também, mas é este índice que
     -- torna a regra verdadeira para quem chegue por outro caminho.
-    UNIQUE (sale_id)
+    UNIQUE (sale_id),
+    CONSTRAINT uq_sale_reversals_company_sale_id UNIQUE (company_id, sale_id, id)
 );
 CREATE INDEX idx_sale_reversals_company ON public.sale_reversals (company_id);
+
+-- US15: NULL nas movimentações legadas e nas que não são compensações de
+-- cancelamento. A origem é o vínculo, não o texto de note nem um novo enum.
+-- Não inferir sale_item_id para saídas antigas: a RPC recusa inconsistências.
+ALTER TABLE public.stock_movements
+    ADD COLUMN cancellation_id uuid,
+    ADD CONSTRAINT fk_stock_movements_cancellation
+        FOREIGN KEY (company_id, sale_id, cancellation_id)
+        REFERENCES public.sale_reversals (company_id, sale_id, id) ON DELETE RESTRICT,
+    ADD CONSTRAINT fk_stock_movements_sale_item_scope
+        FOREIGN KEY (company_id, sale_id, sale_item_id)
+        REFERENCES public.sale_items (company_id, sale_id, id) ON DELETE RESTRICT,
+    ADD CONSTRAINT ck_stock_movements_cancellation CHECK (
+        cancellation_id IS NULL OR (
+            sale_id IS NOT NULL AND sale_item_id IS NOT NULL
+            AND kind = 'ENTRADA' AND status = 'CONFIRMADA'
+            AND created_by IS NOT NULL AND confirmed_on IS NOT NULL
+            AND adjustment_reason IS NULL AND counted_balance IS NULL
+        )
+    );
+CREATE UNIQUE INDEX uq_stock_movements_cancellation_item
+    ON public.stock_movements (cancellation_id, sale_item_id)
+    WHERE cancellation_id IS NOT NULL;

@@ -4,7 +4,8 @@ from decimal import Decimal
 from threading import RLock
 from uuid import uuid4
 
-from stockflow.domain.permissions import ensure_can_return_sales
+from stockflow.domain.enums.sale_status import SaleStatus
+from stockflow.domain.permissions import ensure_can_return_sales, ensure_can_reverse_sales
 from stockflow.domain.sale_return import (
     OriginalSaleItem,
     calculate_return_items,
@@ -362,27 +363,73 @@ class DemoSaleRepository:
         return self._reverter(sale_id, reason, "DEVOLUCAO", "DEVOLVIDA")
 
     def _reverter(self, sale_id, reason, kind, status):
-        """Devolve o saldo pelo repositório de MOVIMENTAÇÃO, nunca escrevendo
-        `Product.stock` direto — o mesmo contrato que o banco impõe."""
+        """Auditoria e restituição são publicadas sob o mesmo lock do estoque."""
+        ensure_can_reverse_sales(self._session)
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("Informe o motivo da operação.")
+        reason = reason.strip()
+        if len(reason) > 300:
+            raise ValueError("O motivo deve ter no máximo 300 caracteres.")
         with self._lock:
             linha = next(
-                (l for l in self.rows if str(l["id"]) == str(sale_id)), None
+                (row for row in self.rows if str(row["id"]) == str(sale_id)), None
             )
             if linha is None:
                 raise ValueError("Venda não encontrada.")
-            atual = linha.get("status", "CONCLUIDA")
-            if atual != "CONCLUIDA":
-                # Mesma recusa de `fn_cancel_sale`: reversão é terminal.
-                rotulo = "cancelada" if atual == "CANCELADA" else "devolvida"
+            try:
+                atual = SaleStatus(linha.get("status"))
+            except ValueError:
+                raise ValueError("Situação de venda ausente ou inválida.") from None
+            if atual.revertida:
+                rotulo = "cancelada" if atual is SaleStatus.CANCELADA else "devolvida"
                 raise ValueError(f"Esta venda já foi {rotulo}.")
-            self.movements.reverse_sale(sale_id, linha.get("items", []), kind)
-            linha.update(
-                status=status,
-                reversal_kind=kind,
-                reversal_reason=reason,
-                reversal_on=datetime.now().strftime("%d/%m/%Y %H:%M"),
-                reversal_by="Demonstração",
-            )
+            if not atual.cancelavel:
+                acao = "cancelada" if kind == "CANCELAMENTO" else "devolvida"
+                raise ValueError(f"Somente venda concluída pode ser {acao}.")
+            snapshot = self._return_sales.get(str(sale_id))
+            company_id = self._session.company_id
+            if (linha.get("company_id") != company_id
+                    or snapshot is not None and snapshot["company_id"] != company_id):
+                from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
+                raise PermissionDeniedError("cancelar ou devolver vendas", self._session.role)
+            if any(header["sale_id"] == str(sale_id) and header["status"] == "COMPLETED"
+                   for header in self._returns.values()):
+                raise ValueError("Venda com devolução registrada; utilize o fluxo de devolução por itens.")
+            if linha.get("reversal_kind"):
+                raise ValueError("Inconsistência: venda já possui reversão registrada.")
+            if self.movements.products is not self._products:
+                raise RuntimeError("Vendas e movimentos devem compartilhar o mesmo catálogo Demo.")
+            operation_id = str(uuid4())
+            before_row = deepcopy(linha)
+            before_snapshot = deepcopy(snapshot)
+
+            def publish():
+                linha.update(
+                    status=status,
+                    reversal_id=operation_id,
+                    reversal_kind=kind,
+                    reversal_reason=reason,
+                    reversal_on=datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    reversal_by=getattr(self._session, "name", None) or self._session.user_id,
+                    reversal_by_id=self._session.user_id,
+                )
+                if snapshot is not None:
+                    snapshot["status"] = status
+
+            try:
+                self.movements.reverse_sale(
+                    sale_id, linha.get("items", []), kind,
+                    created_by=self._session.user_id, company_id=company_id,
+                    cancellation_id=operation_id if kind == "CANCELAMENTO" else None,
+                    publish=publish,
+                )
+            except Exception:
+                linha.clear()
+                linha.update(before_row)
+                if snapshot is not None:
+                    snapshot.clear()
+                    snapshot.update(before_snapshot)
+                raise
             return dict(linha)
 
     def register(self, client, product, total):
@@ -447,14 +494,6 @@ class DemoSaleRepository:
             }
             snapshot_rows = list(self.rows)
             try:
-                movement_items = [
-                    {
-                        "product": inventory[item.product_code],
-                        "quantity": item.quantity,
-                    }
-                    for item in items
-                ]
-                movements.register_sale(sale_id, movement_items)
                 summary = []
                 original = Decimal("0.00")
                 from stockflow.application.services.sale_service import parse_price
@@ -480,6 +519,17 @@ class DemoSaleRepository:
                     original += subtotal
                 for item in summary:
                     self._product_ids.setdefault(item["product_code"], str(uuid4()))
+                movement_items = [
+                    {
+                        "product": inventory[item["product_code"]],
+                        "quantity": item["quantity"],
+                        "sale_item_id": item["id"],
+                        "company_id": getattr(self._session, "company_id", None),
+                        "created_by": getattr(self._session, "user_id", None),
+                    }
+                    for item in summary
+                ]
+                movements.register_sale(sale_id, movement_items)
                 return_snapshot = {
                     "company_id": getattr(self._session, "company_id", None),
                     "status": "CONCLUIDA",
@@ -508,6 +558,7 @@ class DemoSaleRepository:
                     datetime.now().strftime("%d/%m/%Y %H:%M"),
                     item_count=len(items),
                 )
+                row["company_id"] = getattr(self._session, "company_id", None)
                 row["payment_method"] = payment_method
                 row["discount"] = str(discount)
                 row["original_total"] = str(original_total or original)

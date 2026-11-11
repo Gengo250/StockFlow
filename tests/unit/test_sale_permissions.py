@@ -5,6 +5,8 @@ gastar consulta. O espião prova que o repositório não foi chamado — sem ele
 um serviço que consulta primeiro e recusa depois passaria igual.
 """
 
+from dataclasses import replace
+
 import pytest
 
 from stockflow.application.dto.sale_filter import SaleFilter, SalePage
@@ -41,7 +43,7 @@ def servico():
 
 
 def sessao(papel):
-    return conta_por_papel(papel).session()
+    return replace(conta_por_papel(papel).session(), company_id="company-test")
 
 
 @pytest.mark.parametrize("papel", [UserRole.STOCK, UserRole.SELLER])
@@ -176,3 +178,17 @@ def test_filtro_troca_campo_sem_remontar():
     filtro = SaleFilter(client_id="c1")
     assert filtro.com(status="CANCELADA").client_id == "c1"
     assert filtro.com(status="CANCELADA").status == "CANCELADA"
+
+
+@pytest.mark.parametrize("field,value", [
+    ("user_id", None), ("user_id", ""), ("user_id", "  "), ("user_id", 123),
+    ("company_id", None), ("company_id", ""), ("company_id", "  "), ("company_id", 123),
+])
+def test_reversao_exige_identidade_e_empresa_antes_do_repositorio(field, value):
+    from types import SimpleNamespace
+    service, repository = servico()
+    data = dict(role="ADMIN", user_id="admin", company_id="company")
+    data[field] = value
+    with pytest.raises(PermissionDeniedError):
+        service.cancel_sale(SimpleNamespace(**data), "sale", "Motivo")
+    assert repository.chamadas == []
