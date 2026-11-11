@@ -9,6 +9,7 @@ demonstra histórico nenhum.
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from stockflow.application.dto.audit_filter import AuditFilter, AuditPage
 from stockflow.domain.enums.price_edit_field import PriceEditField
 from stockflow.domain.price_change import PriceChange
 
@@ -45,6 +46,57 @@ class DemoPriceHistoryRepository:
         # embaralhe entre um carregamento e o seguinte.
         linhas.sort(key=lambda par: (par[0].changed_on, par[1]), reverse=True)
         return tuple(linha for linha, _ in linhas)
+
+    def list_audit_page(
+        self,
+        filtro: AuditFilter | None = None,
+        page: int = 1,
+        size: int = 50,
+    ) -> AuditPage:
+        filtro = filtro or AuditFilter()
+        linhas = [par for par in (self._da_semente() + self._do_rastro()) if self._combina(par[0], filtro)]
+
+        reverso = filtro.sort != "DATA_ASC"
+        # Eventos sem data vão no final tanto na ordem crescente quanto decrescente
+        linhas.sort(
+            key=lambda par: (
+                par[0].changed_on is not None,
+                par[0].changed_on if par[0].changed_on else datetime.min,
+                par[1],
+            ),
+            reverse=reverso,
+        )
+
+        total = len(linhas)
+        inicio = (page - 1) * size
+        selecionadas = tuple(par[0] for par in linhas[inicio : inicio + size])
+        return AuditPage(rows=selecionadas, total=total, page=page, size=size)
+
+    def _combina(self, mudanca: PriceChange, filtro: AuditFilter) -> bool:
+        if filtro.product_code and mudanca.product_code != filtro.product_code:
+            return False
+        if filtro.user:
+            usuario = (mudanca.changed_by or "").strip().lower()
+            alvo = filtro.user.strip().lower()
+            if alvo not in usuario:
+                return False
+        if filtro.action:
+            campo = filtro.action.value if isinstance(filtro.action, PriceEditField) else str(filtro.action)
+            if mudanca.field.value != campo and mudanca.field.name != campo:
+                return False
+        if filtro.entity:
+            entidade = filtro.entity.strip().lower()
+            if entidade not in ("produto", "produtos"):
+                return False
+        if filtro.date_from or filtro.date_to:
+            if not mudanca.changed_on:
+                return False
+            data_evento = mudanca.changed_on.date() if isinstance(mudanca.changed_on, datetime) else mudanca.changed_on
+            if filtro.date_from and data_evento < filtro.date_from:
+                return False
+            if filtro.date_to and data_evento > filtro.date_to:
+                return False
+        return True
 
     def _da_semente(self) -> list:
         linhas = []
