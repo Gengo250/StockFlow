@@ -2,6 +2,7 @@
 
 from typing import Protocol
 
+from stockflow.application.dto.audit_filter import AuditFilter, AuditPage
 from stockflow.domain.price_change import PriceChange
 
 
@@ -20,4 +21,8 @@ class PriceHistoryRepository(Protocol):
         existe no catálogo devolve vazio, e não a lista toda: um filtro que
         não encontra o alvo não pode virar "sem filtro".
         """
+        ...
+
+    def list_audit_page(self, filtro: AuditFilter, page: int, size: int) -> AuditPage:
+        """Página da consulta de auditoria (US25), com filtros combináveis e ordenação."""
         ...

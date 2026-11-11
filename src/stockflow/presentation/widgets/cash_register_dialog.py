@@ -1,18 +1,28 @@
 """Abertura e conferência do caixa sem bloquear a interface durante I/O."""
 from decimal import Decimal
 
-from PySide6.QtCore import QLocale, Qt, QTimer
+from PySide6.QtCore import QEvent, QLocale, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
-from stockflow.application.services.cash_register_service import PAYMENT_LABELS
+from stockflow.application.services.cash_register_service import PAYMENT_LABELS, closing_summary
 from stockflow.presentation.styles import design_system as ds
 from stockflow.presentation.workers import executar_agora
+
+# Nome curto de cada forma de pagamento, sem a instrução do campo declarado.
+PAYMENT_NAMES = {key: label.split(' (')[0] for key, label in PAYMENT_LABELS.items()}
 
 
 def _currency(value):
     return 'R$ ' + format(Decimal(str(value)), ',.2f').translate(str.maketrans('.,', ',.'))
+
+
+def _breakdown(totals):
+    """Resumo em uma linha das formas de pagamento com movimento."""
+    parts = [f'{PAYMENT_NAMES[key]} {_currency(totals.get(key, 0))}'
+             for key in PAYMENT_LABELS if Decimal(str(totals.get(key, 0)))]
+    return ' · '.join(parts) or 'nenhuma venda concluída'
 
 
 class CashRegisterDialog(QDialog):
@@ -54,7 +64,53 @@ class CashRegisterDialog(QDialog):
         self._add_row(form, 'Saldo inicial / troco', self.initial_balance)
         content_layout.addWidget(self.open_form)
         self.close_form = QWidget()
-        form = self._form(self.close_form)
+        close_layout = QVBoxLayout(self.close_form)
+        close_layout.setContentsMargins(0, 0, 0, 0)
+        close_layout.setSpacing(16)
+        # Totais calculados pelo sistema: soma por forma de pagamento e total
+        # dos totais, vindos de fn_register_session_summary.
+        self.summary_box = QWidget()
+        self.summary_box.setObjectName('cashRegisterSummary')
+        summary_layout = QVBoxLayout(self.summary_box)
+        summary_layout.setContentsMargins(0, 0, 0, 0)
+        summary_layout.setSpacing(8)
+        summary_title = QLabel('Calculado pelo sistema (vendas concluídas)')
+        summary_title.setWordWrap(True)
+        summary_title.setStyleSheet('font-weight: 600;')
+        summary_layout.addWidget(summary_title)
+        summary_form = QWidget()
+        form = self._form(summary_form)
+        self.expected_labels = {}
+        for key in PAYMENT_LABELS:
+            self.expected_labels[key] = self._value_label()
+            self._add_row(form, PAYMENT_NAMES[key], self.expected_labels[key])
+        self.total_sales_label = self._value_label(bold=True)
+        self._add_row(form, 'Total das vendas', self.total_sales_label)
+        self.expected_dinheiro_label = self._value_label()
+        self._add_row(form, 'Dinheiro esperado na gaveta (com saldo inicial)', self.expected_dinheiro_label)
+        self.total_expected_label = self._value_label(bold=True)
+        self._add_row(form, 'Total esperado no caixa', self.total_expected_label)
+        summary_layout.addWidget(summary_form)
+        self.summary_error = QLabel()
+        self.summary_error.setWordWrap(True)
+        self.summary_error.setTextFormat(Qt.PlainText)
+        self.summary_error.hide()
+        summary_layout.addWidget(self.summary_error)
+        self.fill_button = QPushButton('Preencher com os valores calculados')
+        self.fill_button.setAutoDefault(False)
+        self.fill_button.setMinimumHeight(ds.CONTROL_HEIGHT)
+        self.fill_button.setEnabled(False)
+        self.fill_button.clicked.connect(self.fill_declared)
+        summary_layout.addWidget(self.fill_button)
+        close_layout.addWidget(self.summary_box)
+        declared_title = QLabel('Valores conferidos')
+        declared_title.setWordWrap(True)
+        declared_title.setStyleSheet('font-weight: 600;')
+        close_layout.addWidget(declared_title)
+        declared_form = QWidget()
+        form = self._form(declared_form)
+        close_layout.addWidget(declared_form)
+        self.summary = None
         self.declared = {}
         for key, label in PAYMENT_LABELS.items():
             self.declared[key] = self._amount()
@@ -76,6 +132,9 @@ class CashRegisterDialog(QDialog):
         self._feedback_timer.setSingleShot(True)
         self._feedback_timer.timeout.connect(self._reveal_feedback)
         self.scroll.verticalScrollBar().rangeChanged.connect(self._queue_feedback)
+        self._focus_timer = QTimer(self)
+        self._focus_timer.setSingleShot(True)
+        self._focus_timer.timeout.connect(self._reveal_focused_field)
         buttons = QHBoxLayout()
         self.refresh_button = QPushButton('Atualizar')
         self.action_button = QPushButton('Iniciar caixa')
@@ -92,10 +151,36 @@ class CashRegisterDialog(QDialog):
         self.action_button.clicked.connect(self.submit)
         self.dismiss_button.clicked.connect(self.reject)
 
+        # O editor interno do spinbox também pode receber foco por teclado.
+        for field in (self.initial_balance, *self.declared.values(), self.justification):
+            field.installEventFilter(self)
+            if isinstance(field, QDoubleSpinBox):
+                field.lineEdit().installEventFilter(self)
+
         available = self.screen().availableGeometry()
         width, height = available.width() - 48, available.height() - 48
         self.setMinimumSize(min(480, width), min(280, height))
         self.resize(min(640, width), min(600, height))
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.FocusIn:
+            self._feedback_timer.stop()
+            self._follow_feedback = False
+            self._focus_timer.start(0)
+        return super().eventFilter(watched, event)
+
+    def _reveal_focused_field(self):
+        field = self.focusWidget()
+        if field is None or not self.scroll.widget().isAncestorOf(field):
+            return
+        if isinstance(field.parentWidget(), QDoubleSpinBox):
+            field = field.parentWidget()
+        # ensureWidgetVisible usa o editor interno como retângulo de foco.
+        # Revelar o controle inteiro evita cortar a borda inferior do spinbox.
+        center = field.mapTo(self.scroll.widget(), field.rect().center())
+        self.scroll.ensureVisible(
+            center.x(), center.y(), field.width() // 2, field.height() // 2 + 12,
+        )
 
     @staticmethod
     def _form(widget):
@@ -115,6 +200,17 @@ class CashRegisterDialog(QDialog):
         label.setBuddy(field)
         label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         form.addRow(label, field)
+
+    @staticmethod
+    def _value_label(bold=False):
+        label = QLabel('—')
+        label.setTextFormat(Qt.PlainText)
+        label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        label.setMinimumHeight(ds.CONTROL_HEIGHT)
+        if bold:
+            label.setStyleSheet('font-weight: 600;')
+        return label
 
     @staticmethod
     def _amount():
@@ -193,6 +289,52 @@ class CashRegisterDialog(QDialog):
         self.action_button.setText('Fechar caixa' if opened else 'Iniciar caixa')
         self.action_button.setEnabled(True)
         self.feedback.clear()
+        if opened:
+            self._load_summary()
+
+    def _load_summary(self):
+        self.fill_button.setEnabled(False)
+        self.summary_error.hide()
+        for label in self.expected_labels.values():
+            label.setText('…')
+        self.total_sales_label.setText('…')
+        self.expected_dinheiro_label.setText('…')
+        self.total_expected_label.setText('…')
+        log_id = self.current['id'] if self.current else None
+
+        def fetch():
+            if hasattr(self.service, 'summary'):
+                return self.service.summary(register_log_id=log_id)
+            return None
+
+        def loaded(summary):
+            self.summary = summary
+            if not summary:
+                return
+            totals = summary.get('totals', {})
+            for key, label in self.expected_labels.items():
+                label.setText(_currency(totals.get(key, 0)))
+            self.total_sales_label.setText(_currency(summary.get('total_sales', 0)))
+            self.expected_dinheiro_label.setText(_currency(summary.get('expected_dinheiro', 0)))
+            self.total_expected_label.setText(_currency(summary.get('total_expected', 0)))
+            self.fill_button.setEnabled(True)
+
+        def failed(err):
+            self.summary_error.setText(f"Não foi possível carregar os totais calculados: {err}")
+            self.summary_error.show()
+
+        self.execute(fetch, loaded, failed)
+
+    def fill_declared(self):
+        if not self.summary:
+            return
+        totals = self.summary.get('totals', {})
+        for key, field in self.declared.items():
+            if key == 'DINHEIRO':
+                val = self.summary.get('expected_dinheiro', totals.get(key, 0))
+            else:
+                val = totals.get(key, 0)
+            field.setValue(float(val))
 
     def submit(self):
         if self._busy or not self._state_known:
@@ -221,8 +363,10 @@ class CashRegisterDialog(QDialog):
 
     def _closed(self, result):
         self._loaded(None)
+        totals = result.get('totals') or {}
+        breakdown_text = f" ({_breakdown(totals)})" if totals else ""
         self.feedback.setText(
-            f"Caixa fechado. Esperado: {_currency(result['total_expected'])} · "
+            f"Caixa fechado. Esperado: {_currency(result['total_expected'])}{breakdown_text} · "
             f"Declarado: {_currency(result['total_declared'])} · "
             f"Diferença: {_currency(result['difference'])}"
         )

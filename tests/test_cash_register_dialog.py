@@ -22,10 +22,10 @@ def test_dialog_open_close_and_preserves_input_on_failure(qapp):
     dialog.action_button.click()
     assert service.current()['initial_balance'] == Decimal('100')
     assert dialog.action_button.text() == 'Fechar caixa'
-    dialog.declared['dinheiro'].setValue(90)
+    dialog.declared['DINHEIRO'].setValue(90)
     dialog.action_button.click()
     assert 'justificativa' in dialog.feedback.text()
-    assert dialog.declared['dinheiro'].value() == 90
+    assert dialog.declared['DINHEIRO'].value() == 90
     assert service.current()
     dialog.justification.setText('Diferença conferida')
     dialog.action_button.click()
@@ -64,10 +64,10 @@ def test_enter_submits_opening_and_closing_instead_of_refreshing(qapp, cash_dial
     QTest.keyClicks(dialog.initial_balance, '100,00')
     QTest.keyClick(dialog.initial_balance, Qt.Key_Return)
     assert dialog.service.current()['initial_balance'] == Decimal('100')
-    dialog.declared['dinheiro'].setFocus()
-    dialog.declared['dinheiro'].selectAll()
-    QTest.keyClicks(dialog.declared['dinheiro'], '100,00')
-    QTest.keyClick(dialog.declared['dinheiro'], Qt.Key_Return)
+    dialog.declared['DINHEIRO'].setFocus()
+    dialog.declared['DINHEIRO'].selectAll()
+    QTest.keyClicks(dialog.declared['DINHEIRO'], '100,00')
+    QTest.keyClick(dialog.declared['DINHEIRO'], Qt.Key_Return)
     assert dialog.service.current() is None
     assert 'Diferença: R$ 0,00' in dialog.feedback.text()
 
@@ -85,7 +85,7 @@ def test_open_close_refresh_keep_window_and_action_in_place(qapp, cash_dialog):
         dialog.refresh_button.click()
         qapp.processEvents()
         assert dialog.size() == size
-        dialog.declared['dinheiro'].setValue(100)
+        dialog.declared['DINHEIRO'].setValue(100)
         dialog.action_button.click()
         qapp.processEvents()
         assert dialog.size() == size
@@ -99,13 +99,13 @@ def test_validation_feedback_is_visible_in_small_window(qapp, cash_dialog):
     dialog.initial_balance.setValue(100)
     dialog.action_button.click()
     qapp.processEvents()
-    dialog.declared['dinheiro'].setValue(90)
+    dialog.declared['DINHEIRO'].setValue(90)
     dialog.action_button.click()
     qapp.processEvents()
     assert 'justificativa' in dialog.feedback.text()
     bounds = QRect(dialog.feedback.mapTo(dialog.scroll.viewport(), QPoint()), dialog.feedback.size())
     assert dialog.scroll.viewport().rect().contains(bounds)
-    assert dialog.declared['dinheiro'].value() == 90
+    assert dialog.declared['DINHEIRO'].value() == 90
     assert dialog.service.current()
 
 
@@ -145,7 +145,7 @@ def test_out_of_range_typing_cannot_open_with_a_silently_smaller_amount(cash_dia
     assert '99.999.999,99' in dialog.feedback.text()
 
 
-@pytest.mark.parametrize('payment', ['dinheiro', 'debito', 'credito', 'pix', 'vale', 'outro'])
+@pytest.mark.parametrize('payment', ['DINHEIRO', 'DEBITO', 'CREDITO', 'PIX', 'VALE', 'OUTRO'])
 def test_excess_in_any_payment_prevents_closing_even_with_a_reason(cash_dialog, payment):
     dialog = cash_dialog
     dialog.action_button.click()
@@ -183,7 +183,7 @@ def test_large_labels_and_fields_remain_reachable_in_small_window(qapp):
             )
             assert label.height() >= needed.height(), label.text()
             assert label.width() >= needed.width(), label.text()
-        dialog.declared['dinheiro'].setFocus(Qt.TabFocusReason)
+        dialog.declared['DINHEIRO'].setFocus(Qt.TabFocusReason)
         for field in (*dialog.declared.values(), dialog.justification):
             qapp.processEvents()
             assert qapp.focusWidget() is field
@@ -194,7 +194,7 @@ def test_large_labels_and_fields_remain_reachable_in_small_window(qapp):
             assert dialog.rect().contains(button.geometry())
         # A mensagem cresce ao quebrar linhas com fonte ampliada. A rolagem
         # deve acompanhar o layout final, não a altura anterior do QLabel.
-        dialog.declared['dinheiro'].setValue(1)
+        dialog.declared['DINHEIRO'].setValue(1)
         dialog.action_button.click()
         QTest.qWait(50)
         assert 'justificativa' in dialog.feedback.text()

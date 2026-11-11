@@ -7,9 +7,10 @@ alçada de ADMIN que a policy já aplica — ler daqui e ler de lá dá a mesma
 resposta.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
+from stockflow.application.dto.audit_filter import AuditFilter, AuditPage
 from stockflow.domain.enums.price_edit_field import PriceEditField
 from stockflow.domain.price_change import PriceChange
 
@@ -51,6 +52,49 @@ class SupabasePriceHistoryRepository:
         # regra em dois lugares, e o desempate pelo id não é reproduzível
         # fora do banco.
         return tuple(_para_mudanca(linha) for linha in (getattr(resposta, "data", None) or []))
+
+    def list_audit_page(
+        self,
+        filtro: AuditFilter | None = None,
+        page: int = 1,
+        size: int = 50,
+    ) -> AuditPage:
+        """Uma página da consulta de auditoria (US25) via RPC remoto."""
+        filtro = filtro or AuditFilter()
+        product_id = None
+        if filtro.product_code is not None:
+            product_id = self._product_id(filtro.product_code)
+            if product_id is None:
+                return AuditPage(rows=(), total=0, page=page, size=size)
+
+        ate = (filtro.date_to + timedelta(days=1)).isoformat() if filtro.date_to else None
+        de = filtro.date_from.isoformat() if filtro.date_from else None
+        acao = (
+            filtro.action.value
+            if isinstance(filtro.action, PriceEditField)
+            else (str(filtro.action) if filtro.action else None)
+        )
+
+        resposta = self._client.rpc(
+            "fn_list_audit_events",
+            {
+                "p_company_id": self._company_id,
+                "p_product_id": product_id,
+                "p_user_name": filtro.user or None,
+                "p_action": acao,
+                "p_entity": filtro.entity or None,
+                "p_from": de,
+                "p_to": ate,
+                "p_sort": filtro.sort,
+                "p_limit": size,
+                "p_offset": (page - 1) * size,
+            },
+        ).execute()
+
+        linhas = getattr(resposta, "data", None) or []
+        total = int(linhas[0].get("total_count", 0)) if linhas and "total_count" in linhas[0] else len(linhas)
+        rows = tuple(_para_mudanca(linha) for linha in linhas)
+        return AuditPage(rows=rows, total=total, page=page, size=size)
 
     def _product_id(self, code: str):
         """uuid do produto, consultando só quando o cache não tem.
