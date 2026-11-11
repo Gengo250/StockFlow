@@ -79,6 +79,12 @@ PERMISSION_MATRIX: dict[str, Area] = {
         fonte_ver="fn_register_movement",
         fonte_gravar="fn_register_movement",
     ),
+    "compras": Area(
+        ver=_ADMIN_STOCK,
+        gravar=_ADMIN_STOCK,
+        fonte_ver="purchases_select",
+        fonte_gravar="fn_receive_purchase",
+    ),
     # Fornecedor é o único caso em que o banco já restringe a LEITURA:
     # `suppliers_select` e `fn_list_company_suppliers` exigem ADMIN/STOCK.
     "fornecedores": Area(
@@ -321,6 +327,16 @@ def ensure_can_move_stock(session, action: str = "movimentar o estoque") -> None
     altera saldo, e saldo é o número que decide reposição e venda.
     """
     exigir_gravar(session, "movimentacoes", action)
+
+
+def can_manage_purchases(role_or_session) -> bool:
+    return pode_gravar(role_or_session, "compras")
+
+
+def ensure_can_manage_purchases(
+    session, action: str = "gerenciar compras"
+) -> None:
+    exigir_gravar(session, "compras", action)
 
 
 def can_view_price_history(role_or_session) -> bool:

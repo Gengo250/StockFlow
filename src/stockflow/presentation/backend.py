@@ -137,6 +137,33 @@ def build_movement_repository(session, catalogo, supplier_repository=None):
     )
 
 
+def build_purchase_repository(
+    session, catalogo, supplier_repository, movement_repository
+):
+    """Repositório de compras, compartilhando fornecedores e ledger de estoque."""
+    if not using_supabase():
+        from stockflow.infrastructure.repositories.demo_purchase_repository import (
+            DemoPurchaseRepository,
+        )
+
+        return DemoPurchaseRepository(
+            catalogo, supplier_repository, movement_repository
+        )
+
+    from stockflow.infrastructure.repositories.supabase_purchase_repository import (
+        SupabasePurchaseRepository,
+    )
+
+    company_id = getattr(session, "company_id", None)
+    if not company_id:
+        raise RuntimeError(
+            "A sessão não tem empresa. As funções de compra exigem company_id."
+        )
+    return SupabasePurchaseRepository(
+        _client(), company_id, role=getattr(session, "role", None)
+    )
+
+
 def build_price_history_repository(session, product_repository=None):
     """Histórico de preço e custo, no mesmo par demonstração/banco.
 

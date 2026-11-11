@@ -33,7 +33,7 @@ from stockflow.domain.enums.movement_kind import MovementKind
 from stockflow.domain.enums.movement_status import MovementStatus
 from stockflow.domain.exceptions.adjustment_errors import SaldoDesatualizadoError
 from stockflow.domain.stock_adjustment import calcular_ajuste, saldo_contado
-from stockflow.domain.stock_level import derive_stock_status, to_int
+from stockflow.domain.stock_level import derive_stock_status, to_int, to_min
 from stockflow.domain.sale_return import (
     return_identifier, return_quantity, validate_return_stock,
 )
@@ -168,6 +168,46 @@ class DemoMovementRepository:
             self._aplicar_no_saldo(linha, sentido=1)
         self._movements.append(linha)
         return linha["id"]
+
+    @_sob_o_lock
+    def register_purchase(self, purchase_id, supplier_id, items) -> tuple[str, ...]:
+        """Registra todas as entradas da compra ou restaura catálogo e ledger."""
+        quantities = {}
+        for item in items:
+            product = self._products.get(item.product_code)
+            if product is None or not product.active:
+                raise ValueError("A compra contém produto inativo ou inexistente.")
+            quantities[item.product_code] = (
+                quantities.get(item.product_code, 0) + int(item.quantity)
+            )
+
+        for code, quantity in quantities.items():
+            product = self._products[code]
+            maximum = to_min(getattr(product, "maximum_stock", None))
+            if maximum is None:
+                maximum = to_min(self.company_max_stock_limit)
+            if maximum is not None and to_int(product.stock) + quantity > maximum:
+                raise ValueError(
+                    f"A entrada de {product.name} ultrapassa o estoque máximo ({maximum})."
+                )
+
+        stock_before = {code: self._products[code] for code in quantities}
+        movements_before = list(self._movements)
+        try:
+            movement_ids = []
+            for item in items:
+                movement_id = self.register(MovementInput(
+                    item.product_code, MovementKind.ENTRADA, item.quantity,
+                    note=f"Entrada de compra {purchase_id}",
+                    supplier_id=supplier_id, confirm=True,
+                ))
+                self._linha(movement_id)["purchase_id"] = str(purchase_id)
+                movement_ids.append(movement_id)
+        except Exception:
+            self._products.update(stock_before)
+            self._movements[:] = movements_before
+            raise
+        return tuple(movement_ids)
 
     @_sob_o_lock
     def confirm(self, movement_id: str) -> None:

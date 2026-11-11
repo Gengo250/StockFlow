@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from stockflow.application.services.movement_service import MovementService
+from stockflow.application.services.purchase_service import PurchaseService
 from stockflow.application.services.product_service import ProductService
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.domain.sale_receipt import ReceiptNotAvailable
@@ -29,6 +30,7 @@ from stockflow.presentation.backend import (
     build_sale_repository,
     build_demo_user_directory,
     build_movement_repository,
+    build_purchase_repository,
     build_price_history_repository,
     build_supplier_repository,
     build_user_directory,
@@ -51,6 +53,7 @@ from stockflow.presentation.pages.clientes import ClientesPage
 from stockflow.presentation.pages.overview import DashboardPage, ReportsPage, SettingsPage, preference_prefix
 from stockflow.presentation.pages.estoque import EstoquePage
 from stockflow.presentation.pages.movimentacoes import MovimentacoesPage
+from stockflow.presentation.pages.compras import PurchasesPage
 from stockflow.presentation.pages.novo_produto import NovoProdutoPage
 from stockflow.presentation.pages.historico_precos import HistoricoPrecosPage
 from stockflow.presentation.pages.indicadores import IndicadoresPage
@@ -238,6 +241,15 @@ class MainWindow(QMainWindow):
             self.movement_repository, self.supplier_repository, self.product_repository
         )
         self.movimentacoes_page = MovimentacoesPage(self.products)
+        self.purchase_repository = build_purchase_repository(
+            self.session, self.products, self.supplier_repository,
+            self.movement_repository,
+        )
+        self.purchase_service = PurchaseService(
+            self.purchase_repository, self.supplier_repository,
+            self.product_repository,
+        )
+        self.compras_page = PurchasesPage(self.products)
 
         # Histórico de preço e custo (H09). O serviço recebe a mesma sessão
         # das demais telas: a recusa de papel acontece nele, antes de gastar
@@ -263,6 +275,7 @@ class MainWindow(QMainWindow):
         else:
             self.supplier_load_error = None
         self.movimentacoes_page.set_suppliers(fornecedores)
+        self.compras_page.set_suppliers(fornecedores)
 
         self.dashboard_page = DashboardPage(self.product_repository, self.sale_repository, self.client_repository)
         self.dashboard_page.navigate_requested.connect(self.show_page)
@@ -306,6 +319,7 @@ class MainWindow(QMainWindow):
             "indicadores": self.indicadores_page,
             "estoque": self.estoque_page,
             "movimentacoes": self.movimentacoes_page,
+            "compras": self.compras_page,
             "fornecedores": self.suppliers_page,
             "clientes": self.clientes_page,
             "vendas": self.vendas_page,
@@ -374,6 +388,8 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.confirm_requested.connect(self._confirmar_movimentacao)
         self.movimentacoes_page.cancel_requested.connect(self._cancelar_movimentacao)
         self.movimentacoes_page.adjust_requested.connect(self._aplicar_ajuste)
+        self.compras_page.create_requested.connect(self._criar_compra)
+        self.compras_page.receive_requested.connect(self._receber_compra)
         self.historico_precos_page.filtro_alterado.connect(
             lambda _codigo: self._carregar_historico_precos()
         )
@@ -488,6 +504,15 @@ class MainWindow(QMainWindow):
                 self._load("movement_suppliers", lambda: self._active_suppliers(),
                            self.movimentacoes_page.set_suppliers,
                            self.movimentacoes_page.show_load_error)
+        if key == "compras":
+            self.compras_page.reload_products(self.products)
+            self._recarregar_compras()
+            if using_supabase():
+                self._load(
+                    "purchase_suppliers", self._active_suppliers,
+                    self.compras_page.set_suppliers,
+                    self.compras_page.show_error,
+                )
 
         return True
 
@@ -654,6 +679,77 @@ class MainWindow(QMainWindow):
                    self.movimentacoes_page.set_movements,
                    self.movimentacoes_page.show_load_error)
 
+    def _recarregar_compras(self):
+        session = self.session
+
+        def loaded(purchases):
+            if self.session is session:
+                self.compras_page.set_purchases(purchases)
+
+        def failed(error):
+            if self.session is session:
+                self.compras_page.show_load_error(error)
+
+        self._load(
+            "purchases",
+            lambda: self.purchase_service.list_purchases(session),
+            loaded,
+            failed,
+        )
+
+    def _criar_compra(self, data):
+        session = self.session
+        self.compras_page.create_button.setEnabled(False)
+
+        def created(_purchase_id):
+            if self.session is not session:
+                return
+            self.last_save_error = None
+            self.compras_page.create_button.setEnabled(
+                pode_gravar(self.session, "compras")
+            )
+            self.compras_page.purchase_created()
+            self._recarregar_compras()
+
+        def failed(error):
+            if self.session is not session:
+                return
+            self.last_save_error = error
+            self.compras_page.create_button.setEnabled(
+                pode_gravar(self.session, "compras")
+            )
+            self.compras_page.show_error(error)
+
+        self._execute(
+            lambda: self.purchase_service.create(session, data), created, failed
+        )
+
+    def _receber_compra(self, purchase_id):
+        session = self.session
+
+        def received(_result):
+            if self.session is not session:
+                return
+            self.last_save_error = None
+            self.compras_page.show_error("")
+            self._recarregar_compras()
+            self._saldo_mudou()
+            if pode_ver(self.session, "movimentacoes"):
+                self._recarregar_movimentacoes()
+
+        def failed(error):
+            if self.session is not session:
+                return
+            self.last_save_error = error
+            self.compras_page.show_error(error)
+            self._recarregar_compras()
+
+        self._execute(
+            lambda: self.purchase_service.receive(session, purchase_id),
+            received,
+            failed,
+        )
+
     def _registrar_movimentacao(self, dados):
         """Registra e, se foi pedido, já confirma.
 
@@ -795,6 +891,7 @@ class MainWindow(QMainWindow):
         self.products_page.reload_products()
         self.vendas_page.reload_products()
         self.movimentacoes_page.reload_products()
+        self.compras_page.reload_products()
 
     def _reconsultar_estoque(self):
         """Reconsulta o catálogo ao ABRIR a tela de Estoque.
@@ -886,6 +983,7 @@ class MainWindow(QMainWindow):
         self.products_page.reload_products(catalogo)
         self.vendas_page.reload_products(catalogo)
         self.movimentacoes_page.reload_products(catalogo)
+        self.compras_page.reload_products(catalogo)
         if pode_ver(self.session, "historico_precos"):
             self.historico_precos_page.preencher_produtos(
                 sorted((p.code, p.name) for p in catalogo.values())
@@ -1109,6 +1207,7 @@ class MainWindow(QMainWindow):
         self.movimentacoes_page.apply_permission(
             pode_gravar(self.session, "movimentacoes")
         )
+        self.compras_page.apply_permission(pode_gravar(self.session, "compras"))
 
         # Menu: um laço sobre a matriz, não uma chamada por área. Área nova
         # aparece ou some sozinha, conforme o `ver` que ela declarou.
@@ -1175,6 +1274,7 @@ class MainWindow(QMainWindow):
             return
         active = tuple(s for s in suppliers if s.active)
         self.movimentacoes_page.set_suppliers(active)
+        self.compras_page.set_suppliers(active)
         for page in (self.novo_produto_page, self.editar_produto_page):
             selected = page.supplier_input.currentData()
             options = list(active)
@@ -1247,6 +1347,7 @@ class MainWindow(QMainWindow):
         self.estoque_page.reload_products()
         self.vendas_page.reload_products()
         self.movimentacoes_page.reload_products()
+        self.compras_page.reload_products()
 
         produto = self.products.get(code)
         if produto is not None and self.pages.currentWidget() is self.product_details_page:
