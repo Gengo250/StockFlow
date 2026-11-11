@@ -222,12 +222,13 @@ DECLARE
     'fn_register_sale_with_discounts',
     'fn_open_register_session', 'fn_close_register_session',
     'fn_current_register_session', 'fn_start_my_register',
+    'fn_register_session_summary',
     -- Cancelamento e devolução de venda (US17). Só o ADMIN; a função
     -- repete essa alçada, e o teste de espelhamento da matriz compara.
     'fn_cancel_sale', 'fn_return_sale',
     -- US20: mesma superfície autorizada pelas migrations incrementais.
     'fn_return_partial_sale', 'fn_get_returnable_items',
-    'fn_list_price_edits','fn_set_company_max_stock_limit','fn_set_max_stock','fn_get_effective_max_stock'
+    'fn_list_price_edits', 'fn_list_audit_events','fn_set_company_max_stock_limit','fn_set_max_stock','fn_get_effective_max_stock'
   ];
   v_name    text;
   v_sig     regprocedure;

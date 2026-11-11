@@ -1,7 +1,7 @@
 """Abertura e conferência do caixa sem bloquear a interface durante I/O."""
 from decimal import Decimal
 
-from PySide6.QtCore import QLocale, Qt, QTimer
+from PySide6.QtCore import QEvent, QLocale, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QDialog, QDoubleSpinBox, QFormLayout, QFrame, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
@@ -132,6 +132,9 @@ class CashRegisterDialog(QDialog):
         self._feedback_timer.setSingleShot(True)
         self._feedback_timer.timeout.connect(self._reveal_feedback)
         self.scroll.verticalScrollBar().rangeChanged.connect(self._queue_feedback)
+        self._focus_timer = QTimer(self)
+        self._focus_timer.setSingleShot(True)
+        self._focus_timer.timeout.connect(self._reveal_focused_field)
         buttons = QHBoxLayout()
         self.refresh_button = QPushButton('Atualizar')
         self.action_button = QPushButton('Iniciar caixa')
@@ -148,10 +151,36 @@ class CashRegisterDialog(QDialog):
         self.action_button.clicked.connect(self.submit)
         self.dismiss_button.clicked.connect(self.reject)
 
+        # O editor interno do spinbox também pode receber foco por teclado.
+        for field in (self.initial_balance, *self.declared.values(), self.justification):
+            field.installEventFilter(self)
+            if isinstance(field, QDoubleSpinBox):
+                field.lineEdit().installEventFilter(self)
+
         available = self.screen().availableGeometry()
         width, height = available.width() - 48, available.height() - 48
         self.setMinimumSize(min(480, width), min(280, height))
         self.resize(min(640, width), min(600, height))
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.FocusIn:
+            self._feedback_timer.stop()
+            self._follow_feedback = False
+            self._focus_timer.start(0)
+        return super().eventFilter(watched, event)
+
+    def _reveal_focused_field(self):
+        field = self.focusWidget()
+        if field is None or not self.scroll.widget().isAncestorOf(field):
+            return
+        if isinstance(field.parentWidget(), QDoubleSpinBox):
+            field = field.parentWidget()
+        # ensureWidgetVisible usa o editor interno como retângulo de foco.
+        # Revelar o controle inteiro evita cortar a borda inferior do spinbox.
+        center = field.mapTo(self.scroll.widget(), field.rect().center())
+        self.scroll.ensureVisible(
+            center.x(), center.y(), field.width() // 2, field.height() // 2 + 12,
+        )
 
     @staticmethod
     def _form(widget):
