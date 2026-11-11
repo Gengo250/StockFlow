@@ -294,11 +294,23 @@ def test_venda_cancelada_sai_do_faturamento_ponta_a_ponta(janela):
     antes = page.metric_values[0].text()
     vendas_antes = int(page.metric_values[1].text())
 
-    window.sale_service.cancel_sale(session, "VND-1001", "teste de indicadores")
+    window.cash_register_service.open(Decimal("0"))
+    client = next(client for client in window.client_repository.list_all()
+                  if client.active)
+    code = next(code for code, product in window.products.items()
+                if product.active and int(product.stock) > 0)
+    sale = window.sale_service.register_sale(
+        session, client.client_id, [{"codigo": code, "quantidade": 1}],
+        payment_method="DINHEIRO",
+    )
+    page.refresh()
+    assert int(page.metric_values[1].text()) == vendas_antes + 1
+
+    window.sale_service.cancel_sale(session, sale["id"], "teste de indicadores")
     page.refresh()
 
-    assert int(page.metric_values[1].text()) == vendas_antes - 1
-    assert page.metric_values[0].text() != antes
+    assert int(page.metric_values[1].text()) == vendas_antes
+    assert page.metric_values[0].text() == antes
 
 
 def test_recebimento_confirmado_tira_o_produto_do_estoque_baixo(janela):

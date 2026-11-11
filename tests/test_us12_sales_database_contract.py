@@ -12,6 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = (
     ROOT / "database/supabase/migrations/20261016120000_atomic_multi_item_sales.sql"
 )
+COMPLETION_MIGRATION = (
+    ROOT / "database/supabase/migrations/20261104130000_us15_compensating_cancellation.sql"
+)
 TABLES = ROOT / "database/code/tables/06_clients_sales.sql"
 PROCEDURES = ROOT / "database/code/procedures/07_clients_sales.sql"
 COMPLETION = ROOT / "database/code/triggers/06_sale_completion.sql"
@@ -132,10 +135,16 @@ def test_a_migration_entrega_a_mesma_funcao_que_a_fonte_declarativa():
     aplicada só de um lado. Os testes vizinhos verificam cada arquivo
     isoladamente e por isso não viam a divergência.
     """
-    for cabeca in (REGISTER_SALE, SALE_COMPLETION):
-        assert corpo_da_funcao(MIGRATION, cabeca) == corpo_da_funcao(
-            PROCEDURES if cabeca is REGISTER_SALE else COMPLETION, cabeca
-        ), f"a migration divergiu da fonte declarativa em {cabeca.splitlines()[0]}"
+    # A US15 evoluiu a conclusão para vincular as saídas aos itens. Cada
+    # função deve ser comparada com a migration que entrega sua versão atual,
+    # sem reescrever a migration histórica da venda atômica.
+    for cabeca, migration, source in (
+        (REGISTER_SALE, MIGRATION, PROCEDURES),
+        (SALE_COMPLETION, COMPLETION_MIGRATION, COMPLETION),
+    ):
+        assert corpo_da_funcao(migration, cabeca) == corpo_da_funcao(
+            source, cabeca
+        ), f"{migration.name} divergiu da fonte declarativa em {cabeca.splitlines()[0]}"
 
 
 def test_o_desconto_nao_pode_ter_mais_de_duas_casas():

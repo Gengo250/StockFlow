@@ -10,24 +10,56 @@
 -- PENDENTE enquanto o carrinho é montado, e só o fechamento tira produto da
 -- prateleira.
 --
--- O caixa (tables/02_cash_register.sql) fica DE FORA de propósito: `register`
--- não tem company_id, então creditar a venda nele não teria como ser escopado
--- por empresa. Ver a nota PENDENTE no fim de policies/01_security.sql.
+-- A sessão de caixa é validada por trg_validate_sale_open_register. Este
+-- trigger só registra a conclusão e o estoque; não faz liquidação financeira.
+-- US15: toda nova saída identifica o item, sem backfill das saídas legadas.
 CREATE OR REPLACE FUNCTION public.fn_process_sale_completion()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public AS $$
+SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
     v_item    RECORD;
     v_balance integer;
 BEGIN
+    IF OLD.status <> 'PENDENTE' THEN
+        RAISE EXCEPTION 'Somente venda pendente pode ser concluída'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    PERFORM i.id FROM public.sale_items i
+     WHERE i.sale_id = NEW.id ORDER BY i.id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Venda sem itens; conclusão recusada'
+            USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.sale_items i
+        LEFT JOIN public.products p
+          ON p.id = i.product_id AND p.company_id = NEW.company_id
+        WHERE i.sale_id = NEW.id
+          AND (i.company_id <> NEW.company_id OR p.id IS NULL)
+    ) OR EXISTS (
+        SELECT 1 FROM public.stock_movements sm
+         WHERE sm.sale_id = NEW.id AND sm.status = 'CONFIRMADA'
+    ) THEN
+        RAISE EXCEPTION 'Inconsistência nos itens ou movimentações da venda; conclusão recusada'
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    -- Também protege transições diretas: não depender só dos locks do checkout.
+    PERFORM p.id FROM public.products p
+     WHERE p.company_id = NEW.company_id
+       AND p.id IN (SELECT i.product_id FROM public.sale_items i WHERE i.sale_id = NEW.id)
+     ORDER BY p.barcode FOR UPDATE;
+
     INSERT INTO public.sales_log (company_id, sale_id, created_by)
     VALUES (NEW.company_id, NEW.id, NEW.created_by);
 
     FOR v_item IN
-        SELECT product_id, product_name, quantity
-          FROM public.sale_items
-         WHERE sale_id = NEW.id AND product_id IS NOT NULL
-          ORDER BY product_id, id
+        SELECT i.id, i.product_id, i.product_name, i.quantity
+          FROM public.sale_items i
+          JOIN public.products p ON p.id = i.product_id AND p.company_id = i.company_id
+         WHERE i.sale_id = NEW.id AND i.company_id = NEW.company_id
+         ORDER BY p.barcode, i.id
     LOOP
         -- Conferência explícita antes de inserir. Sem ela a falta de estoque
         -- apareceria como violação do CHECK `stock >= 0` de products, com
@@ -41,10 +73,10 @@ BEGIN
         END IF;
 
         INSERT INTO public.stock_movements (
-            company_id, product_id, sale_id, kind, quantity, status,
+            company_id, product_id, sale_id, sale_item_id, kind, quantity, status,
             note, created_by, confirmed_on
         ) VALUES (
-            NEW.company_id, v_item.product_id, NEW.id, 'SAIDA',
+            NEW.company_id, v_item.product_id, NEW.id, v_item.id, 'SAIDA',
             v_item.quantity, 'CONFIRMADA',
             'SAIDA_VENDA - venda ' || NEW.id::text, NEW.created_by, now()
         );

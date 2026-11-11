@@ -205,6 +205,8 @@ class SaleService:
         ida à rede para dizer o que a aplicação já sabia — e a mensagem que
         voltaria seria a do Postgres, não a do domínio.
         """
+        if reason is not None and not isinstance(reason, str):
+            raise ValueError("Informe um motivo em formato de texto.")
         texto = (reason or "").strip()
         if not texto:
             raise ValueError("Informe o motivo da operação.")
