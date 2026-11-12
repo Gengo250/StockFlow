@@ -459,3 +459,21 @@ def build_cash_register_service(session, sales):
         repository = DemoCashRegisterRepository(sales)
         sales.cash_register = repository
     return CashRegisterService(repository, session)
+
+
+def build_audit_repository(session=None):
+    if using_supabase():
+        from stockflow.infrastructure.repositories.supabase_audit_repository import SupabaseAuditRepository
+        company_id = getattr(session, "company_id", None)
+        return SupabaseAuditRepository(_client(), company_id=company_id)
+    from stockflow.infrastructure.repositories.demo_audit_repository import DemoAuditRepository
+    return DemoAuditRepository()
+
+
+def build_audit_service(session=None, policy=None):
+    from stockflow.application.services.audit_service import AuditService
+    from stockflow.domain.enums.audit_policy import AuditFailurePolicy
+    repo = build_audit_repository(session=session)
+    selected_policy = policy or AuditFailurePolicy.FAIL_ON_CRITICAL
+    return AuditService(repository=repo, policy=selected_policy)
+

@@ -35,6 +35,7 @@ ALTER TABLE public.purchases       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.purchase_items  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.role_change_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.price_edit_log  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_log       ENABLE ROW LEVEL SECURITY;
 
 -- register não tem coluna de empresa (tables/02_cash_register.sql: "Caixa.
 -- Independente das demais tabelas."), então não há como escopar por tenant.
@@ -76,9 +77,12 @@ GRANT SELECT ON public.company,
                 public.sale_reversals,
                 public.role_change_log,
                 public.price_edit_log,
+                public.audit_log,
                 public.vw_stock_situation,
                 public.vw_stock_alerts
   TO app_backend, authenticated;
+
+GRANT INSERT ON TABLE public.audit_log TO app_backend, authenticated;
 
 -- SELECT, e só. O log de permissões (H14) é escrito exclusivamente pelo
 -- trigger `trg_company_users_log_role`, que é SECURITY DEFINER e alcança a
@@ -102,6 +106,8 @@ DROP POLICY IF EXISTS purchases_select        ON public.purchases;
 DROP POLICY IF EXISTS purchase_items_select   ON public.purchase_items;
 DROP POLICY IF EXISTS role_change_log_select  ON public.role_change_log;
 DROP POLICY IF EXISTS price_edit_log_select   ON public.price_edit_log;
+DROP POLICY IF EXISTS audit_log_select        ON public.audit_log;
+DROP POLICY IF EXISTS audit_log_insert        ON public.audit_log;
 
 -- Policy é por role: o GRANT acima deixa `authenticated` chegar à tabela, mas
 -- sem aparecer no TO da policy ela veria zero linha. O predicado é o MESMO
@@ -171,6 +177,14 @@ CREATE POLICY role_change_log_select ON public.role_change_log
 CREATE POLICY price_edit_log_select ON public.price_edit_log
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_has_role(company_id, ARRAY['ADMIN']::public.user_role[]));
+
+CREATE POLICY audit_log_select ON public.audit_log
+  FOR SELECT TO app_backend, authenticated
+  USING (company_id IS NULL OR public.fn_has_role(company_id, ARRAY['ADMIN']::public.user_role[]));
+
+CREATE POLICY audit_log_insert ON public.audit_log
+  FOR INSERT TO app_backend, authenticated
+  WITH CHECK (true);
 
 CREATE POLICY product_stock_select ON public.product_stock
   FOR SELECT TO app_backend, authenticated
