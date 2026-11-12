@@ -31,6 +31,8 @@ ALTER TABLE public.sales_log       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_reversals  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_discount_limits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.suppliers       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.purchases       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.purchase_items  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.role_change_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.price_edit_log  ENABLE ROW LEVEL SECURITY;
 
@@ -66,6 +68,8 @@ GRANT SELECT ON public.company,
                 public.stock_movements,
                 public.clients,
                 public.suppliers,
+                public.purchases,
+                public.purchase_items,
                 public.sales,
                 public.sale_items,
                 public.sales_log,
@@ -94,6 +98,8 @@ DROP POLICY IF EXISTS sale_items_select        ON public.sale_items;
 DROP POLICY IF EXISTS sales_log_select         ON public.sales_log;
 DROP POLICY IF EXISTS sale_reversals_select    ON public.sale_reversals;
 DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
+DROP POLICY IF EXISTS purchases_select        ON public.purchases;
+DROP POLICY IF EXISTS purchase_items_select   ON public.purchase_items;
 DROP POLICY IF EXISTS role_change_log_select  ON public.role_change_log;
 DROP POLICY IF EXISTS price_edit_log_select   ON public.price_edit_log;
 
@@ -144,6 +150,14 @@ CREATE POLICY sale_reversals_select ON public.sale_reversals
   USING (public.fn_is_member(company_id));
 
 CREATE POLICY suppliers_select ON public.suppliers
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_has_role(company_id, ARRAY['ADMIN','STOCK']::public.user_role[]));
+
+CREATE POLICY purchases_select ON public.purchases
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_has_role(company_id, ARRAY['ADMIN','STOCK']::public.user_role[]));
+
+CREATE POLICY purchase_items_select ON public.purchase_items
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_has_role(company_id, ARRAY['ADMIN','STOCK']::public.user_role[]));
 
@@ -211,6 +225,7 @@ DECLARE
     'fn_list_company_suppliers', 'fn_create_supplier', 'fn_update_supplier',
     'fn_set_supplier_active', 'fn_set_product_supplier',
     'fn_register_supplier_movement', 'fn_save_product', 'fn_save_company_member',
+    'fn_create_purchase', 'fn_list_company_purchases', 'fn_receive_purchase',
     -- Histórico cronológico de preço e custo (H09). Só leitura, e só do ADMIN:
     -- a própria função repete a alçada de `price_edit_log_select`, porque
     -- SECURITY DEFINER passa por cima da RLS que protege a tabela.

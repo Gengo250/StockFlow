@@ -110,6 +110,7 @@ POLICY_DE_LEITURA = {
     "estoque": "products_select",
     "produtos": "products_select",
     "movimentacoes": "stock_movements_select",
+    "compras": "purchases_select",
     "fornecedores": "suppliers_select",
     "clientes": "clients_select",
     "vendas": "sales_select",
@@ -258,6 +259,10 @@ def test_a_funcao_de_ajuste_exige_a_mesma_alcada_das_movimentacoes():
         f"fn_register_adjustment exige {sorted(do_sql)}, mas a área "
         f"movimentacoes grava {sorted(PERMISSION_MATRIX['movimentacoes'].gravar)}"
     )
+
+
+def test_criar_compra_tem_a_mesma_alcada_de_receber():
+    assert papeis_da_fonte("fn_create_purchase") == PERMISSION_MATRIX["compras"].gravar
 
 
 def test_us17_reverter_venda_e_so_do_admin():
