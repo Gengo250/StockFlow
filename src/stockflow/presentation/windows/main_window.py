@@ -32,6 +32,8 @@ from stockflow.presentation.backend import (
     build_price_history_repository,
     build_supplier_repository,
     build_user_directory,
+    build_audit_repository,
+    build_audit_service,
     set_user_active as set_directory_user_active,
     save_user,
     using_supabase,
@@ -247,6 +249,8 @@ class MainWindow(QMainWindow):
             self.session, self.product_repository
         )
         self.price_history_service = PriceHistoryService(self.price_history_repository)
+        self.audit_repository = build_audit_repository(self.session)
+        self.audit_service = build_audit_service(self.session)
         self.historico_precos_page = HistoricoPrecosPage()
         # Consulta de rede no caminho de CONSTRUÇÃO: uma falha aqui subiria
         # até `__init__` e derrubaria a janela inteira, pelo mesmo motivo que
