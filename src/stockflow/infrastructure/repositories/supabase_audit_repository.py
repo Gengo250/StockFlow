@@ -40,7 +40,7 @@ class SupabaseAuditRepository(AuditRepository):
 
     def get_by_id(self, event_id: str) -> AuditEvent | None:
         """Busca evento por ID."""
-        query = self._client.table("audit_log").select("*").eq("id", event_id)
+        query = self._client.table("audit_log").select("id,company_id,user_id,action,entity,entity_id,""old_values,new_values,is_critical,created_at").eq("id", event_id)
         if self._company_id:
             query = query.eq("company_id", self._company_id)
         res = query.execute()
@@ -56,7 +56,7 @@ class SupabaseAuditRepository(AuditRepository):
         user: str | None = None,
     ) -> Sequence[AuditEvent]:
         """Consulta eventos ordenados por data decrescente."""
-        query = self._client.table("audit_log").select("*")
+        query = self._client.table("audit_log").select("id,company_id,user_id,action,entity,entity_id,""old_values,new_values,is_critical,created_at")
         if self._company_id:
             query = query.eq("company_id", self._company_id)
         if entity:
