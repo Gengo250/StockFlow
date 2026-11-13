@@ -53,6 +53,18 @@ def _vender(window, quantidade=2):
     return page.historico_vendas[0]["id"]
 
 
+
+def _devolver(window, sale_id, reason):
+    window._show_sale_details(sale_id)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            QInputDialog, "getItem",
+            staticmethod(lambda parent, title, label, options, *args: (options[0], True)),
+        )
+        patch.setattr(QInputDialog, "getText", staticmethod(lambda *args: (reason, True)))
+        window.sale_details_page.return_button.click()
+
+
 def test_cancelar_devolve_o_saldo_ao_estoque(janela):
     antes = int(janela.products[PRODUTO].stock)
     venda = _vender(janela)
@@ -67,7 +79,7 @@ def test_devolver_devolve_o_saldo_ao_estoque(janela):
     antes = int(janela.products[PRODUTO].stock)
     venda = _vender(janela, quantidade=3)
 
-    janela._devolver_venda(venda, "cliente desistiu")
+    _devolver(janela, venda, "cliente desistiu")
 
     assert int(janela.products[PRODUTO].stock) == antes
 
@@ -82,13 +94,13 @@ def test_venda_cancelada_aparece_com_o_status_no_historico(janela):
     assert linha["status"] == "CANCELADA"
 
 
-def test_vinculo_guarda_especie_motivo_e_fica_legivel(janela):
+def test_cancelamento_guarda_especie_motivo_e_fica_legivel(janela):
     venda = _vender(janela)
-    janela._devolver_venda(venda, "produto com defeito")
+    janela._cancelar_venda(venda, "produto com defeito")
 
     gravado = janela.sale_service.get_sale(janela.session, venda)
-    assert gravado["status"] == "DEVOLVIDA"
-    assert gravado["reversal_kind"] == "DEVOLUCAO"
+    assert gravado["status"] == "CANCELADA"
+    assert gravado["reversal_kind"] == "CANCELAMENTO"
     assert gravado["reversal_reason"] == "produto com defeito"
 
 
@@ -97,7 +109,7 @@ def test_reverter_duas_vezes_nao_mexe_no_saldo_de_novo(janela):
     janela._cancelar_venda(venda, "engano")
     depois_da_primeira = int(janela.products[PRODUTO].stock)
 
-    janela._devolver_venda(venda, "segunda tentativa")
+    janela._devolver_venda(venda)
 
     assert int(janela.products[PRODUTO].stock) == depois_da_primeira
     gravado = janela.sale_service.get_sale(janela.session, venda)
@@ -230,7 +242,7 @@ def test_justificativa_digitada_fica_visivel_apos_confirmar(janela, qapp, tamanh
         QTest.mouseClick(botoes.button(QDialogButtonBox.Ok), Qt.LeftButton)
 
     QTimer.singleShot(0, preencher_dialogo)
-    janela.sale_details_page.return_button.click()
+    janela.sale_details_page.cancel_button.click()
     qapp.processEvents()
     qapp.processEvents()
 
@@ -253,7 +265,7 @@ def test_justificativa_digitada_fica_visivel_apos_confirmar(janela, qapp, tamanh
     assert rotulo.visibleRegion().boundingRect().contains(rotulo.rect())
 
 
-def test_justificativa_e_exibida_literalmente_apos_devolver(janela, monkeypatch):
+def test_justificativa_e_exibida_literalmente_apos_cancelar(janela, monkeypatch):
     venda = _vender(janela)
     janela._show_sale_details(venda)
     motivo = "Produto <avariado> & acessório ausente; etiqueta &amp; ilegível"
@@ -261,7 +273,7 @@ def test_justificativa_e_exibida_literalmente_apos_devolver(janela, monkeypatch)
         QInputDialog, "getText", staticmethod(lambda *a, **k: (motivo, True))
     )
 
-    janela.sale_details_page.return_button.click()
+    janela.sale_details_page.cancel_button.click()
 
     assert janela.sale_service.get_sale(janela.session, venda)["reversal_reason"] == motivo
     documento = QTextDocument()

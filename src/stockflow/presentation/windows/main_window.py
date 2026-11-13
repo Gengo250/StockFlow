@@ -105,6 +105,8 @@ class MainWindow(QMainWindow):
         self.executar_em_segundo_plano = executar_em_segundo_plano
         self._closed = False
         self._loaders = {}
+        self._pending_sale_returns = {}
+        self._sale_return_operation = None
 
         self.setWindowTitle("StockFlow")
         self.resize(1280, 800)
@@ -575,6 +577,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._closed = True
+        self._sale_return_operation = None
         for loader in self.findChildren(PageLoader):
             loader.close()
         super().closeEvent(event)
@@ -610,6 +613,7 @@ class MainWindow(QMainWindow):
             return
         self.sale_details_page.load_sale(venda, self.session)
         self.pages.setCurrentWidget(self.sale_details_page)
+        self._refresh_sale_returnability(sale_id)
 
     def _emitir_comprovante(self, sale_id):
         """Emite ou reemite o comprovante (US19/SCRUM-213).
@@ -640,10 +644,161 @@ class MainWindow(QMainWindow):
             self.sale_service.cancel_sale, sale_id, reason, "cancelar"
         )
 
-    def _devolver_venda(self, sale_id, reason):
-        self._reverter_venda(
-            self.sale_service.return_sale, sale_id, reason, "devolver"
+    def _devolver_venda(self, sale_id):
+        from uuid import uuid4
+        from shiboken6 import isValid
+        from stockflow.application.dto.return_dto import (
+            CreateReturnDTO, ReturnItemDTO, parse_return_result,
         )
+        from stockflow.application.dto.return_eligibility import ReturnEligibilityDTO
+        from stockflow.application.services.return_service import ReturnEligibilityService, ReturnService
+        from stockflow.domain.enums.sale_status import SaleStatus
+        from stockflow.domain.permissions import ensure_can_return_sales
+        from stockflow.domain.sale_return import return_identifier
+
+        if self._sale_return_operation is not None:
+            return
+        session = self.session
+        page = self.sale_details_page
+        try:
+            ensure_can_return_sales(session)
+            sale_id = return_identifier(sale_id)
+            sale = page.venda
+            if not sale or str(sale["id"]) != sale_id:
+                sale = self.sale_service.get_sale(session, sale_id)
+            if not sale or SaleStatus.from_value(sale.get("status")) is not SaleStatus.CONCLUIDA:
+                raise ValueError("Somente venda concluída pode ter itens devolvidos.")
+        except Exception as error:
+            QMessageBox.warning(self, "Não foi possível registrar devolução", str(error))
+            return
+
+        key = (session.company_id, session.user_id, sale_id)
+        operation = object()
+        self._sale_return_operation = operation
+        if page.venda and str(page.venda["id"]) == sale_id:
+            page.return_feedback_label.clear()
+            page.return_feedback_label.hide()
+            page.return_button.setEnabled(False)
+
+        def active():
+            return (isValid(self) and not self._closed and self.session is session
+                    and self._sale_return_operation is operation)
+
+        def finish():
+            self._sale_return_operation = None
+            if page.venda:
+                page._aplicar_alcada(page.venda, self.session)
+                if str(page.venda["id"]) == sale_id and key in self._pending_sale_returns:
+                    page.cancel_button.setEnabled(False)
+                    page.return_button.setEnabled(True)
+                    page.return_button.setToolTip("Verificar o resultado da devolução pendente.")
+
+        def failed(error, request=None):
+            if not active():
+                return
+            self.last_save_error = error
+            refused = isinstance(error, (ValueError, PermissionDeniedError)) or getattr(
+                error, "code", None
+            ) in {"23514", "23503", "42501", "22023", "40001", "40P01"}
+            if request is not None and refused:
+                self._pending_sale_returns.pop(key, None)
+            finish()
+            if request is not None and not refused:
+                message = (
+                    "O resultado da devolução não foi confirmado. Clique novamente em "
+                    "‘Registrar devolução’ para verificar a mesma operação sem duplicar os itens."
+                )
+            else:
+                message = f"Não foi possível registrar devolução: {error}"
+            QMessageBox.warning(self, "Devolução", message)
+
+        def register(request):
+            if not active():
+                return
+            self._pending_sale_returns[key] = request
+            service = ReturnService(self.sale_repository, session)
+
+            def registered(value):
+                if not active():
+                    return
+                try:
+                    result = parse_return_result(value)
+                except RuntimeError as error:
+                    failed(error, request)
+                    return
+                self._pending_sale_returns.pop(key, None)
+                self.last_save_error = None
+                finish()
+                # Os diálogos de escolha já fecharam: segue o mesmo fluxo
+                # de atualização usado pelo cancelamento da venda.
+                self._refresh_sale_after_operation(sale_id)
+                if page.venda and str(page.venda["id"]) == sale_id:
+                    page.show_return_result(result, request.reason)
+
+            self._execute(lambda: service.create_return(request), registered,
+                          lambda error: failed(error, request))
+
+        def eligible(items):
+            if not active():
+                return
+            if not page.venda or str(page.venda["id"]) != sale_id:
+                finish()
+                return
+            page.set_returnable_items(items)
+            page.return_button.setEnabled(False)
+            if not items:
+                finish()
+                QMessageBox.information(self, "Devolução", "Todos os itens desta venda já foram devolvidos.")
+                return
+            try:
+                selection = page.selecionar_itens_devolucao(items)
+            except Exception as error:
+                failed(error)
+                return
+            if not active():
+                return
+            if selection is None:
+                finish()
+                return
+            quantities, reason = selection
+            register(CreateReturnDTO(sale_id, [
+                ReturnItemDTO(item_id, quantity) for item_id, quantity in quantities
+            ], reason, str(uuid4())))
+
+        pending = self._pending_sale_returns.get(key)
+        if pending is not None:
+            register(pending)
+        else:
+            service = ReturnEligibilityService(self.sale_repository, session)
+            self._execute(lambda: service.get_returnable(ReturnEligibilityDTO(sale_id)),
+                          eligible, failed)
+
+    def _refresh_sale_returnability(self, sale_id):
+        from stockflow.application.dto.return_eligibility import ReturnEligibilityDTO
+        from stockflow.application.services.return_service import ReturnEligibilityService
+        from stockflow.domain.permissions import can_return_sales
+        from stockflow.domain.sale_return import return_identifier
+
+        session = self.session
+        page = self.sale_details_page
+        if not can_return_sales(session) or not page.venda or page.venda.get("status") != "CONCLUIDA":
+            return
+        try:
+            sale_id = return_identifier(sale_id)
+        except ValueError:
+            return
+        service = ReturnEligibilityService(self.sale_repository, session)
+
+        def loaded(items):
+            if self.session is session and page.venda and str(page.venda["id"]) == sale_id:
+                page.set_returnable_items(items)
+                if (session.company_id, session.user_id, sale_id) in self._pending_sale_returns:
+                    page.cancel_button.setEnabled(False)
+                    page.return_button.setEnabled(True)
+                    page.return_button.setToolTip("Verificar o resultado da devolução pendente.")
+
+        self._load("sale_returns", lambda: service.get_returnable(ReturnEligibilityDTO(sale_id)),
+                   loaded, lambda error: None)
 
     def _reverter_venda(self, operacao, sale_id, reason, acao):
         """Reverter mexe no SALDO, então reconsulta o catálogo junto.
@@ -663,6 +818,9 @@ class MainWindow(QMainWindow):
             )
             return
 
+        self._refresh_sale_after_operation(sale_id)
+
+    def _refresh_sale_after_operation(self, sale_id):
         self.vendas_page.reload_sales()
         self._saldo_mudou()
         if pode_ver(self.session, "movimentacoes"):
@@ -675,6 +833,7 @@ class MainWindow(QMainWindow):
             venda = None
         if venda is not None:
             self.sale_details_page.load_sale(venda, self.session)
+            self._refresh_sale_returnability(sale_id)
 
     def _recarregar_movimentacoes(self):
         """Recarrega o histórico. A permissão já foi checada na navegação."""
@@ -1188,6 +1347,8 @@ class MainWindow(QMainWindow):
             # o próximo ADMIN veria a lista da outra sessão — e, se as
             # empresas forem diferentes, usuários de outra empresa.
             if session is not self.session:
+                self._sale_return_operation = None
+                self.sale_details_page.load_sale(None, session)
                 self._usuarios_carregados = False
             self.session = session
 
