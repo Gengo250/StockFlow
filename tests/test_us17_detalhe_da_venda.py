@@ -219,15 +219,17 @@ def test_cancelar_com_motivo_emite_id_e_motivo(pagina, monkeypatch):
     assert pedidos == [("VND-0001", "engano")]
 
 
-def test_devolver_com_motivo_emite_id_e_motivo(pagina, monkeypatch):
+def test_devolver_abre_selecao_de_itens_sem_pedir_motivo_antecipadamente(pagina, monkeypatch):
     from PySide6.QtWidgets import QInputDialog
 
-    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("defeito", True)))
+    def unexpected(*args, **kwargs):
+        raise AssertionError("O motivo pertence ao formulário de devolução por itens.")
+    monkeypatch.setattr(QInputDialog, "getText", unexpected)
     pedidos = []
     pagina.return_requested.connect(lambda *args: pedidos.append(args))
     pagina.load_sale(VENDA, admin())
     pagina.return_button.click()
-    assert pedidos == [("VND-0001", "defeito")]
+    assert pedidos == [("VND-0001",)]
 
 
 def test_motivo_longo_demais_e_recusado_na_tela(pagina, monkeypatch):
