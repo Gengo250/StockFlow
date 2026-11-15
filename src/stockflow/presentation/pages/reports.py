@@ -19,6 +19,7 @@ from stockflow.application.dto.sale_filter import (
 )
 from stockflow.application.services.csv_exporter import export_csv
 from stockflow.domain.enums.movement_kind import MovementKind
+from stockflow.domain.enums.purchase_status import PurchaseStatus
 from stockflow.domain.enums.sale_status import SaleStatus
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.domain.permissions import exigir_ver, pode_ver
@@ -33,6 +34,7 @@ _RELATORIOS = (
     ("vendas", "Vendas", "vendas"),
     ("movimentacoes", "Movimentações", "movimentacoes"),
     ("auditoria", "Auditoria", "historico_precos"),
+    ("compras", "Compras", "compras"),
 )
 
 
@@ -43,7 +45,7 @@ def money(value):
 class ReportsPage(QWidget):
     def __init__(
         self, products, sales, session=None, *, sale_service=None,
-        movement_service=None, price_history_service=None,
+        movement_service=None, price_history_service=None, purchase_service=None,
     ):
         super().__init__()
         self.loader = PageLoader(self)
@@ -53,6 +55,7 @@ class ReportsPage(QWidget):
         self.sale_service = sale_service
         self.movement_service = movement_service
         self.price_history_service = price_history_service
+        self.purchase_service = purchase_service
         self.rows, self.headers, self._all_rows = [], [], []
         self._sale_filters = {}
         self._loaded = False
@@ -254,6 +257,9 @@ class ReportsPage(QWidget):
                 ('Cancelada', 'Cancelada'),
             ],
             'auditoria': [('Todas as situações', None)],
+            'compras': [('Todas as situações', None)] + [
+                (status.label, status.value) for status in PurchaseStatus
+            ],
         }[kind]
         self.status.blockSignals(True)
         self.status.clear()
@@ -266,20 +272,23 @@ class ReportsPage(QWidget):
         sales = kind == 'vendas'
         movements = kind == 'movimentacoes'
         audit = kind == 'auditoria'
+        purchases = kind == 'compras'
         self.search.setPlaceholderText(
             'Buscar código, produto ou categoria…' if stock else
             'Buscar venda, cliente ou produto…' if sales else
             'Buscar produto, fornecedor ou observação…' if movements else
+            'Buscar compra, fornecedor ou produto…' if purchases else
             'Buscar produto, campo ou responsável…'
         )
-        self.status_field.setVisible(stock or sales or movements)
+        self.status_field.setVisible(stock or sales or movements or purchases)
         self.product_field.setVisible(movements or audit)
         self.kind_field.setVisible(movements)
         self.client_field.setVisible(sales)
         self.seller_field.setVisible(sales)
-        self.period_field.setVisible(sales or movements)
-        self.date_start_field.setVisible(sales or movements)
-        self.date_end_field.setVisible(sales or movements)
+        self.period_filter.setText('Filtrar por data de criação' if purchases else 'Filtrar período')
+        self.period_field.setVisible(sales or movements or purchases)
+        self.date_start_field.setVisible(sales or movements or purchases)
+        self.date_end_field.setVisible(sales or movements or purchases)
 
     def refresh(self, *_):
         kind = self.kind.currentData()
@@ -317,6 +326,9 @@ class ReportsPage(QWidget):
             'auditoria': ('Auditoria de preços e custos',
                           ['Quando', 'Produto', 'Campo', 'De', 'Para', 'Por'],
                           ('Alterações no resultado', 'Produtos afetados', 'Campos alterados')),
+            'compras': ('Compras registradas',
+                        ['Compra', 'Fornecedor', 'Itens', 'Situação', 'Criada em', 'Recebida em'],
+                        ('Compras no resultado', 'Em rascunho', 'Recebidas')),
         }
         self.result_title.setText(labels[kind][0])
         self.headers = labels[kind][1]
@@ -344,6 +356,11 @@ class ReportsPage(QWidget):
                 if self.movement_service is None:
                     raise RuntimeError('O serviço de movimentações não foi configurado.')
                 return [tuple(mov) for mov in self.movement_service.list_movements(self.session)]
+            if kind == 'compras':
+                if self.purchase_service is None:
+                    raise RuntimeError('O serviço de compras não foi configurado.')
+                return [self._purchase_row(purchase) for purchase in
+                        self.purchase_service.list_purchases(self.session)]
             if self.price_history_service is None:
                 raise RuntimeError('O serviço de auditoria não foi configurado.')
             return [self._audit_row(change) for change in
@@ -386,6 +403,16 @@ class ReportsPage(QWidget):
             ))
         mapped.sort(key=lambda row: _row_date(row[4]) or date.min, reverse=True)
         return mapped
+
+    @staticmethod
+    def _purchase_row(purchase):
+        items = '; '.join(
+            f'{item.product_code} — {item.product_name} × {item.quantity}'
+            for item in purchase.items
+        )
+        return (purchase.purchase_id, purchase.supplier_name or purchase.supplier_id,
+                items, PurchaseStatus.from_value(purchase.status).label,
+                _purchase_date(purchase.created_on), _purchase_date(purchase.received_on))
 
     @staticmethod
     def _audit_row(change):
@@ -478,7 +505,7 @@ class ReportsPage(QWidget):
         self.rows = []
         for row in self._all_rows:
             searchable = (
-                row[:3] if kind in ('estoque', 'vendas') else
+                row[:3] if kind in ('estoque', 'vendas', 'compras') else
                 row[1:] if kind == 'movimentacoes' else row[1:6]
             )
             if query and query not in ' '.join(map(str, searchable)).casefold():
@@ -489,6 +516,8 @@ class ReportsPage(QWidget):
                 if kind == 'vendas' and row[5] != SaleStatus.from_value(status).label:
                     continue
                 if kind == 'movimentacoes' and row[5] != status:
+                    continue
+                if kind == 'compras' and row[3] != PurchaseStatus.from_value(status).label:
                     continue
             if product_code is not None:
                 if kind == 'movimentacoes' and row[1] != product_code:
@@ -504,7 +533,7 @@ class ReportsPage(QWidget):
                 if seller_id is not None and sale_seller != seller_id:
                     continue
             if self.period_filter.isChecked():
-                row_date = _row_date(row[4]) if kind == 'vendas' else _row_date(row[7])
+                row_date = _row_date(row[4]) if kind in ('vendas', 'compras') else _row_date(row[7])
                 if invalid_period or row_date is None or not start <= row_date <= end:
                     continue
             self.rows.append(row)
@@ -534,6 +563,10 @@ class ReportsPage(QWidget):
                 entries = sum(int(row[4]) for row in confirmed if row[3] == 'Entrada')
                 exits = sum(int(row[4]) for row in confirmed if row[3] == 'Saída')
                 values = (len(self.rows), entries, exits)
+            elif kind == 'compras':
+                values = (len(self.rows),
+                          sum(row[3] == PurchaseStatus.RASCUNHO.label for row in self.rows),
+                          sum(row[3] == PurchaseStatus.RECEBIDA.label for row in self.rows))
             else:
                 values = (
                     len(self.rows),
@@ -602,6 +635,18 @@ class ReportsPage(QWidget):
                 self.error.setStyleSheet(inventory.LOAD_ERROR_QSS)
                 self.error.setText(f'Não foi possível exportar: {error}')
             self.error.show()
+
+
+def _purchase_date(value):
+    if not value:
+        return '—'
+    try:
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except ValueError:
+        return str(value)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone()
+    return parsed.strftime('%d/%m/%Y %H:%M')
 
 
 def _row_date(value):

@@ -32,5 +32,13 @@ def test_purchase_page_creates_draft_and_receives_all_items(qapp):
             if row[6] == f"Entrada de compra {purchase.purchase_id}"
         )
         assert movement[8] == "Distribuidora Central"
+
+        assert window.show_page("relatorios")
+        report = window.reports_page
+        report.kind.setCurrentText("Compras")
+        assert len(report.rows) == 1
+        assert report.rows[0][0] == purchase.purchase_id
+        assert report.rows[0][1] == "Distribuidora Central"
+        assert report.rows[0][3] == "Recebida"
     finally:
         window.close()

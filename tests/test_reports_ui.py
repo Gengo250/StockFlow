@@ -8,7 +8,9 @@ import pytest
 
 from stockflow.domain.entities.session import Session
 from stockflow.domain.enums.price_edit_field import PriceEditField
+from stockflow.domain.enums.purchase_status import PurchaseStatus
 from stockflow.domain.enums.user_role import UserRole
+from stockflow.domain.purchase import Purchase, PurchaseItem
 from stockflow.domain.exceptions.permission_denied import PermissionDeniedError
 from stockflow.application.dto.sale_filter import SalePage
 from stockflow.presentation.pages.overview import ReportsPage
@@ -127,6 +129,7 @@ def test_report_choices_follow_read_permissions(qapp, tmp_path):
     assert page.kind.findData('estoque') >= 0
     assert page.kind.findData('vendas') >= 0
     assert page.kind.findData('movimentacoes') >= 0
+    assert page.kind.findData('compras') >= 0
     assert page.kind.findData('auditoria') == -1
     page.close()
     admin_page = ReportsPage(products, sales, _session())
@@ -140,8 +143,63 @@ def test_report_choices_follow_read_permissions(qapp, tmp_path):
 
     seller = ReportsPage(products, sales, _session(UserRole.SELLER))
     assert seller.kind.findData('movimentacoes') == -1
+    assert seller.kind.findData('compras') == -1
     assert seller.kind.findData('auditoria') == -1
     seller.close()
+
+
+def test_purchase_report_filters_exports_and_rechecks_permission(qapp, tmp_path):
+    session = _session()
+    service = Mock()
+    service.list_purchases.return_value = (
+        Purchase('C1', 'F1', 'Fornecedor Café', PurchaseStatus.RECEBIDA,
+                 (PurchaseItem('P1', 'Café', 8),),
+                 '2026-10-14T10:00:00', '2026-10-15T11:00:00'),
+        Purchase('C2', 'F2', 'Fornecedor Papel', PurchaseStatus.RASCUNHO,
+                 (PurchaseItem('P2', 'Papel', 3),), '2026-10-16T10:00:00'),
+    )
+    page = ReportsPage(Mock(), Mock(), session, purchase_service=service)
+    page.kind.setCurrentText('Compras')
+    assert service.list_purchases.call_args.args == (session,)
+    assert [value.text() for _, value in page.metrics] == ['2', '1', '1']
+    assert page.rows[0][2] == 'P1 — Café × 8'
+    assert page.rows[1][5] == '—'
+
+    page.search.setText('café')
+    page.status.setCurrentText('Recebida')
+    page.date_start.setDate(QDate(2026, 10, 14))
+    page.date_end.setDate(QDate(2026, 10, 14))
+    page.period_filter.setChecked(True)
+    assert len(page.rows) == 1
+    assert [value.text() for _, value in page.metrics] == ['1', '0', '1']
+    path = tmp_path / 'compras.csv'
+    page.export_csv(path)
+    with path.open(encoding='utf-8-sig') as output:
+        exported = list(csv.reader(output, delimiter=';'))
+    assert exported[0] == ['Compra', 'Fornecedor', 'Itens', 'Situação', 'Criada em', 'Recebida em']
+    assert len(exported) == 2 and exported[1][0] == 'C1'
+
+    page.session = _session(UserRole.SELLER)
+    denied_path = tmp_path / 'compras-negado.csv'
+    with pytest.raises(PermissionDeniedError):
+        page.export_csv(denied_path)
+    assert not denied_path.exists()
+    page.close()
+
+
+def test_purchase_report_handles_load_errors_and_empty_results(qapp):
+    service = Mock()
+    service.list_purchases.side_effect = RuntimeError('Sem conexão')
+    page = ReportsPage(Mock(), Mock(), _session(), purchase_service=service)
+    page.kind.setCurrentText('Compras')
+    assert not page.rows and not page.export_button.isEnabled()
+    assert 'Sem conexão' in page.error.text()
+    service.list_purchases.side_effect = None
+    service.list_purchases.return_value = ()
+    page.refresh()
+    assert not page.rows and not page.export_button.isEnabled()
+    assert [value.text() for _, value in page.metrics] == ['0', '0', '0']
+    page.close()
 
 
 def test_sales_export_respects_period_client_seller_and_status(qapp, tmp_path):

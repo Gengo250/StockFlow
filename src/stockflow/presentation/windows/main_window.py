@@ -292,6 +292,7 @@ class MainWindow(QMainWindow):
             sale_service=self.sale_service,
             movement_service=self.movement_service,
             price_history_service=self.price_history_service,
+            purchase_service=self.purchase_service,
         )
         # Indicadores (US16). Recebe o MESMO `sale_service` da tela de Vendas
         # e o mesmo repositório de catálogo das demais: consultar indicadores

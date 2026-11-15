@@ -49,7 +49,7 @@ continuam salvas no dispositivo. A faixa azul identifica a demonstração.
 | Vendas | 7 vendas, incluindo carrinho com vários itens, desconto, pagamentos distintos, cancelamento e devolução |
 | Detalhes e comprovantes | Histórico dos itens e emissão local de comprovante não fiscal |
 | Histórico de preços | Alterações de preço e custo com datas recentes |
-| Relatórios | Estoque, vendas, movimentações e auditoria; filtros e exportação CSV |
+| Relatórios | Estoque, vendas, movimentações, auditoria e compras; filtros e exportação CSV |
 | Usuários | Administrador, Estoque e Vendedor; exemplos ativos, inativos e pendentes |
 | Configurações | Tela inicial, alertas e limite de desconto do vendedor |
 
