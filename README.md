@@ -197,14 +197,22 @@ valor fiscal — comprovante não é nota fiscal.
 ## Testes
 
 Para validar navegação, detalhes, formulários, filtros e grade responsiva sem
-abrir uma janela:
+abrir uma janela e sem integração com banco:
 
 ```bash
-QT_QPA_PLATFORM=offscreen uv run --with pytest python -m pytest tests/ -q
+QT_QPA_PLATFORM=offscreen STOCKFLOW_BACKEND=demo uv run python -m pytest tests/ --ignore=tests/integration -k 'not supabase' -q
 ```
 
-Sempre com o caminho `tests/`: `pytest` sem argumento varre `scripts/` e tenta
-coletar `scripts/test_supabase_connection.py`, que fala com a rede.
+O filtro pelo nome também exclui testes locais cujo nome menciona Supabase,
+mesmo quando usam clientes falsos. O teste de inicialização mockada tem esse
+nome e pode ser executado separadamente, sem rede:
+
+```bash
+QT_QPA_PLATFORM=offscreen STOCKFLOW_BACKEND=demo uv run python -m pytest tests/test_mock_application.py -q
+```
+
+O pytest procura testes em `tests/` por padrão. Os testes de integração com
+PostgreSQL exigem configuração própria; veja [testes](tests/README.md).
 
 ## Backend de banco
 

@@ -1,6 +1,10 @@
 # Python
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
 
 # uv / ambiente virtual
 .venv/
@@ -12,7 +16,7 @@ dist/
 
 # chaves ambiente
 .env*
-!.env.example 
+!.env.example
 
 # Worktrees temporários de agentes; nunca versionados.
 .claude/

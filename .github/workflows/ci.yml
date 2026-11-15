@@ -139,9 +139,8 @@ jobs:
         # variável, mas ela fica aqui mesmo assim: o `setdefault` protege quem
         # roda local, e o valor explícito protege o CI de uma mudança no conftest.
         #
-        # `tests/` — `pytest` sem argumento varre `scripts/` e tenta coletar
-        # `scripts/test_supabase_connection.py`, que fala com a rede. O caminho
-        # não é economia de tempo: é o que mantém a suíte longe da internet.
+        # `tests/` explicita a suíte mesmo se a configuração de coleta mudar.
+        # O testpaths em pyproject.toml também limita a coleta padrão.
         #
         # `STOCKFLOW_TEST_DSN` é o que ACORDA `tests/integration`. Sem ela os
         # testes de banco se pulam em silêncio, e um `31 passed, 32 skipped`

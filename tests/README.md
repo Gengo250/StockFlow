@@ -1,15 +1,23 @@
 # Testes
 
-Suíte de verificação das features da branch `persistence-db`.
+Suíte de testes do aplicativo, incluindo domínio, serviços, interface e
+contratos de infraestrutura. Os testes de integração com PostgreSQL ficam em
+`integration/`.
 
 ## Como rodar
 
 ```bash
-QT_QPA_PLATFORM=offscreen uv run --with pytest python -m pytest tests/ -q
+QT_QPA_PLATFORM=offscreen STOCKFLOW_BACKEND=demo uv run python -m pytest tests/ --ignore=tests/integration -k 'not supabase' -q
+QT_QPA_PLATFORM=offscreen STOCKFLOW_BACKEND=demo uv run python -m pytest tests/test_mock_application.py -q
 ```
 
 A plataforma `offscreen` deixa os testes de UI rodarem sem servidor gráfico
 (útil em CI). Sem ela, o Qt tenta abrir janelas reais.
+O primeiro comando inclui testes locais de interface e regras de negócio;
+ele exclui testes cujo nome mencione Supabase, inclusive alguns que usam
+clientes falsos. O segundo recupera a verificação de inicialização mockada,
+que é excluída pelo filtro devido ao nome. Esses comandos não executam os
+testes de integração em `tests/integration/`.
 
 ## O que cada arquivo cobre
 
@@ -44,7 +52,8 @@ A plataforma `offscreen` deixa os testes de UI rodarem sem servidor gráfico
 
 ## Linha de base
 
-**A suíte passa inteira.** Qualquer vermelho é regressão.
+Os resultados devem ser conferidos em cada execução; o histórico abaixo não
+substitui uma execução atual.
 
 Histórico, para quem encontrar a referência antiga: até a recuperação da US04
 a linha de base eram **22 falhas** em `test_estoque_busca_filtro.py` (15) e
