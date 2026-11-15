@@ -64,7 +64,7 @@ class SaleDetailsPage(QWidget):
     #: (identificador, motivo) — a tela não reverte sozinha; quem decide e
     #: trata a recusa é a janela, que também precisa atualizar o estoque.
     cancel_requested = Signal(str, str)
-    return_requested = Signal(str, str)
+    return_requested = Signal(str)
     #: Identificador da venda cujo comprovante foi pedido (US19). A página
     #: não monta o documento: quem o monta é o serviço, que a janela já tem.
     receipt_requested = Signal(str)
@@ -79,6 +79,7 @@ class SaleDetailsPage(QWidget):
         self.venda = None
         self.session = None
         self.cliente = None
+        self._returnable_items = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(26, 24, 26, 24)
@@ -204,6 +205,13 @@ class SaleDetailsPage(QWidget):
             "color: #0F172A; font-size: 14px; font-weight: 600;"
         )
         card.layout().addWidget(self.totais_label)
+        self.return_summary_label = QLabel()
+        self.return_feedback_label = QLabel()
+        for label in (self.return_summary_label, self.return_feedback_label):
+            label.setWordWrap(True)
+            label.setTextFormat(Qt.PlainText)
+            label.hide()
+            card.layout().addWidget(label)
         return card
 
     def _criar_reversao(self):
@@ -257,6 +265,10 @@ class SaleDetailsPage(QWidget):
         self.venda = venda
         self.session = session
         self.cliente = cliente
+        self._returnable_items = None
+        for label in (self.return_summary_label, self.return_feedback_label):
+            label.clear()
+            label.hide()
         if not venda:
             self.error_label.setVisible(True)
             self.itens_table.setRowCount(0)
@@ -287,7 +299,9 @@ class SaleDetailsPage(QWidget):
         QTimer.singleShot(0, self._ensure_reversal_visible)
 
     def _ensure_reversal_visible(self):
-        if self.reversao_card.isVisible():
+        if self.return_feedback_label.isVisible():
+            self.sale_scroll.ensureWidgetVisible(self.return_feedback_label, 0, 0)
+        elif self.reversao_card.isVisible():
             self.sale_scroll.ensureWidgetVisible(self.reversao_label, 0, 0)
 
     def resumo_text(self) -> str:
@@ -419,6 +433,19 @@ class SaleDetailsPage(QWidget):
             for botao in (self.cancel_button, self.return_button):
                 botao.setToolTip(dica)
 
+        if pode_reverter and situacao.reversivel:
+            self.cancel_button.setToolTip("Cancela a venda inteira e restitui todos os itens ao estoque.")
+            self.return_button.setToolTip("Permite devolver itens e quantidades, parcial ou totalmente.")
+            if self._returnable_items is not None:
+                sold = sum(int(item["quantity"]) for item in venda.get("items", []))
+                available = sum(item.max_returnable for item in self._returnable_items)
+                if available < sold:
+                    self.cancel_button.setEnabled(False)
+                    self.cancel_button.setToolTip("Esta venda já possui devolução registrada e não pode ser cancelada.")
+                if not available:
+                    self.return_button.setEnabled(False)
+                    self.return_button.setToolTip("Todos os itens desta venda já foram devolvidos.")
+
         # Comprovante é LEITURA: quem abre o detalhe pode emitir, inclusive
         # o vendedor que não tem alçada para reverter. O que o status decide
         # é outra coisa — venda pendente nunca foi confirmada, então não há
@@ -430,6 +457,26 @@ class SaleDetailsPage(QWidget):
             "Emitir o comprovante desta venda" if emitivel
             else "Esta venda ainda não foi confirmada."
         )
+
+    def set_returnable_items(self, items):
+        self._returnable_items = list(items)
+        sold = sum(int(item["quantity"]) for item in self.venda.get("items", []))
+        available = sum(item.max_returnable for item in self._returnable_items)
+        self.return_summary_label.setText(
+            f"Devoluções: {sold - available} de {sold} unidades já devolvidas · "
+            f"{available} disponíveis para devolução."
+        )
+        self.return_summary_label.show()
+        self._aplicar_alcada(self.venda, self.session)
+
+    def show_return_result(self, result, reason):
+        kind = "completa" if result["is_total_return"] else "parcial"
+        self.return_feedback_label.setText(
+            f"Devolução {kind} registrada · Valor: {_moeda(result['total_amount'])}\nMotivo: {reason}"
+        )
+        self.return_feedback_label.show()
+        self._ensure_reversal_visible()
+        QTimer.singleShot(0, self._ensure_reversal_visible)
 
     # --------------------------------------------------------------- ações
 
@@ -464,11 +511,50 @@ class SaleDetailsPage(QWidget):
         if motivo:
             self.cancel_requested.emit(str(self.venda["id"]), motivo)
 
-    def _pedir_devolucao(self):
-        if not self.venda:
-            return
-        motivo = self._pedir_motivo(
-            "Registrar devolução", "Por que esta venda está sendo devolvida?"
+    def selecionar_itens_devolucao(self, items):
+        """Coleta a escolha com os mesmos diálogos padrão da ação original."""
+        options = ("Completa — todos os itens disponíveis", "Parcial — escolher quantidades")
+        mode, confirmed = QInputDialog.getItem(
+            self, "Registrar devolução",
+            "Confira os itens da venda nesta tela e escolha o tipo de devolução:",
+            options, 0, False,
         )
-        if motivo:
-            self.return_requested.emit(str(self.venda["id"]), motivo)
+        if not confirmed:
+            return None
+        if mode == options[0]:
+            if any(item.product_id is None for item in items):
+                QMessageBox.warning(
+                    self, "Devolução",
+                    "Há produto indisponível no catálogo. Use a devolução parcial para selecionar os demais itens.",
+                )
+                return None
+            selected = [(item.sale_item_id, item.max_returnable) for item in items]
+        else:
+            selected = []
+            originals = {str(item["id"]): item for item in self.venda.get("items", [])}
+            for item in items:
+                if item.product_id is None:
+                    continue
+                original = originals.get(item.sale_item_id, {})
+                code = original.get("product_code") or "—"
+                quantity, confirmed = QInputDialog.getInt(
+                    self, "Devolução parcial",
+                    f"[{code}] {item.product_name}\n"
+                    f"Vendido: {item.quantity_sold} · Já devolvido: {item.quantity_returned}\n"
+                    f"Disponível: {item.max_returnable}\n"
+                    "Quantidade a devolver (0 para manter o item na venda):",
+                    0, 0, item.max_returnable, 1,
+                )
+                if not confirmed:
+                    return None
+                if quantity:
+                    selected.append((item.sale_item_id, quantity))
+        if not selected:
+            QMessageBox.warning(self, "Devolução", "Selecione pelo menos um item disponível para devolver.")
+            return None
+        reason = self._pedir_motivo("Registrar devolução", "Por que os itens estão sendo devolvidos?")
+        return (selected, reason) if reason else None
+
+    def _pedir_devolucao(self):
+        if self.venda and self.return_button.isEnabled():
+            self.return_requested.emit(str(self.venda["id"]))
