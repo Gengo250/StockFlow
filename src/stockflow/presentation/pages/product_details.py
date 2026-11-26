@@ -52,6 +52,9 @@ class ProductDetailsPage(QWidget):
         fields.setHorizontalSpacing(36)
         fields.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.values = {}
+        self.supplier_label = QLabel("Fornecedor principal")
+        self.supplier_label.setObjectName("muted")
+        self.supplier_label.setVisible(False)
         for key, caption in (
             ("code", "Identificador"), ("name", "Nome do produto"),
             ("category", "Categoria"), ("unit", "Unidade"),
@@ -68,6 +71,16 @@ class ProductDetailsPage(QWidget):
             value.setObjectName("detailValue")
             fields.addRow(label, value)
             self.values[key] = value
+        supplier_value = QLabel()
+        supplier_value.setTextFormat(Qt.PlainText)
+        supplier_value.setWordWrap(True)
+        supplier_value.setTextInteractionFlags(
+            Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
+        )
+        supplier_value.setAccessibleName("Fornecedor principal")
+        supplier_value.setObjectName("detailValue")
+        fields.addRow(self.supplier_label, supplier_value)
+        self.values["supplier"] = supplier_value
         self.values["active"].setMaximumWidth(110)
         content_layout.addWidget(self.card)
         content_layout.addStretch()
@@ -75,16 +88,23 @@ class ProductDetailsPage(QWidget):
         layout.addWidget(self.scroll, 1)
         self.load_product(None)
 
-    def load_product(self, product):
+    def load_product(self, product, *, show_supplier=False):
         for value in self.values.values():
             value.clear()
+        self.current_product_code = getattr(product, "code", None)
+        self.supplier_label.setVisible(bool(product is not None and show_supplier))
+        self.values["supplier"].setVisible(bool(product is not None and show_supplier))
         self.error_message.setVisible(product is None)
         self.scroll.setVisible(product is not None)
         if product is None:
             return
         for key, value in self.values.items():
-            if key != "active":
+            if key not in ("active", "supplier"):
                 value.setText(getattr(product, key))
+        if show_supplier:
+            self.values["supplier"].setText(
+                "Carregando…" if product.supplier_id else "Não informado"
+            )
         status = self.values["active"]
         status.setText("Ativo" if product.active else "Inativo")
         foreground, background = (
@@ -95,3 +115,15 @@ class ProductDetailsPage(QWidget):
         )
         status.setAlignment(Qt.AlignLeft)
         self.scroll.verticalScrollBar().setValue(0)
+
+    def set_supplier_name(self, product_code, name):
+        if product_code != self.current_product_code:
+            return
+        self.values["supplier"].setText(name or "Fornecedor não encontrado")
+
+    def show_supplier_error(self, product_code, error):
+        if product_code != self.current_product_code:
+            return
+        self.values["supplier"].setText(
+            f"Não foi possível carregar o fornecedor: {error}"
+        )

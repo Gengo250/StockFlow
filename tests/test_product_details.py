@@ -8,7 +8,8 @@ os.environ["QT_STYLE_OVERRIDE"] = "Fusion"
 
 from PySide6.QtWidgets import QApplication
 
-from stockflow.presentation.demo_accounts import conta_admin
+from stockflow.domain.enums.user_role import UserRole
+from stockflow.presentation.demo_accounts import conta_admin, conta_por_papel
 from stockflow.presentation.windows.main_window import MainWindow
 
 
@@ -59,6 +60,50 @@ class ProductDetailsTest(unittest.TestCase):
         self.assertIs(window.pages.currentWidget(), catalog)
         catalog.search_input.setText("inexistente")
         self.assertTrue(catalog.empty_message.isVisible())
+
+    def test_supplier_name_is_shown_only_to_roles_that_can_read_suppliers(self):
+        for role in (UserRole.ADMIN, UserRole.STOCK):
+            with self.subTest(role=role):
+                window = MainWindow(conta_por_papel(role).session())
+                self.addCleanup(window.close)
+                window.show()
+                product = window.products["PRD-009"]
+                window.products[product.code] = replace(
+                    product, supplier_id="FOR-001"
+                )
+                window.products_page.cards[product.code].click()
+
+                details = window.product_details_page
+                self.assertTrue(details.supplier_label.isVisible())
+                self.assertEqual(
+                    details.values["supplier"].text(), "Distribuidora Central"
+                )
+                if role is UserRole.ADMIN:
+                    window.apply_session(
+                        conta_por_papel(UserRole.SELLER).session()
+                    )
+                    self.assertFalse(details.supplier_label.isVisible())
+                    self.assertEqual(details.values["supplier"].text(), "")
+
+        seller = MainWindow(conta_por_papel(UserRole.SELLER).session())
+        self.addCleanup(seller.close)
+        seller.show()
+        product = seller.products["PRD-009"]
+        seller.products[product.code] = replace(product, supplier_id="FOR-001")
+        seller.products_page.cards[product.code].click()
+
+        self.assertFalse(seller.product_details_page.supplier_label.isVisible())
+        self.assertEqual(seller.product_details_page.values["supplier"].text(), "")
+
+    def test_unassigned_product_has_optional_supplier_label(self):
+        window = MainWindow(conta_admin().session())
+        self.addCleanup(window.close)
+        window.show()
+        window.products_page.cards["PRD-009"].click()
+
+        details = window.product_details_page
+        self.assertTrue(details.supplier_label.isVisible())
+        self.assertEqual(details.values["supplier"].text(), "Não informado")
 
 
 if __name__ == "__main__":

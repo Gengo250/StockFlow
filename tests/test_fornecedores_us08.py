@@ -171,6 +171,48 @@ def test_vinculo_de_produto_principal_preservado_apos_inativacao(janela):
     assert janela.products["PRD-010"].supplier_id == supplier.supplier_id
 
 
+def test_produto_pode_trocar_e_remover_fornecedor_principal(janela):
+    first = janela.supplier_repository.get("FOR-001")
+    second = janela.supplier_service.create_supplier(
+        janela.session, SupplierInput(name="Segundo fornecedor")
+    )
+    original = ProductInput(
+        code="PRD-011", name="Produto de teste", category="Eletrônicos",
+        unit="Unidade (UN)", sale_price="R$ 20,00", cost="R$ 10,00",
+        stock="0", supplier_id=first.supplier_id,
+    )
+    janela.product_service.create_product(janela.session, original)
+
+    changed = ProductInput(
+        code="PRD-011", name="Produto de teste", category="Eletrônicos",
+        unit="Unidade (UN)", sale_price="R$ 20,00", cost="R$ 10,00",
+        stock="0", supplier_id=second.supplier_id,
+    )
+    janela.product_service.update_product(janela.session, "PRD-011", changed)
+    assert janela.products["PRD-011"].supplier_id == second.supplier_id
+
+    cleared = ProductInput(
+        code="PRD-011", name="Produto de teste", category="Eletrônicos",
+        unit="Unidade (UN)", sale_price="R$ 20,00", cost="R$ 10,00",
+        stock="0", supplier_id=None,
+    )
+    janela.product_service.update_product(janela.session, "PRD-011", cleared)
+    assert janela.products["PRD-011"].supplier_id is None
+
+
+def test_fornecedor_inativo_nao_pode_ser_associado_a_novo_produto(janela):
+    product = ProductInput(
+        code="PRD-012", name="Produto de teste", category="Eletrônicos",
+        unit="Unidade (UN)", sale_price="R$ 20,00", cost="R$ 10,00",
+        stock="0", supplier_id="FOR-002",
+    )
+
+    with pytest.raises(ValueError, match="fornecedor ativo"):
+        janela.product_service.create_product(janela.session, product)
+
+    assert "PRD-012" not in janela.products
+
+
 def test_busca_por_nome_documento_telefone_email_endereco(fornecedores, admin):
     _, service = fornecedores
     supplier = service.create_supplier(

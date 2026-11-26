@@ -1244,9 +1244,38 @@ class MainWindow(QMainWindow):
         não existia mais. O acesso ao atributo levantava AttributeError ainda
         na construção da janela, e o login ficava parado sem explicação.
         """
-        self.product_details_page.load_product(self.products.get(code))
-
+        product = self.products.get(code)
+        can_view_supplier = can_manage_suppliers(self.session)
+        session = self.session
+        page = self.product_details_page
+        page.load_product(product, show_supplier=can_view_supplier)
         self.pages.setCurrentWidget(self.product_details_page)
+        if product is None or not can_view_supplier or not product.supplier_id:
+            return
+
+        def fetch_supplier():
+            return self.supplier_service.get_supplier(
+                session, product.supplier_id
+            )
+
+        def supplier_loaded(supplier):
+            if self.session is not session or not can_manage_suppliers(self.session):
+                return
+            page.set_supplier_name(
+                code, supplier.name if supplier is not None else None
+            )
+
+        def supplier_failed(error):
+            if self.session is not session or not can_manage_suppliers(self.session):
+                return
+            page.show_supplier_error(code, error)
+
+        self._load(
+            "product_details_supplier",
+            fetch_supplier,
+            supplier_loaded,
+            supplier_failed,
+        )
 
     def _show_new_product(self, origin):
         """Abre o cadastro de produto lembrando de onde o usuário veio.
@@ -1343,6 +1372,7 @@ class MainWindow(QMainWindow):
         reexibi-la sem reaplicar a sessão entregava ao novo usuário os
         controles liberados para o anterior.
         """
+        product_details_code = None
         if session is not None:
             # Relogin: o diretório pertence ao usuário ANTERIOR. Sem invalidar,
             # o próximo ADMIN veria a lista da outra sessão — e, se as
@@ -1351,6 +1381,11 @@ class MainWindow(QMainWindow):
                 self._sale_return_operation = None
                 self.sale_details_page.load_sale(None, session)
                 self._usuarios_carregados = False
+                if self.pages.currentWidget() is self.product_details_page:
+                    product_details_code = (
+                        self.product_details_page.current_product_code
+                    )
+                self.product_details_page.load_product(None)
             self.session = session
 
         # `can_manage_products` já nega sessão ausente, então não há caminho
@@ -1395,6 +1430,8 @@ class MainWindow(QMainWindow):
 
         self.sidebar.set_user(self.session)
         self.top_bar.set_user(self.session)
+        if product_details_code:
+            self._show_product_details(product_details_code)
 
     # ======================================================
     # GRAVAÇÃO DE PRODUTO
@@ -1517,7 +1554,7 @@ class MainWindow(QMainWindow):
 
         produto = self.products.get(code)
         if produto is not None and self.pages.currentWidget() is self.product_details_page:
-            self.product_details_page.load_product(produto)
+            self._show_product_details(code)
 
     def _on_product_status_changed(self, code):
         """PERSISTE o ativar/desativar e propaga para as outras telas.
@@ -1570,7 +1607,7 @@ class MainWindow(QMainWindow):
 
         produto = self.products.get(code)
         if produto is not None and self.pages.currentWidget() is self.product_details_page:
-            self.product_details_page.load_product(produto)
+            self._show_product_details(code)
 
     def _associar_cliente_e_abrir_vendas(self, nome_cliente):
         """Abre Vendas com o cliente já selecionado.
