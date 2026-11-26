@@ -136,10 +136,16 @@ def _totais(receipt):
 
 
 def _pagamento(receipt):
-    return ("<table cellpadding='5' cellspacing='0'>"
-            + _linha("Forma de pagamento", escape(receipt.payment.method or "—"))
-            + _linha("Valor pago", formatar_moeda(receipt.payment.amount))
-            + "</table>")
+    pagamentos = receipt.payments or (receipt.payment,)
+    linhas = []
+    for pg in pagamentos:
+        linhas.append(_linha("Forma de pagamento", escape(pg.method or "—")))
+        linhas.append(_linha("Valor pago", formatar_moeda(pg.amount)))
+        if pg.change_amount > Decimal("0.00"):
+            recebido = pg.received_amount if pg.received_amount is not None else pg.amount + pg.change_amount
+            linhas.append(_linha("Valor recebido", formatar_moeda(recebido)))
+            linhas.append(_linha("Troco", formatar_moeda(pg.change_amount)))
+    return "<table cellpadding='5' cellspacing='0'>" + "".join(linhas) + "</table>"
 
 
 def _cancelamento(receipt):

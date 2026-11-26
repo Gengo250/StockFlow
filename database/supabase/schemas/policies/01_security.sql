@@ -27,6 +27,7 @@ ALTER TABLE public.stock_movements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clients        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_items      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sale_payments   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sales_log       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_reversals  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sale_discount_limits ENABLE ROW LEVEL SECURITY;
@@ -73,6 +74,7 @@ GRANT SELECT ON public.company,
                 public.purchase_items,
                 public.sales,
                 public.sale_items,
+                public.sale_payments,
                 public.sales_log,
                 public.sale_reversals,
                 public.role_change_log,
@@ -99,6 +101,7 @@ DROP POLICY IF EXISTS stock_movements_select ON public.stock_movements;
 DROP POLICY IF EXISTS clients_select          ON public.clients;
 DROP POLICY IF EXISTS sales_select            ON public.sales;
 DROP POLICY IF EXISTS sale_items_select        ON public.sale_items;
+DROP POLICY IF EXISTS sale_payments_select     ON public.sale_payments;
 DROP POLICY IF EXISTS sales_log_select         ON public.sales_log;
 DROP POLICY IF EXISTS sale_reversals_select    ON public.sale_reversals;
 DROP POLICY IF EXISTS suppliers_select        ON public.suppliers;
@@ -141,6 +144,10 @@ CREATE POLICY sales_select ON public.sales
 -- stock_movements: escopar por coluna própria evita entrar em `sales` a cada
 -- linha lida do histórico de vendas.
 CREATE POLICY sale_items_select ON public.sale_items
+  FOR SELECT TO app_backend, authenticated
+  USING (public.fn_is_member(company_id));
+
+CREATE POLICY sale_payments_select ON public.sale_payments
   FOR SELECT TO app_backend, authenticated
   USING (public.fn_is_member(company_id));
 

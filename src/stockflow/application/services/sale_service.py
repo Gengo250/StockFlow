@@ -24,6 +24,10 @@ from stockflow.domain.sale_discount import (
     calculate_discount,
     calculate_discount_breakdown,
 )
+from stockflow.domain.sale_payment import (
+    PAYMENT_METHODS,
+    validate_and_calculate_payments,
+)
 
 _LEGACY_LIST = object()
 
@@ -34,7 +38,7 @@ _MONEY_PATTERN = re.compile(
 # Espelha public.payment_method (database/code/tables/06_clients_sales.sql).
 # Rótulo que não existe lá seria recusado pelo banco com erro de tipo, que não
 # diz ao operador qual é a forma válida.
-FORMAS_DE_PAGAMENTO = ("DINHEIRO", "DEBITO", "CREDITO", "PIX", "VALE", "OUTRO")
+FORMAS_DE_PAGAMENTO = PAYMENT_METHODS
 
 # A recusa do carrinho vazio nasce aqui e em nenhum outro lugar. Ela já existiu
 # em quatro redações ao mesmo tempo -- tela, serviço, banco e teste -- e a
@@ -125,7 +129,8 @@ class SaleService:
 
     def register_sale(self, session, client_id, itens,
                       payment_method="DINHEIRO", discount="0",
-                      discount_type="FIXED", approval_credentials=None):
+                      discount_type="FIXED", approval_credentials=None,
+                      payments=None):
         """Venda com vários itens, forma de pagamento e desconto (US10).
 
         `itens` são pares código/quantidade. O preço NÃO vem daqui: o total
@@ -156,7 +161,7 @@ class SaleService:
         )
         return self.register_multiple(
             session, client_id, normalized_items, payment_method, discount,
-            discount_type, approval_credentials,
+            discount_type, approval_credentials, payments=payments,
         )
 
     def list_sales(self, session=_LEGACY_LIST, filtro=None, page=1, size=TAMANHO_PADRAO):
@@ -225,6 +230,8 @@ class SaleService:
         discount="0",
         discount_type="FIXED",
         approval_credentials=None,
+        *,
+        payments=None,
     ) -> dict:
         ensure_can_register_sales(session)
 
@@ -282,6 +289,15 @@ class SaleService:
         resumo = calculate_discount_breakdown(
             bruto, descontos_itens, desconto_venda
         )
+        normalized_payments = None
+        if payments is not None:
+            breakdown = validate_and_calculate_payments(
+                payments, resumo.net, FORMAS_DE_PAGAMENTO
+            )
+            normalized_payments = breakdown.payments
+            if normalized_payments:
+                payment_method = normalized_payments[0].payment_method
+
         get_limits = getattr(self.repository, "get_discount_limits", None)
         if callable(get_limits):
             role = UserRole.from_value(session.role)
@@ -294,6 +310,11 @@ class SaleService:
                         "autorização de um administrador."
                     )
 
+            extra_kwargs = (
+                {"payments": normalized_payments}
+                if normalized_payments is not None
+                else {}
+            )
             return self.repository.register_multiple(
                 client,
                 normalized_items,
@@ -305,6 +326,7 @@ class SaleService:
                 sale_discount_value=valor_desconto_venda,
                 approval_credentials=approval_credentials,
                 seller_id=getattr(session, "user_id", None),
+                **extra_kwargs,
             )
 
         if (any(item.discount_value != 0 for item in normalized_items)
@@ -314,6 +336,15 @@ class SaleService:
 
         # The repository owns the transaction boundary. In particular, stock
         # changes are never performed as a second write after this returns.
+        if normalized_payments is not None:
+            return self.repository.register_multiple(
+                client,
+                normalized_items,
+                resumo.net,
+                payment_method,
+                resumo.total_discount,
+                payments=normalized_payments,
+            )
         return self.repository.register_multiple(
             client,
             normalized_items,

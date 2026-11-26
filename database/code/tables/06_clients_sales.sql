@@ -316,3 +316,30 @@ ALTER TABLE public.stock_movements
 CREATE UNIQUE INDEX uq_stock_movements_cancellation_item
     ON public.stock_movements (cancellation_id, sale_item_id)
     WHERE cancellation_id IS NOT NULL;
+
+-- Pagamentos da venda (US18): uma venda pode possuir uma ou mais formas de
+-- pagamento, com soma exata dos valores aplicados (`amount`) igual ao total da
+-- venda e cálculo de troco (`change_amount`) exclusivo para `DINHEIRO`.
+CREATE TABLE public.sale_payments (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id      uuid NOT NULL,
+    sale_id         uuid NOT NULL,
+    payment_method  public.payment_method NOT NULL,
+    amount          numeric(10,2) NOT NULL CHECK (amount > 0),
+    received_amount numeric(10,2) NOT NULL CHECK (received_amount > 0),
+    change_amount   numeric(10,2) NOT NULL DEFAULT 0 CHECK (change_amount >= 0),
+    created_on      timestamptz NOT NULL DEFAULT now(),
+    FOREIGN KEY (company_id, sale_id)
+        REFERENCES public.sales (company_id, id) ON DELETE CASCADE,
+    CONSTRAINT ck_sale_payments_change CHECK (
+        (payment_method = 'DINHEIRO'
+         AND received_amount >= amount
+         AND change_amount = received_amount - amount)
+        OR
+        (payment_method <> 'DINHEIRO'
+         AND received_amount = amount
+         AND change_amount = 0)
+    )
+);
+CREATE INDEX idx_sale_payments_sale ON public.sale_payments (sale_id);
+CREATE INDEX idx_sale_payments_company ON public.sale_payments (company_id);

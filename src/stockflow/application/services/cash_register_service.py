@@ -35,8 +35,14 @@ def payment_totals(sales):
     for sale in sales:
         if sale.get('status') != 'CONCLUIDA':
             continue
-        method = str(sale.get('payment_method') or 'OUTRO').upper()
-        totals[method if method in totals else 'OUTRO'] += _amount(sale.get('total'))
+        payments = sale.get('payments')
+        if payments:
+            for payment in payments:
+                method = str(payment.get('payment_method') or 'OUTRO').upper()
+                totals[method if method in totals else 'OUTRO'] += _amount(payment.get('amount'))
+        else:
+            method = str(sale.get('payment_method') or 'OUTRO').upper()
+            totals[method if method in totals else 'OUTRO'] += _amount(sale.get('total'))
     return totals
 
 

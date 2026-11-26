@@ -62,6 +62,11 @@ from stockflow.domain.enums.sale_status import SaleStatus
 from stockflow.domain.permissions import can_manage_clients
 from stockflow.presentation.workers import executar_agora
 from stockflow.domain.sale_discount import DiscountKind, calculate_discount
+from stockflow.domain.sale_payment import (
+    PAYMENT_METHOD_LABELS,
+    SalePaymentInput,
+    validate_and_calculate_payments,
+)
 
 
 
@@ -143,6 +148,7 @@ class VendasPage(QWidget):
         self._saving = False
         self._loading = False
         self._pending_checkout = None
+        self.pagamentos = []
         self.service = service or SaleService(
             DemoSaleRepository(self.products), DemoClientRepository(), DemoProductRepository(self.products)
         )
@@ -343,7 +349,9 @@ class VendasPage(QWidget):
         self.pagamento_combo = QComboBox()
         self.pagamento_combo.setFixedHeight(ds.CONTROL_HEIGHT)
         for forma in FORMAS_DE_PAGAMENTO:
-            self.pagamento_combo.addItem(forma.capitalize(), forma)
+            self.pagamento_combo.addItem(
+                PAYMENT_METHOD_LABELS.get(forma, forma.capitalize()), forma
+            )
 
         self.desconto_input = QLineEdit()
         self.desconto_input.setPlaceholderText("Desconto")
@@ -363,13 +371,24 @@ class VendasPage(QWidget):
         discount_editor_layout.addWidget(self.desconto_input, 1)
 
         self.valor_pago_input = QLineEdit()
-        self.valor_pago_input.setPlaceholderText("Ex: 50,00")
+        self.valor_pago_input.setPlaceholderText("Total ou valor parcial")
         self.valor_pago_input.setFixedHeight(ds.CONTROL_HEIGHT)
-        self.valor_pago_campo = campo("Valor recebido (R$)", self.valor_pago_input)
+        self.valor_pago_campo = campo("Valor pago (R$)", self.valor_pago_input)
+
+        self.add_pagamento_button = QPushButton("+ Pagamento")
+        self.add_pagamento_button.setFixedHeight(ds.CONTROL_HEIGHT)
+        self.add_pagamento_button.setStyleSheet(inventory.FILTER_QSS)
+        self.add_pagamento_button.clicked.connect(self._adicionar_pagamento)
+
+        self.clear_pagamentos_button = QPushButton("Limpar pgto")
+        self.clear_pagamentos_button.setFixedHeight(ds.CONTROL_HEIGHT)
+        self.clear_pagamentos_button.setStyleSheet(inventory.FILTER_QSS)
+        self.clear_pagamentos_button.clicked.connect(self._limpar_pagamentos)
+        self.clear_pagamentos_button.setVisible(False)
 
         self.troco_label = QLabel("")
         self.troco_label.setStyleSheet("color: #15803D; font-size: 13px; font-weight: 600;")
-        self.troco_campo = campo("Troco", self.troco_label)
+        self.troco_campo = campo("Troco / Situação", self.troco_label)
 
         self.remove_button = btn_remover = QPushButton(" Remover último item")
         btn_remover.setFixedHeight(ds.CONTROL_HEIGHT)
@@ -384,10 +403,29 @@ class VendasPage(QWidget):
         fecho.addWidget(campo("Forma de pagamento", self.pagamento_combo), 1)
         fecho.addWidget(campo("Desconto total", discount_editor), 1)
         fecho.addWidget(self.valor_pago_campo, 1)
+        fecho.addWidget(self.add_pagamento_button)
+        fecho.addWidget(self.clear_pagamentos_button)
         fecho.addWidget(self.troco_campo, 1)
         self.fecho_widget = QWidget()
         self.fecho_widget.setLayout(fecho)
         form_layout.addWidget(self.fecho_widget)
+
+        self.pagamentos_table = QTableWidget(0, 3)
+        self.pagamentos_table.setHorizontalHeaderLabels(
+            ["Forma de pagamento", "Valor informado", "Observação"]
+        )
+        self.pagamentos_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.pagamentos_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.pagamentos_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.pagamentos_table.setStyleSheet(inventory.TABLE_QSS)
+        self.pagamentos_table.verticalHeader().setDefaultSectionSize(ds.ROW_HEIGHT)
+        self.pagamentos_table.setShowGrid(False)
+        self.pagamentos_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.pagamentos_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.pagamentos_table.verticalHeader().hide()
+        self.pagamentos_table.setFixedHeight(110)
+        self.pagamentos_table.setVisible(False)
+        form_layout.addWidget(self.pagamentos_table)
         checkout = QHBoxLayout()
         checkout.addWidget(self.total_label, 1)
         checkout.addWidget(btn_remover)
@@ -686,7 +724,7 @@ class VendasPage(QWidget):
         self.session = session
         pode = can_manage_clients(session)
         self.cash_register_button.setEnabled(pode)
-        self.save_button.setEnabled(pode and not self._saving and not self._loading)
+        self.save_button.setEnabled(pode and not self._saving)
         self.add_button.setEnabled(pode and not self._saving)
 
     def _carregar_dados(self):
@@ -756,16 +794,18 @@ class VendasPage(QWidget):
         self.apply_session(self.session)
 
         def loaded(result):
-            clientes, pagina = result
-            self.clientes = [{"id": c.client_id, "nome": c.name, "status": c.status} for c in clientes]
-            self._pagina = pagina
-            self._pagina_atual = pagina.page
-            self.historico_vendas = list(pagina.rows)
-            self.last_error = None
-            self.recarregar_clientes_disponiveis()
-            self._recarregar_filtro_de_clientes()
-            self.atualizar_tabela_historico()
-            finish()
+            try:
+                clientes, pagina = result
+                self.clientes = [{"id": c.client_id, "nome": c.name, "status": c.status} for c in clientes]
+                self._pagina = pagina
+                self._pagina_atual = pagina.page
+                self.historico_vendas = list(pagina.rows)
+                self.last_error = None
+                self.recarregar_clientes_disponiveis()
+                self._recarregar_filtro_de_clientes()
+                self.atualizar_tabela_historico()
+            finally:
+                finish()
 
         def failed(error):
             self.last_error = error
@@ -783,15 +823,24 @@ class VendasPage(QWidget):
             self._atualizar_paginacao()
             self._mostrar_estado_da_carga()
 
-        session, filtro, numero = self.session, self.filtro_atual(), self._pagina_atual
-        self.execute(
-            lambda: (
-                self.service.clients.list_all(),
-                self.service.list_sales(session, filtro, numero, TAMANHO_PADRAO),
-            ),
-            loaded,
-            failed,
-        )
+        session, numero = self.session, self._pagina_atual
+        try:
+            filtro = self.filtro_atual()
+        except ValueError as error:
+            failed(error)
+            return
+        try:
+            self.execute(
+                lambda: (
+                    self.service.clients.list_all(),
+                    self.service.list_sales(session, filtro, numero, TAMANHO_PADRAO),
+                ),
+                loaded,
+                failed,
+            )
+        except Exception:
+            finish()
+            raise
 
     def recarregar_clientes_disponiveis(self):
         """Preenche o combo apenas com clientes ativos para novas associações.
@@ -1122,15 +1171,47 @@ class VendasPage(QWidget):
         self._calcular_troco()
 
     def _forma_pagamento_mudou(self):
+        self.valor_pago_campo.setVisible(True)
+        self.troco_campo.setVisible(True)
+        self._calcular_troco()
+
+    def _adicionar_pagamento(self):
         forma = self.pagamento_combo.currentData()
-        em_dinheiro = (forma == "DINHEIRO")
-        self.valor_pago_campo.setVisible(em_dinheiro)
-        self.troco_campo.setVisible(em_dinheiro)
-        if not em_dinheiro:
-            self.valor_pago_input.clear()
-            self.troco_label.setText("")
-        else:
-            self._calcular_troco()
+        texto = self.valor_pago_input.text().strip()
+        if not texto:
+            self.warning_label.setText("Informe um valor maior que zero para adicionar o pagamento.")
+            return
+        try:
+            valor = parse_total(texto)
+        except ValueError as erro:
+            self.warning_label.setText(str(erro))
+            return
+        if valor <= Decimal("0.00"):
+            self.warning_label.setText("O valor do pagamento deve ser maior que zero.")
+            return
+        self.warning_label.setText("")
+        self.pagamentos.append(SalePaymentInput(forma, valor))
+        self.valor_pago_input.clear()
+        self._atualizar_pagamentos()
+
+    def _limpar_pagamentos(self):
+        self.pagamentos = []
+        self._atualizar_pagamentos()
+
+    def _atualizar_pagamentos(self):
+        tem_pagamentos = bool(self.pagamentos)
+        self.pagamentos_table.setVisible(tem_pagamentos)
+        self.clear_pagamentos_button.setVisible(tem_pagamentos)
+        self.pagamentos_table.setRowCount(len(self.pagamentos))
+        for row, pg in enumerate(self.pagamentos):
+            rotulo = PAYMENT_METHOD_LABELS.get(pg.payment_method, pg.payment_method)
+            self.pagamentos_table.setItem(row, 0, QTableWidgetItem(rotulo))
+            valor_item = QTableWidgetItem(_em_reais(pg.received_amount))
+            valor_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            self.pagamentos_table.setItem(row, 1, valor_item)
+            obs = "Sujeito a troco" if pg.payment_method == "DINHEIRO" else "Valor exato"
+            self.pagamentos_table.setItem(row, 2, QTableWidgetItem(obs))
+        self._calcular_troco()
 
     def _obter_total_venda(self) -> Decimal:
         """Calcula o total numérico corrente da venda com base nos itens e descontos."""
@@ -1178,29 +1259,39 @@ class VendasPage(QWidget):
         return max(Decimal("0.00"), bruto - desconto_itens - desconto)
 
     def _calcular_troco(self):
-        if self.pagamento_combo.currentData() != "DINHEIRO":
-            return
         total = self._obter_total_venda()
         texto_pago = self.valor_pago_input.text().strip()
-        if not texto_pago:
+        if not self.pagamentos and not texto_pago:
             self.troco_label.setText("")
             return
         try:
-            pago = parse_total(texto_pago)
-            if pago < total:
-                diferenca = total - pago
+            entradas = list(self.pagamentos)
+            if texto_pago:
+                pago_atual = parse_total(texto_pago)
+                if pago_atual <= Decimal("0.00"):
+                    self.troco_label.setStyleSheet("color: #DC2626; font-size: 13px; font-weight: 600;")
+                    self.troco_label.setText("Informe valor > 0")
+                    return
+                entradas.append(SalePaymentInput(self.pagamento_combo.currentData(), pago_atual))
+            soma = sum((Decimal(str(e.received_amount)) for e in entradas), start=Decimal("0.00"))
+            if soma < total:
+                diferenca = total - soma
                 self.troco_label.setStyleSheet("color: #DC2626; font-size: 13px; font-weight: 600;")
                 self.troco_label.setText(f"Falta: {_em_reais(diferenca)}")
+                return
+            breakdown = validate_and_calculate_payments(entradas, total, FORMAS_DE_PAGAMENTO)
+            self.troco_label.setStyleSheet("color: #15803D; font-size: 13px; font-weight: 600;")
+            if breakdown.total_change > Decimal("0.00"):
+                self.troco_label.setText(f"Troco: {_em_reais(breakdown.total_change)}")
             else:
-                troco = pago - total
-                self.troco_label.setStyleSheet("color: #15803D; font-size: 13px; font-weight: 600;")
-                self.troco_label.setText(f"Troco: {_em_reais(troco)}")
-        except ValueError:
+                self.troco_label.setText("Pagamento completo")
+        except ValueError as erro:
             self.troco_label.setStyleSheet("color: #DC2626; font-size: 13px; font-weight: 600;")
-            self.troco_label.setText("Valor inválido")
+            self.troco_label.setText(str(erro))
 
     def _limpar_venda(self):
         self.itens = []
+        self.pagamentos = []
         self.val_input.clear()
         self.qtd_input.clear()
         self.desconto_input.clear()
@@ -1215,6 +1306,7 @@ class VendasPage(QWidget):
         # que é o da que está montando.
         self._ultima_venda = None
         self.receipt_button.setVisible(False)
+        self._atualizar_pagamentos()
         self._atualizar_carrinho()
 
     def _venda_gravada(self, nova_venda):
@@ -1244,14 +1336,15 @@ class VendasPage(QWidget):
         self._saving = saving
         for widget in (self.cliente_combo, self.produto_combo, self.qtd_input,
                        self.pagamento_combo, self.desconto_tipo_combo,
-                       self.desconto_input, self.valor_pago_input, self.itens_table,
-                       self.remove_button, self.retry_button):
+                       self.desconto_input, self.valor_pago_input,
+                       self.add_pagamento_button, self.clear_pagamentos_button,
+                       self.itens_table, self.remove_button, self.retry_button):
             widget.setEnabled(not saving)
         self.save_button.setText("Gravando…" if saving else " Finalizar Venda")
         self.apply_session(self.session)
 
     def _registrar_venda(self):
-        if self._saving or self._loading:
+        if self._saving:
             return
         data = self.cliente_combo.currentData()
         escolhido = self.produto_combo.currentData()
@@ -1270,18 +1363,27 @@ class VendasPage(QWidget):
             return
 
         payment = self.pagamento_combo.currentData()
-        if payment == "DINHEIRO":
-            total_venda = self._obter_total_venda()
-            texto_pago = self.valor_pago_input.text().strip()
-            if texto_pago:
-                try:
-                    pago = parse_total(texto_pago)
-                    if pago < total_venda:
-                        self.warning_label.setText(f"Valor recebido é menor que o total da venda ({_em_reais(total_venda)}).")
-                        return
-                except ValueError:
-                    self.warning_label.setText("Valor pago inválido. Informe um número válido.")
-                    return
+        total_venda = self._obter_total_venda()
+        texto_pago = self.valor_pago_input.text().strip()
+        payments_payload = list(self.pagamentos)
+        if texto_pago:
+            try:
+                pago = parse_total(texto_pago)
+            except ValueError:
+                self.warning_label.setText("Valor pago inválido. Informe um número válido.")
+                return
+            payments_payload.append(SalePaymentInput(payment, pago))
+        elif not payments_payload and total_venda > Decimal("0.00"):
+            payments_payload.append(SalePaymentInput(payment, total_venda))
+
+        try:
+            breakdown = validate_and_calculate_payments(
+                payments_payload, total_venda, FORMAS_DE_PAGAMENTO
+            )
+        except ValueError as erro:
+            self.warning_label.setText(str(erro))
+            return
+
         itens = [
             {
                 "codigo": item["codigo"],
@@ -1292,28 +1394,32 @@ class VendasPage(QWidget):
             for item in self.itens
         ]
         session, client_id = self.session, data["id"]
-        payment = self.pagamento_combo.currentData()
         discount = self.desconto_input.text().strip() or "0"
         discount_type = self.desconto_tipo_combo.currentData()
         self._pending_checkout = (
-            session, client_id, itens, payment, discount, discount_type
+            session, client_id, itens, payment, discount, discount_type,
+            breakdown.payments if (self.pagamentos or breakdown.total_change > Decimal("0.00")) else None,
         )
         self._submit_checkout()
 
     def _submit_checkout(self, approval_credentials=None):
         if self._pending_checkout is None:
             return
-        session, client_id, items, payment, discount, discount_type = (
+        session, client_id, items, payment, discount, discount_type, payments = (
             self._pending_checkout
         )
         self._set_saving(True)
-        self.execute(
-            lambda: self.service.register_sale(
+        if payments is None:
+            call = lambda: self.service.register_sale(
                 session, client_id, items, payment, discount, discount_type,
                 approval_credentials,
-            ),
-            self._venda_gravada, self._venda_recusada,
-        )
+            )
+        else:
+            call = lambda: self.service.register_sale(
+                session, client_id, items, payment, discount, discount_type,
+                approval_credentials, payments=payments,
+            )
+        self.execute(call, self._venda_gravada, self._venda_recusada)
 
     def _solicitar_autorizacao(self):
         email, accepted = QInputDialog.getText(
