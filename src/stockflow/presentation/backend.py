@@ -477,3 +477,23 @@ def build_audit_service(session=None, policy=None):
     selected_policy = policy or AuditFailurePolicy.FAIL_ON_CRITICAL
     return AuditService(repository=repo, policy=selected_policy)
 
+
+def build_supplier_return_service(session, catalogo=None, supplier_repository=None,
+                                  movement_repository=None, purchase_repository=None):
+    """US30: mesmos papéis e identidade do estoque; escrita atômica em cada adaptador."""
+    from stockflow.domain.permissions import ensure_can_return_to_supplier
+    from stockflow.application.services.supplier_return_service import SupplierReturnService
+    ensure_can_return_to_supplier(session)
+    if using_supabase():
+        from stockflow.infrastructure.repositories.supabase_supplier_return_repository import SupabaseSupplierReturnRepository
+        repository = SupabaseSupplierReturnRepository(_client(), session.company_id, role=session.role)
+    else:
+        from stockflow.infrastructure.repositories.demo_supplier_return_repository import DemoSupplierReturnRepository
+        if catalogo is None:
+            catalogo, _ = build_catalog(session)
+        suppliers = supplier_repository or build_supplier_repository(session)
+        movements = movement_repository or build_movement_repository(session, catalogo, suppliers)
+        purchases = purchase_repository or build_purchase_repository(session, catalogo, suppliers, movements)
+        repository = DemoSupplierReturnRepository(catalogo, suppliers, movements, purchases,
+            company_id=session.company_id, actor_id=session.user_id, actor_name=session.name)
+    return SupplierReturnService(repository, session)

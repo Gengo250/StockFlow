@@ -236,6 +236,8 @@ class DemoMovementRepository:
         situação e a soma das confirmadas não muda.
         """
         linha = self._linha(movement_id)
+        if linha.get("supplier_return_id"):
+            raise ValueError("Movimentação de devolução ao fornecedor não pode ser cancelada isoladamente.")
         if linha.get("sale_id"):
             raise ValueError("A saída pertence a uma venda e não pode ser cancelada isoladamente.")
         if linha["status"] == MovementStatus.CANCELADA.value:
@@ -495,6 +497,56 @@ class DemoMovementRepository:
                 ids.append(row["id"])
             if publish is not None:
                 publish()
+            committed = True
+            return tuple(ids)
+        finally:
+            if not committed:
+                self._products.update(stock_before)
+                self._movements[:] = movements_before
+
+    @_sob_o_lock
+    def register_supplier_return(self, return_id, supplier_id, purchase_id, items, *,
+                                 created_by, company_id, created_on, publish):
+        """Registra SAIDAs e publica a devolução no mesmo lock; desfaz tudo em falha."""
+        return_id = return_identifier(return_id)
+        if not isinstance(items, (list, tuple)) or not items or not supplier_id:
+            raise ValueError("Devolução exige fornecedor e itens.")
+        seen = set()
+        quantities = {}
+        for item in items:
+            item_id = return_identifier(item.item_id)
+            return_quantity(item.quantity)
+            if not isinstance(item.reason, str) or not item.reason.strip() or len(item.reason) > 1000:
+                raise ValueError("Cada item exige motivo de até 1000 caracteres.")
+            if item_id in seen or any(m.get("supplier_return_item_id") == item_id for m in self._movements):
+                raise ValueError("Movimentação de devolução ao fornecedor repetida.")
+            seen.add(item_id)
+            quantities[item.product_code] = quantities.get(item.product_code, 0) + item.quantity
+        for code, quantity in quantities.items():
+            product = self._products.get(code)
+            if product is None:
+                raise LookupError("Produto da devolução não encontrado nesta empresa.")
+            if quantity > to_int(product.stock):
+                raise ValueError("Saldo disponível insuficiente para a devolução ao fornecedor.")
+        if not created_by or not company_id:
+            raise ValueError("Devolução exige responsável e empresa.")
+        stock_before = {code: self._products[code] for code in quantities}
+        movements_before = list(self._movements)
+        committed = False
+        try:
+            ids = []
+            for item in items:
+                row = {"id": self._proximo_id(), "product_code": item.product_code,
+                       "kind": "SAIDA", "quantity": item.quantity, "status": "CONFIRMADA",
+                       "supplier_id": supplier_id, "purchase_id": purchase_id,
+                       "supplier_return_id": return_id, "supplier_return_item_id": item.item_id,
+                       "company_id": company_id, "created_by": created_by,
+                       "created_on": created_on, "confirmed_on": created_on,
+                       "note": f"DEVOLUCAO_FORNECEDOR - {return_id} - {item.reason}"}
+                self._aplicar_no_saldo(row, sentido=1)
+                self._movements.append(row)
+                ids.append(row["id"])
+            publish(tuple(ids))
             committed = True
             return tuple(ids)
         finally:
