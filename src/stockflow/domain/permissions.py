@@ -85,6 +85,12 @@ PERMISSION_MATRIX: dict[str, Area] = {
         fonte_ver="purchases_select",
         fonte_gravar="fn_receive_purchase",
     ),
+    "devolucoes_fornecedor": Area(
+        ver=_ADMIN_STOCK,
+        gravar=_ADMIN_STOCK,
+        fonte_ver="fn_list_supplier_returns",
+        fonte_gravar="fn_register_supplier_return",
+    ),
     # Fornecedor é o único caso em que o banco já restringe a LEITURA:
     # `suppliers_select` e `fn_list_company_suppliers` exigem ADMIN/STOCK.
     "fornecedores": Area(
@@ -419,6 +425,13 @@ def can_return_sales(role_or_session) -> bool:
 
 def ensure_can_return_sales(session, action: str = "registrar devoluções") -> None:
     exigir_gravar(session, "devolucoes", action)
+    if any(not isinstance(getattr(session, field, None), str)
+           or not getattr(session, field).strip() for field in ("user_id", "company_id")):
+        raise PermissionDeniedError(action, getattr(session, "role", None))
+
+
+def ensure_can_return_to_supplier(session, action="registrar devoluções ao fornecedor") -> None:
+    exigir_gravar(session, "devolucoes_fornecedor", action)
     if any(not isinstance(getattr(session, field, None), str)
            or not getattr(session, field).strip() for field in ("user_id", "company_id")):
         raise PermissionDeniedError(action, getattr(session, "role", None))
