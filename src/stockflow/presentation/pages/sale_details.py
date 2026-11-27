@@ -347,9 +347,34 @@ class SaleDetailsPage(QWidget):
         vendedor = venda.get("seller") or "—"
         aplicado_por = venda.get("discount_applied_by_name") or vendedor
         autorizador = venda.get("discount_authorized_by_name") or "—"
+        pagamentos = venda.get("payments") or []
+        if pagamentos:
+            from stockflow.domain.sale_payment import PAYMENT_METHOD_LABELS
+
+            itens_pg = []
+            for pg in pagamentos:
+                metodo = str(pg.get("payment_method") or "—").upper()
+                rotulo = PAYMENT_METHOD_LABELS.get(metodo, metodo)
+                valor = _moeda(pg.get("amount") or "0")
+                troco = float(str(pg.get("change_amount") or "0"))
+                if troco > 0:
+                    recebido = _moeda(pg.get("received_amount") or pg.get("amount") or "0")
+                    itens_pg.append(
+                        f"{escape(rotulo)}: {escape(valor)} "
+                        f"(recebido {escape(recebido)}, troco {escape(_moeda(troco))})"
+                    )
+                else:
+                    itens_pg.append(f"{escape(rotulo)}: {escape(valor)}")
+            forma_texto = "<br>".join(f"&nbsp;&nbsp;• {item}" for item in itens_pg)
+            forma_bloco = f"<b>Pagamentos:</b><br>{forma_texto}<br>"
+        else:
+            forma_bloco = (
+                f"<b>Forma de pagamento:</b> "
+                f"{escape(str(venda.get('payment_method') or '—'))}<br>"
+            )
+
         self.pagamento_label.setText(
-            f"<b>Forma de pagamento:</b> "
-            f"{escape(str(venda.get('payment_method') or '—'))}<br>"
+            f"{forma_bloco}"
             f"<b>Valor da venda:</b> {escape(self._total_texto(venda))}<br>"
             f"<b>Desconto aplicado por:</b> {escape(str(aplicado_por))}<br>"
             f"<b>Desconto autorizado por:</b> {escape(str(autorizador))}"

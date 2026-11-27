@@ -70,6 +70,8 @@ class ReceiptItem:
 class ReceiptPayment:
     method: str
     amount: Decimal
+    received_amount: Decimal | None = None
+    change_amount: Decimal = ZERO
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,8 @@ class SaleReceipt:
     sale_discount: Decimal
     total_discount: Decimal
     net: Decimal
+    payments: tuple[ReceiptPayment, ...] = ()
+    change_total: Decimal = ZERO
     cancellation: ReceiptCancellation | None = None
 
     @property
@@ -182,6 +186,29 @@ def build_sale_receipt(venda, company: ReceiptCompany) -> SaleReceipt:
     except ValueError as erro:
         raise ReceiptNotAvailable(DADOS_INCONSISTENTES) from erro
 
+    raw_payments = venda.get("payments") or ()
+    if raw_payments:
+        payments = tuple(
+            ReceiptPayment(
+                method=str(p.get("payment_method") or p.get("method") or ""),
+                amount=_dinheiro(p.get("amount")),
+                received_amount=_dinheiro(p.get("received_amount", p.get("amount"))),
+                change_amount=_dinheiro(p.get("change_amount")),
+            )
+            for p in raw_payments
+        )
+        primary_payment = payments[0]
+        change_total = sum((p.change_amount for p in payments), start=ZERO)
+    else:
+        primary_payment = ReceiptPayment(
+            method=str(venda.get("payment_method") or ""),
+            amount=_dinheiro(venda.get("total")),
+            received_amount=_dinheiro(venda.get("total")),
+            change_amount=ZERO,
+        )
+        payments = (primary_payment,)
+        change_total = _dinheiro(venda.get("change_total"))
+
     cliente = str(venda.get("cliente") or "").strip()
     return SaleReceipt(
         sale_id=str(venda.get("id") or ""),
@@ -191,10 +218,9 @@ def build_sale_receipt(venda, company: ReceiptCompany) -> SaleReceipt:
         seller=str(venda.get("seller") or "").strip(),
         status=status,
         items=itens,
-        payment=ReceiptPayment(
-            method=str(venda.get("payment_method") or ""),
-            amount=_dinheiro(venda.get("total")),
-        ),
+        payment=primary_payment,
+        payments=payments,
+        change_total=change_total,
         gross=resumo.gross,
         item_discount=resumo.item_discount,
         sale_discount=resumo.sale_discount,

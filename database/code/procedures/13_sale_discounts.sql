@@ -60,6 +60,9 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION IF EXISTS public.fn_register_sale_with_discounts(
+    uuid, uuid, jsonb, public.payment_method, text, numeric, uuid
+);
 CREATE OR REPLACE FUNCTION public.fn_register_sale_with_discounts(
     p_company_id uuid,
     p_client_id uuid,
@@ -67,7 +70,8 @@ CREATE OR REPLACE FUNCTION public.fn_register_sale_with_discounts(
     p_payment_method public.payment_method,
     p_sale_discount_type text,
     p_sale_discount_value numeric,
-    p_seller_id uuid
+    p_seller_id uuid,
+    p_payments jsonb DEFAULT NULL
 ) RETURNS jsonb
 LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = public AS $$
@@ -102,6 +106,17 @@ DECLARE
     v_sale_value numeric := p_sale_discount_value;
     v_index integer;
     v_line record;
+    v_primary_method public.payment_method := p_payment_method;
+    v_non_cash_sum numeric := 0;
+    v_cash_received_sum numeric := 0;
+    v_has_cash boolean := false;
+    v_cash_remaining numeric := 0;
+    v_pay_entry record;
+    v_pay_method public.payment_method;
+    v_pay_received numeric;
+    v_pay_applied numeric;
+    v_pay_change numeric;
+    v_change_total numeric := 0;
 BEGIN
     IF NOT public.fn_has_role(
         p_company_id, ARRAY['ADMIN','SELLER']::public.user_role[]
@@ -286,12 +301,98 @@ BEGIN
         END IF;
     END IF;
 
+    IF p_payments IS NOT NULL THEN
+        IF jsonb_typeof(p_payments) <> 'array' THEN
+            RAISE EXCEPTION 'Lista de pagamentos inválida'
+                USING ERRCODE = 'check_violation';
+        END IF;
+        IF v_total = 0 THEN
+            IF jsonb_array_length(p_payments) > 0 THEN
+                RAISE EXCEPTION 'Venda com total zerado não aceita pagamentos positivos'
+                    USING ERRCODE = 'check_violation';
+            END IF;
+        ELSE
+            IF jsonb_array_length(p_payments) = 0 THEN
+                RAISE EXCEPTION 'Informe pelo menos uma forma de pagamento'
+                    USING ERRCODE = 'check_violation';
+            END IF;
+            IF EXISTS (
+                SELECT 1
+                  FROM jsonb_array_elements(p_payments) AS p(val)
+                 WHERE jsonb_typeof(p.val) <> 'object'
+                    OR upper(btrim(COALESCE(p.val->>'payment_method', '')))
+                       NOT IN ('DINHEIRO', 'DEBITO', 'CREDITO', 'PIX', 'VALE', 'OUTRO')
+                    OR COALESCE(
+                           NULLIF(btrim(p.val->>'received_amount'), ''),
+                           NULLIF(btrim(p.val->>'amount'), ''),
+                           ''
+                       ) !~ '^[0-9]+(\.[0-9]{1,2})?$'
+            ) THEN
+                RAISE EXCEPTION 'Forma ou valor de pagamento inválido'
+                    USING ERRCODE = 'check_violation';
+            END IF;
+            IF EXISTS (
+                SELECT 1
+                  FROM jsonb_array_elements(p_payments) AS p(val)
+                 WHERE COALESCE(
+                           NULLIF(btrim(p.val->>'received_amount'), ''),
+                           NULLIF(btrim(p.val->>'amount'), '')
+                       )::numeric <= 0
+                    OR COALESCE(
+                           NULLIF(btrim(p.val->>'received_amount'), ''),
+                           NULLIF(btrim(p.val->>'amount'), '')
+                       )::numeric >= 100000000
+            ) THEN
+                RAISE EXCEPTION 'O valor do pagamento deve ser maior que zero'
+                    USING ERRCODE = 'check_violation';
+            END IF;
+
+            SELECT upper(btrim(p.val->>'payment_method'))::public.payment_method
+              INTO v_primary_method
+              FROM jsonb_array_elements(p_payments) WITH ORDINALITY AS p(val, ord)
+             ORDER BY p.ord
+             LIMIT 1;
+
+            SELECT
+                COALESCE(SUM(
+                    COALESCE(
+                        NULLIF(btrim(p.val->>'received_amount'), ''),
+                        NULLIF(btrim(p.val->>'amount'), '')
+                    )::numeric
+                ) FILTER (WHERE upper(btrim(p.val->>'payment_method')) <> 'DINHEIRO'), 0),
+                COALESCE(SUM(
+                    COALESCE(
+                        NULLIF(btrim(p.val->>'received_amount'), ''),
+                        NULLIF(btrim(p.val->>'amount'), '')
+                    )::numeric
+                ) FILTER (WHERE upper(btrim(p.val->>'payment_method')) = 'DINHEIRO'), 0),
+                COALESCE(BOOL_OR(upper(btrim(p.val->>'payment_method')) = 'DINHEIRO'), false)
+              INTO v_non_cash_sum, v_cash_received_sum, v_has_cash
+              FROM jsonb_array_elements(p_payments) AS p(val);
+
+            IF v_non_cash_sum > v_total THEN
+                RAISE EXCEPTION 'A soma dos pagamentos fora do dinheiro não pode exceder o total da venda'
+                    USING ERRCODE = 'check_violation';
+            END IF;
+            v_cash_remaining := v_total - v_non_cash_sum;
+            IF v_has_cash AND v_cash_remaining <= 0 THEN
+                RAISE EXCEPTION 'O total da venda já foi coberto pelas demais formas de pagamento'
+                    USING ERRCODE = 'check_violation';
+            END IF;
+            IF (v_non_cash_sum + v_cash_received_sum) < v_total
+               OR (NOT v_has_cash AND v_non_cash_sum <> v_total) THEN
+                RAISE EXCEPTION 'A soma dos pagamentos deve ser igual ao total da venda'
+                    USING ERRCODE = 'check_violation';
+            END IF;
+        END IF;
+    END IF;
+
     INSERT INTO public.sales (
         company_id, client_id, client_name, payment_method, discount, total,
         sale_discount_type, sale_discount_value, created_by,
         discount_applied_by, discount_authorized_by
     ) VALUES (
-        p_company_id, p_client_id, v_client_name, p_payment_method,
+        p_company_id, p_client_id, v_client_name, v_primary_method,
         v_discount_total, v_total, v_sale_type, v_sale_value, v_seller,
         CASE WHEN v_discount_total > 0 THEN v_seller ELSE NULL END,
         v_authorizer
@@ -319,6 +420,49 @@ BEGIN
         );
     END LOOP;
 
+    IF p_payments IS NOT NULL AND v_total > 0 THEN
+        FOR v_pay_entry IN
+            SELECT upper(btrim(p.val->>'payment_method'))::public.payment_method AS method,
+                   COALESCE(
+                       NULLIF(btrim(p.val->>'received_amount'), ''),
+                       NULLIF(btrim(p.val->>'amount'), '')
+                   )::numeric AS received_amount
+              FROM jsonb_array_elements(p_payments) WITH ORDINALITY AS p(val, ord)
+             ORDER BY p.ord
+        LOOP
+            v_pay_method := v_pay_entry.method;
+            v_pay_received := v_pay_entry.received_amount;
+            IF v_pay_method <> 'DINHEIRO' THEN
+                v_pay_applied := v_pay_received;
+                v_pay_change := 0;
+            ELSE
+                IF v_cash_remaining <= 0 THEN
+                    RAISE EXCEPTION 'Pagamento em dinheiro excedente: cada linha deve abater parte do total'
+                        USING ERRCODE = 'check_violation';
+                END IF;
+                v_pay_applied := LEAST(v_pay_received, v_cash_remaining);
+                v_pay_change := v_pay_received - v_pay_applied;
+                v_cash_remaining := v_cash_remaining - v_pay_applied;
+                v_change_total := v_change_total + v_pay_change;
+            END IF;
+
+            INSERT INTO public.sale_payments (
+                company_id, sale_id, payment_method, amount,
+                received_amount, change_amount
+            ) VALUES (
+                p_company_id, v_id, v_pay_method, v_pay_applied,
+                v_pay_received, v_pay_change
+            );
+        END LOOP;
+    ELSIF p_payments IS NULL AND v_total > 0 THEN
+        INSERT INTO public.sale_payments (
+            company_id, sale_id, payment_method, amount,
+            received_amount, change_amount
+        ) VALUES (
+            p_company_id, v_id, p_payment_method, v_total, v_total, 0
+        );
+    END IF;
+
     UPDATE public.sales SET status = 'CONCLUIDA' WHERE id = v_id;
     RETURN jsonb_build_object(
         'id', v_id,
@@ -328,12 +472,25 @@ BEGIN
         'discount', v_discount_total,
         'sale_discount_type', v_sale_type,
         'sale_discount_value', v_sale_value,
+        'payment_method', v_primary_method,
+        'change_total', v_change_total,
         'created_on', (SELECT created_on FROM public.sales WHERE id = v_id),
         'seller_id', v_seller,
         'discount_applied_by', CASE
             WHEN v_discount_total > 0 THEN v_seller ELSE NULL END,
         'discount_authorized_by', v_authorizer,
         'discount_authorized_by_name', COALESCE(v_authorizer_name, ''),
+        'payments', (
+            SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                'id', sp.id,
+                'payment_method', sp.payment_method,
+                'amount', sp.amount,
+                'received_amount', sp.received_amount,
+                'change_amount', sp.change_amount
+            ) ORDER BY sp.created_on, sp.id), '[]'::jsonb)
+              FROM public.sale_payments sp
+             WHERE sp.sale_id = v_id
+        ),
         'items', (
             SELECT COALESCE(jsonb_agg(jsonb_build_object(
                 'product_code', si.product_code,

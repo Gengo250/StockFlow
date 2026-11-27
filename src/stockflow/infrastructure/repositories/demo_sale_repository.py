@@ -161,6 +161,13 @@ class DemoSaleRepository:
         linha.update(
             status="CONCLUIDA",
             payment_method="DINHEIRO",
+            payments=[{
+                "payment_method": "DINHEIRO",
+                "amount": str(valor),
+                "received_amount": str(valor),
+                "change_amount": "0.00",
+            }],
+            change_total="0.00",
             discount="0.00",
             original_total=str(valor),
             seller="ana.ferreira",
@@ -463,6 +470,7 @@ class DemoSaleRepository:
         sale_discount_value=Decimal("0"),
         approval_credentials=None,
         seller_id=None,
+        payments=None,
     ) -> dict:
         register = getattr(self, "cash_register", None)
         current_register = register.current() if register else None
@@ -558,8 +566,41 @@ class DemoSaleRepository:
                     datetime.now().strftime("%d/%m/%Y %H:%M"),
                     item_count=len(items),
                 )
+                from stockflow.domain.sale_payment import (
+                    PAYMENT_METHODS,
+                    validate_and_calculate_payments,
+                )
+
+                sale_total_dec = Decimal(str(total)).quantize(Decimal("0.01"))
+                if payments is not None:
+                    breakdown = validate_and_calculate_payments(
+                        payments, sale_total_dec, PAYMENT_METHODS
+                    )
+                    normalized_payments = [pay.to_dict() for pay in breakdown.payments]
+                    primary_method = (
+                        breakdown.payments[0].payment_method
+                        if breakdown.payments
+                        else payment_method
+                    )
+                    change_total = str(breakdown.total_change)
+                else:
+                    primary_method = payment_method
+                    normalized_payments = (
+                        [{
+                            "payment_method": payment_method,
+                            "amount": str(sale_total_dec),
+                            "received_amount": str(sale_total_dec),
+                            "change_amount": "0.00",
+                        }]
+                        if sale_total_dec > Decimal("0.00")
+                        else []
+                    )
+                    change_total = "0.00"
+
                 row["company_id"] = getattr(self._session, "company_id", None)
-                row["payment_method"] = payment_method
+                row["payment_method"] = primary_method
+                row["payments"] = normalized_payments
+                row["change_total"] = change_total
                 row["discount"] = str(discount)
                 row["original_total"] = str(original_total or original)
                 row["status"] = "CONCLUIDA"

@@ -96,13 +96,14 @@ AS $$
            (dinheiro + debito + credito + pix + vale + outro)::numeric(10,2)
     FROM (
         SELECT
-            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'DINHEIRO'), 0)::numeric(10,2) AS dinheiro,
-            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'DEBITO'),   0)::numeric(10,2) AS debito,
-            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'CREDITO'),  0)::numeric(10,2) AS credito,
-            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'PIX'),      0)::numeric(10,2) AS pix,
-            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'VALE'),     0)::numeric(10,2) AS vale,
-            COALESCE(SUM(s.total) FILTER (WHERE s.payment_method = 'OUTRO'),    0)::numeric(10,2) AS outro
+            COALESCE(SUM(COALESCE(sp.amount, s.total)) FILTER (WHERE COALESCE(sp.payment_method, s.payment_method) = 'DINHEIRO'), 0)::numeric(10,2) AS dinheiro,
+            COALESCE(SUM(COALESCE(sp.amount, s.total)) FILTER (WHERE COALESCE(sp.payment_method, s.payment_method) = 'DEBITO'),   0)::numeric(10,2) AS debito,
+            COALESCE(SUM(COALESCE(sp.amount, s.total)) FILTER (WHERE COALESCE(sp.payment_method, s.payment_method) = 'CREDITO'),  0)::numeric(10,2) AS credito,
+            COALESCE(SUM(COALESCE(sp.amount, s.total)) FILTER (WHERE COALESCE(sp.payment_method, s.payment_method) = 'PIX'),      0)::numeric(10,2) AS pix,
+            COALESCE(SUM(COALESCE(sp.amount, s.total)) FILTER (WHERE COALESCE(sp.payment_method, s.payment_method) = 'VALE'),     0)::numeric(10,2) AS vale,
+            COALESCE(SUM(COALESCE(sp.amount, s.total)) FILTER (WHERE COALESCE(sp.payment_method, s.payment_method) = 'OUTRO'),    0)::numeric(10,2) AS outro
         FROM public.sales s
+        LEFT JOIN public.sale_payments sp ON sp.sale_id = s.id
         WHERE s.register_log_id = p_register_log_id
           AND s.status = 'CONCLUIDA'::public.sale_status
     ) AS subtotais;

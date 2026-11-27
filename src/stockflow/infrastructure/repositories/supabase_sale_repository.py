@@ -19,13 +19,49 @@ from stockflow.infrastructure.repositories.demo_sale_repository import (
 from stockflow.infrastructure.fiscal.nfe_client import NFeClient
 
 
+def _normalize_payments(payments, fallback_method, fallback_total):
+    if payments:
+        return [
+            {
+                "payment_method": str(p.get("payment_method") or fallback_method or "DINHEIRO").upper(),
+                "amount": str(Decimal(str(p.get("amount", "0"))).quantize(Decimal("0.01"))),
+                "received_amount": str(
+                    Decimal(str(p.get("received_amount", p.get("amount", "0")))).quantize(Decimal("0.01"))
+                ),
+                "change_amount": str(Decimal(str(p.get("change_amount", "0"))).quantize(Decimal("0.01"))),
+            }
+            for p in payments
+        ]
+    total = Decimal(str(fallback_total or "0")).quantize(Decimal("0.01"))
+    if total <= Decimal("0.00"):
+        return []
+    method = str(fallback_method or "DINHEIRO").upper()
+    return [{
+        "payment_method": method,
+        "amount": str(total),
+        "received_amount": str(total),
+        "change_amount": "0.00",
+    }]
+
+
 def _receipt_row(receipt):
     itens = receipt.get("sale_items") or []
     codigo, descricao = resumo_dos_itens(itens)
+    total = Decimal(str(receipt["total"]))
     row = sale_row(receipt["id"], receipt["client_name"], codigo, descricao,
-                   Decimal(str(receipt["total"])), receipt["created_on"],
+                   total, receipt["created_on"],
                    item_count=len(itens))
+    payments = _normalize_payments(
+        receipt.get("payments") or receipt.get("sale_payments"),
+        receipt.get("payment_method"),
+        total,
+    )
+    change_total = sum(
+        (Decimal(p["change_amount"]) for p in payments), start=Decimal("0.00")
+    ).quantize(Decimal("0.01"))
     row.update(payment_method=receipt.get("payment_method"),
+               payments=payments,
+               change_total=str(receipt.get("change_total", change_total)),
                discount=str(receipt.get("discount", 0)),
                original_total=str(receipt.get("original_total", receipt.get("total", 0))),
                discount_applied_by=receipt.get("discount_applied_by"),
@@ -44,11 +80,20 @@ def _history_row(linha):
     """
     itens = linha.get("items") or []
     codigo, descricao = resumo_dos_itens(itens)
+    total = Decimal(str(linha["total"]))
     row = sale_row(linha["id"], linha["client_name"], codigo, descricao,
-                   Decimal(str(linha["total"])), linha["created_on"],
+                   total, linha["created_on"],
                    item_count=len(itens))
+    payments = _normalize_payments(
+        linha.get("payments"), linha.get("payment_method"), total
+    )
+    change_total = sum(
+        (Decimal(p["change_amount"]) for p in payments), start=Decimal("0.00")
+    ).quantize(Decimal("0.01"))
     row.update(
         payment_method=linha.get("payment_method"),
+        payments=payments,
+        change_total=str(linha.get("change_total", change_total)),
         discount=str(linha.get("discount", 0)),
         original_total=str(linha.get("original_total", linha.get("total", 0))),
         discount_applied_by=linha.get("discount_applied_by"),
@@ -252,6 +297,7 @@ class SupabaseSaleRepository:
         sale_discount_value=None,
         approval_credentials=None,
         seller_id=None,
+        payments=None,
     ):
         payload = [
             {
@@ -305,16 +351,25 @@ class SupabaseSaleRepository:
                 )
             rpc_client = temporary_client
 
+        rpc_payload = {
+            "p_company_id": self._company_id,
+            "p_client_id": client.client_id,
+            "p_items": payload,
+            "p_payment_method": payment_method,
+            "p_sale_discount_type": sale_discount_type,
+            "p_sale_discount_value": str(sale_discount_value),
+            "p_seller_id": seller_id,
+        }
+        if payments is not None:
+            rpc_payload["p_payments"] = [
+                p.to_dict() if hasattr(p, "to_dict") else dict(p)
+                for p in payments
+            ]
+
         try:
-            receipt = rpc_client.rpc("fn_register_sale_with_discounts", {
-                "p_company_id": self._company_id,
-                "p_client_id": client.client_id,
-                "p_items": payload,
-                "p_payment_method": payment_method,
-                "p_sale_discount_type": sale_discount_type,
-                "p_sale_discount_value": str(sale_discount_value),
-                "p_seller_id": seller_id,
-            }).execute().data
+            receipt = rpc_client.rpc(
+                "fn_register_sale_with_discounts", rpc_payload
+            ).execute().data
         except Exception as error:
             if (
                 not approval_credentials
@@ -342,8 +397,19 @@ class SupabaseSaleRepository:
             receipt["created_on"],
             item_count=len(items),
         )
+        normalized_payments = _normalize_payments(
+            receipt.get("payments"),
+            receipt.get("payment_method", payment_method),
+            receipt["total"],
+        )
+        change_total = sum(
+            (Decimal(p["change_amount"]) for p in normalized_payments),
+            start=Decimal("0.00"),
+        ).quantize(Decimal("0.01"))
         row.update(
-            payment_method=payment_method,
+            payment_method=receipt.get("payment_method", payment_method),
+            payments=normalized_payments,
+            change_total=str(receipt.get("change_total", change_total)),
             discount=str(receipt.get("discount", discount)),
             original_total=str(receipt.get("original_total", original_total or "0")),
             status="CONCLUIDA",

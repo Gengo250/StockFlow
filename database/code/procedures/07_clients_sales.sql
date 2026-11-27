@@ -593,6 +593,8 @@ RETURNS TABLE (
     status           public.sale_status,
     created_on       timestamptz,
     items            jsonb,
+    payments         jsonb,
+    change_total     numeric,
     reversal_kind    public.sale_reversal_kind,
     reversal_reason  text,
     reversal_on      timestamptz,
@@ -670,6 +672,29 @@ BEGIN
            COALESCE((SELECT jsonb_agg(to_jsonb(i) ORDER BY i.created_on, i.id)
                        FROM public.sale_items i
                       WHERE i.sale_id = f.id), '[]'::jsonb),
+           COALESCE(
+               (SELECT jsonb_agg(jsonb_build_object(
+                           'id', sp.id,
+                           'payment_method', sp.payment_method,
+                           'amount', sp.amount,
+                           'received_amount', sp.received_amount,
+                           'change_amount', sp.change_amount
+                       ) ORDER BY sp.created_on, sp.id)
+                  FROM public.sale_payments sp
+                 WHERE sp.sale_id = f.id),
+               jsonb_build_array(jsonb_build_object(
+                   'payment_method', f.payment_method,
+                   'amount', f.total,
+                   'received_amount', f.total,
+                   'change_amount', 0
+               ))
+           ),
+           COALESCE(
+               (SELECT SUM(sp.change_amount)
+                  FROM public.sale_payments sp
+                 WHERE sp.sale_id = f.id),
+               0
+           ),
            r.kind,
            r.reason,
            r.created_on,
